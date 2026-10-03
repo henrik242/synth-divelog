@@ -89,7 +89,7 @@ data class Event(
  * A dive as produced by a parser, ready to import. Carries the raw download so a
  * record can be re-parsed later, plus the parsed summary, samples and events.
  */
-class IncomingDive(
+data class IncomingDive(
     val deviceId: Long? = null,
     val number: Int? = null,
     val startEpochSeconds: Long,

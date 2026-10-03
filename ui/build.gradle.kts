@@ -23,6 +23,11 @@ kotlin {
             implementation(compose.material3)
             implementation(compose.ui)
             implementation(project(":core:model"))
+            implementation(project(":core:db"))
+            implementation(libs.jetbrains.lifecycle.viewmodel)
+            implementation(libs.jetbrains.lifecycle.viewmodel.compose)
+            implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.datetime)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

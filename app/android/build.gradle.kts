@@ -31,6 +31,7 @@ android {
 dependencies {
     implementation(project(":ui"))
     implementation(project(":core:model"))
+    implementation(project(":core:db"))
     implementation(project(":core:divecomputer"))
     implementation(project(":core:transport"))
 
