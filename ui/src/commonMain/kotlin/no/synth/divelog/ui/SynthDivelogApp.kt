@@ -60,6 +60,7 @@ fun SynthDivelogApp(
     onDownloadClick: () -> Unit,
     onImport: () -> Unit = {},
     onExport: (formatId: String) -> Unit = {},
+    onReparse: () -> Unit = {},
     dataVersion: Int = 0,
 ) {
     var section by remember { mutableStateOf(Section.DIVES) }
@@ -85,7 +86,7 @@ fun SynthDivelogApp(
                 Section.SITES -> SitesSection(container, unitSystem, dataVersion)
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
                 Section.STATS -> StatisticsSection(container, unitSystem, dataVersion)
-                Section.SETTINGS -> SettingsSection(container, unitSystem, onUnitSystemChange, onImport, onExport)
+                Section.SETTINGS -> SettingsSection(container, unitSystem, onUnitSystemChange, onImport, onExport, onReparse)
             }
         }
     }

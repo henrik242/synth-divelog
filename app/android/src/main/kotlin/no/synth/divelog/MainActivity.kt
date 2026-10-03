@@ -80,6 +80,17 @@ class MainActivity : ComponentActivity() {
                                 shareExport(context, formatId, text)
                             }
                         },
+                        onReparse = {
+                            scope.launch(Dispatchers.IO) {
+                                val count = Reparse.all(container)
+                                dataVersion++
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast
+                                        .makeText(context, "Re-parsed $count dives", android.widget.Toast.LENGTH_SHORT)
+                                        .show()
+                                }
+                            }
+                        },
                         dataVersion = dataVersion,
                     )
                 }

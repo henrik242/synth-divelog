@@ -37,3 +37,9 @@ VALUES (?, ?, ?, ?);
 
 selectTankPressuresForRecord:
 SELECT * FROM sampleTankPressure WHERE recordId = ? ORDER BY timeOffsetSeconds, tankIndex;
+
+deleteSamplesForRecord:
+DELETE FROM sample WHERE recordId = ?;
+
+deleteTankPressuresForRecord:
+DELETE FROM sampleTankPressure WHERE recordId = ?;

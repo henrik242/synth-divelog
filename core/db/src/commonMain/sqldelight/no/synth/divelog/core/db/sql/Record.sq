@@ -45,3 +45,6 @@ DELETE FROM diveComputerRecord WHERE id = ?;
 
 lastInsertRowId:
 SELECT last_insert_rowid();
+
+updateRecordSummary:
+UPDATE diveComputerRecord SET startEpochSeconds = ?, durationSeconds = ?, maxDepthMm = ? WHERE id = ?;

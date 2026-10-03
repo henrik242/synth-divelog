@@ -166,6 +166,11 @@ class DiveRepository(private val db: DiveDatabase) {
             incoming.fingerprint,
         )
         val recordId = records.lastInsertRowId().executeAsOne()
+        insertSamplesAndEvents(recordId, incoming)
+        return recordId
+    }
+
+    private fun insertSamplesAndEvents(recordId: Long, incoming: IncomingDive) {
         for (s in incoming.samples) {
             samples.insertSample(
                 recordId,
@@ -192,7 +197,39 @@ class DiveRepository(private val db: DiveDatabase) {
         for (e in incoming.events) {
             events.insertEvent(recordId, e.timeOffsetSeconds.toLong(), e.type.name, e.value)
         }
-        return recordId
+    }
+
+    /**
+     * Re-apply a parser to a record's stored raw data: replace its samples and
+     * events and refresh its summary, and the dive's summary if this is the dive's
+     * primary record. User-entered fields (number, notes, rating, site) are kept.
+     * Lets a parser fix reach already-imported dives without a re-download.
+     */
+    fun reparseRecord(recordId: Long, incoming: IncomingDive) = db.transaction {
+        samples.deleteSamplesForRecord(recordId)
+        samples.deleteTankPressuresForRecord(recordId)
+        events.deleteEventsForRecord(recordId)
+        records.updateRecordSummary(
+            incoming.startEpochSeconds,
+            incoming.durationSeconds.toLong(),
+            incoming.maxDepthMm?.toLong(),
+            recordId,
+        )
+        insertSamplesAndEvents(recordId, incoming)
+
+        val rec = records.selectRecordSummaryById(recordId).executeAsOne()
+        val dive = dives.selectDiveById(rec.diveId).executeAsOneOrNull()?.toDomain()
+        if (dive != null && dive.primaryComputerRecordId == recordId) {
+            updateDive(
+                dive.copy(
+                    startEpochSeconds = incoming.startEpochSeconds,
+                    durationSeconds = incoming.durationSeconds,
+                    maxDepthMm = incoming.maxDepthMm,
+                    meanDepthMm = incoming.meanDepthMm,
+                    waterTempMk = incoming.waterTempMk,
+                ),
+            )
+        }
     }
 
     // --- Manual merge and split ---

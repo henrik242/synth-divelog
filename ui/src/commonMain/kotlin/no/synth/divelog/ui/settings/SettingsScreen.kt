@@ -34,6 +34,7 @@ fun SettingsSection(
     onUnitSystemChange: (UnitSystem) -> Unit,
     onImport: () -> Unit = {},
     onExport: (formatId: String) -> Unit = {},
+    onReparse: () -> Unit = {},
 ) {
     var version by remember { mutableIntStateOf(0) }
     val devices = remember(version) { container.devices.all() }
@@ -61,6 +62,17 @@ fun SettingsSection(
             OutlinedButton(onClick = { onExport("subsurface-xml") }) { Text("Export XML") }
             OutlinedButton(onClick = { onExport("uddf") }) { Text("Export UDDF") }
         }
+
+        HorizontalDivider()
+
+        Text("Maintenance", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Re-reads every stored dive from its saved raw download and rebuilds the " +
+                "profile. Use after an app update that improves dive decoding. Your notes, " +
+                "ratings, sites and dive numbers are kept.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        OutlinedButton(onClick = onReparse) { Text("Re-parse all dives") }
 
         HorizontalDivider()
 
