@@ -101,7 +101,7 @@ and padding as the duration.
 Max and mean depth and minimum temperature are derived from the samples (minimum
 temperature over submerged samples only).
 
-Temperature (sample `+13`, signed C) decodes correctly for metric dives; imperial
-and some very old dives can report implausible values (seen: -116 C on an imperial
-dive, occasional -60 C spikes). Likely a Fahrenheit or per-unit encoding difference
-in the sample record, not yet pinned down. **Open item.**
+Temperature (sample `+13`, signed) follows the dive's unit flag: **Celsius for a
+metric dive, Fahrenheit for an imperial one**. Confirmed against real dives (an
+imperial dive reads ~70 F = ~21 C; a metric dive reads ~10-20 C directly). The
+parser converts Fahrenheit to the stored milli-Kelvin for imperial dives.

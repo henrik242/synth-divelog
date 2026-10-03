@@ -55,7 +55,13 @@ class PredatorParser(
         while (offset + SAMPLE_SIZE <= sampleRegionEnd) {
             val time = index * sampleIntervalSeconds
             val depthMm = toMillimetres(be16(d, offset + S_DEPTH), imperial)
-            val tempMk = celsiusToMilliKelvin(signed(d[offset + S_TEMP]))
+            // The sample temperature follows the dive's unit flag: Fahrenheit for
+            // an imperial dive, Celsius for a metric one.
+            val tempMk = if (imperial) {
+                fahrenheitToMilliKelvin(signed(d[offset + S_TEMP]))
+            } else {
+                celsiusToMilliKelvin(signed(d[offset + S_TEMP]))
+            }
             val ndlSeconds = (d[offset + S_NDL].toInt() and 0xFF).let { if (it == 0) null else it * 60 }
             val stopDepthMm = be16(d, offset + S_STOP_DEPTH).let { if (it == 0) null else toMillimetres(it, imperial) }
             val stopTimeSeconds = be16(d, offset + S_TTS).let { if (it == 0) null else it * 60 }
@@ -176,6 +182,9 @@ class PredatorParser(
         private fun signed(b: Byte): Int = b.toInt()
 
         private fun celsiusToMilliKelvin(celsius: Int): Int = celsius * 1_000 + 273_150
+
+        private fun fahrenheitToMilliKelvin(fahrenheit: Int): Int =
+            (fahrenheit - 32) * 5_000 / 9 + 273_150
 
         private fun encodeGas(o2: Int, he: Int): Long = (o2.toLong() shl 8) or he.toLong()
     }
