@@ -40,6 +40,15 @@ Shared modules declare both a `jvm()` target (so common tests run on the JVM)
 and an Android target. Android APIs stay out of `:core:model`,
 `:core:divecomputer` and `:ui`.
 
+## Protocol documentation
+
+Download protocols, written against real hardware, live in
+[`docs/protocol/`](docs/protocol/README.md): a shared
+[transport layer](docs/protocol/transport.md) (link, SLIP framing, command set)
+plus one doc per device type
+([Predator](docs/protocol/shearwater-predator.md),
+[Petrel 1](docs/protocol/shearwater-petrel1.md)).
+
 ## Toolchain
 
 Kotlin 2.4.20, Compose Multiplatform 1.12.1, SQLDelight 2.3.2,
