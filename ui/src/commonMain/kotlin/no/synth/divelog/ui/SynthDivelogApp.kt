@@ -33,9 +33,11 @@ import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
+import no.synth.divelog.ui.buddies.BuddiesSection
 import no.synth.divelog.ui.dive.DiveDetailScreen
 import no.synth.divelog.ui.dive.DiveEditScreen
-import no.synth.divelog.ui.format.Format
+import no.synth.divelog.ui.dive.DiveRow
+import no.synth.divelog.ui.sites.SitesSection
 
 private enum class Section(val label: String) {
     DIVES("Dives"), SITES("Sites"), BUDDIES("Buddies"), SETTINGS("Settings")
@@ -75,8 +77,8 @@ fun SynthDivelogApp(
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (section) {
                 Section.DIVES -> DivesSection(container, unitSystem, onDownloadClick, dataVersion)
-                Section.SITES -> SitesSection(container, dataVersion)
-                Section.BUDDIES -> BuddiesSection(container, dataVersion)
+                Section.SITES -> SitesSection(container, unitSystem, dataVersion)
+                Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
                 Section.SETTINGS -> SettingsSection(unitSystem, onUnitSystemChange)
             }
         }
@@ -128,64 +130,6 @@ private fun DivesSection(
                     DiveRow(dive, unitSystem, onClick = { openDiveId = dive.id })
                     HorizontalDivider()
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = dive.number?.let { "#$it" } ?: "Dive",
-                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = Format.dateTime(dive.startEpochSeconds, dive.utcOffsetSeconds),
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(Format.depth(dive.maxDepthMm, unitSystem))
-            Text(
-                "${Format.duration(dive.durationSeconds)} min",
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SitesSection(container: AppContainer, dataVersion: Int) {
-    val sites = remember(dataVersion) { container.sites.allSites() }
-    if (sites.isEmpty()) {
-        EmptyState("No dive sites yet.")
-    } else {
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(sites) { site: Site ->
-                Text(site.name, Modifier.fillMaxWidth().padding(16.dp))
-                HorizontalDivider()
-            }
-        }
-    }
-}
-
-@Composable
-private fun BuddiesSection(container: AppContainer, dataVersion: Int) {
-    val buddies = remember(dataVersion) { container.buddies.all() }
-    if (buddies.isEmpty()) {
-        EmptyState("No buddies yet.")
-    } else {
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(buddies) { buddy: Buddy ->
-                Text(buddy.name, Modifier.fillMaxWidth().padding(16.dp))
-                HorizontalDivider()
             }
         }
     }
