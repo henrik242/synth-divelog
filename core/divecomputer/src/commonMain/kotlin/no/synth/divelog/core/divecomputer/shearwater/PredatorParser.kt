@@ -11,10 +11,12 @@ import no.synth.divelog.core.model.Sample
 /**
  * Parses the older Predator log format shared by the Predator and Petrel 1.
  *
- * Layout: a 128-byte opening block, a run of fixed 16-byte samples, then a
- * 128-byte closing block. Depths are tenths of a metre or foot per the opening
- * block's units flag; temperature is a signed whole degree Celsius. Field
- * offsets were confirmed against real captures.
+ * Layout: a 128-byte opening block, a run of fixed-size sample records, then a
+ * 128-byte closing block. The Predator stores 16-byte samples; the Petrel 1 stores
+ * 32-byte records whose first 16 bytes hold the same fields (the rest is extra data
+ * we ignore). The sample stride is chosen from the raw dive's format id. Depths are
+ * tenths of a metre or foot per the opening block's units flag; temperature is a
+ * signed whole degree Celsius. Field offsets were confirmed against real captures.
  */
 class PredatorParser(
     private val sampleIntervalSeconds: Int = DEFAULT_SAMPLE_INTERVAL_SECONDS,
@@ -26,13 +28,21 @@ class PredatorParser(
         if (d.size < 2 * BLOCK) {
             throw ProtocolException("Predator record too small: ${d.size} bytes")
         }
+        val sampleStride = if (raw.formatId == PETREL_FORMAT_ID) PETREL_SAMPLE_STRIDE else SAMPLE_SIZE
 
         val imperial = d[UNITS_OFFSET].toInt() == 1
         val number = be16(d, NUMBER_OFFSET)
         val startEpoch = be32(d, START_TIME_OFFSET)
-        val durationSeconds = be16(d, d.size - BLOCK + CLOSE_DURATION_OFFSET) * 60
 
-        val sampleRegionEnd = d.size - BLOCK
+        // The closing block is the first 128-aligned block (after the opening one)
+        // that starts with the close marker. A ring-extracted Predator dive ends
+        // exactly at its closing block, but a Petrel's per-dive blob carries one or
+        // more trailing blocks after it, so assuming the last block is the closer
+        // reads the close marker as a 0xFFFE depth sample and padding as duration.
+        val closingBlockStart = closingBlockOffset(d)
+        val durationSeconds = be16(d, closingBlockStart + CLOSE_DURATION_OFFSET) * 60
+
+        val sampleRegionEnd = closingBlockStart
         val samples = ArrayList<Sample>()
         val events = ArrayList<Event>()
         var maxDepthMm = 0
@@ -76,7 +86,7 @@ class PredatorParser(
             if (depthMm > 0) {
                 minTempMk = minTempMk?.let { minOf(it, tempMk) } ?: tempMk
             }
-            offset += SAMPLE_SIZE
+            offset += sampleStride
             index++
         }
 
@@ -98,6 +108,20 @@ class PredatorParser(
         )
     }
 
+    /**
+     * Offset of the dive's closing block: the first block boundary after the
+     * opening block whose first two bytes are the close marker. Falls back to the
+     * last block if no marker is found.
+     */
+    private fun closingBlockOffset(d: ByteArray): Int {
+        var offset = BLOCK
+        while (offset + BLOCK <= d.size) {
+            if (d[offset] == CLOSE_MARKER_HI && d[offset + 1] == CLOSE_MARKER_LO) return offset
+            offset += BLOCK
+        }
+        return d.size - BLOCK
+    }
+
     private fun toMillimetres(tenths: Int, imperial: Boolean): Int =
         if (imperial) (tenths * MM_PER_TENTH_FOOT).toInt() else tenths * MM_PER_TENTH_METRE
 
@@ -110,8 +134,12 @@ class PredatorParser(
     companion object {
         const val DEFAULT_SAMPLE_INTERVAL_SECONDS = 10
 
+        /** Format id for Petrel 1 dives, whose sample records are 32 bytes wide. */
+        const val PETREL_FORMAT_ID = "shearwater-petrel-log"
+
         private const val BLOCK = 128
         private const val SAMPLE_SIZE = 16
+        private const val PETREL_SAMPLE_STRIDE = 32
 
         // Opening block
         private const val NUMBER_OFFSET = 2
@@ -130,6 +158,8 @@ class PredatorParser(
 
         // Closing block (relative to its start)
         private const val CLOSE_DURATION_OFFSET = 6
+        private const val CLOSE_MARKER_HI = 0xFF.toByte()
+        private const val CLOSE_MARKER_LO = 0xFE.toByte()
 
         private const val MM_PER_TENTH_METRE = 100
         private const val MM_PER_TENTH_FOOT = 30.48

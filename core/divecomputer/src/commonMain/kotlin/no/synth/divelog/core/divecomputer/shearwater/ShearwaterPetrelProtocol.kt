@@ -27,14 +27,19 @@ class ShearwaterPetrelProtocol(
         knownFingerprint: String?,
         listener: DownloadListener,
         cancel: CancellationSignal,
+        limit: Int?,
     ): List<RawDive> {
         listener.onDeviceInfo(DeviceInfo(vendor = VENDOR, model = "Petrel"))
         val entries = readManifest(cancel)
-        val fresh = if (knownFingerprint == null) {
+        val new = if (knownFingerprint == null) {
             entries
         } else {
             entries.takeWhile { it.fingerprint != knownFingerprint }
         }
+        // The manifest is newest first, so the newest [limit] dives are just the
+        // head of the list; capping here skips the slow per-dive reads for the rest.
+        val fresh = if (limit != null && limit > 0) new.take(limit) else new
+        listener.onDiveCount(fresh.size)
         return fresh.mapIndexed { index, entry ->
             if (cancel.isCancelled()) throw DownloadCancelledException()
             val blob = memory.readCompressed(
@@ -43,7 +48,7 @@ class ShearwaterPetrelProtocol(
                 cancel = cancel,
             )
             listener.onDiveDownloaded(index)
-            RawDive(fingerprint = entry.fingerprint, data = blob, formatId = PredatorDump.FORMAT_ID)
+            RawDive(fingerprint = entry.fingerprint, data = blob, formatId = PredatorParser.PETREL_FORMAT_ID)
         }
     }
 
