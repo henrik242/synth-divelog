@@ -1,5 +1,6 @@
 package no.synth.divelog.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
+import no.synth.divelog.ui.dive.DiveDetailScreen
 import no.synth.divelog.ui.format.Format
 
 private enum class Section(val label: String) {
@@ -87,6 +89,19 @@ private fun DivesSection(
     onDownloadClick: () -> Unit,
     dataVersion: Int,
 ) {
+    var openDiveId by remember(dataVersion) { mutableStateOf<Long?>(null) }
+
+    val currentDive = openDiveId
+    if (currentDive != null) {
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                TextButton(onClick = { openDiveId = null }) { Text("< Dives") }
+            }
+            DiveDetailScreen(container, currentDive, unitSystem)
+        }
+        return
+    }
+
     val dives = remember(dataVersion) { container.dives.allDives() }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.End) {
@@ -97,7 +112,7 @@ private fun DivesSection(
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
                 items(dives) { dive ->
-                    DiveRow(dive, unitSystem)
+                    DiveRow(dive, unitSystem, onClick = { openDiveId = dive.id })
                     HorizontalDivider()
                 }
             }
@@ -106,9 +121,9 @@ private fun DivesSection(
 }
 
 @Composable
-private fun DiveRow(dive: Dive, unitSystem: UnitSystem) {
+private fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(Modifier.weight(1f)) {
