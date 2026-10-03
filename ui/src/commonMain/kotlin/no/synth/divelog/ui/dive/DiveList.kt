@@ -29,7 +29,7 @@ import no.synth.divelog.ui.format.Format
 
 /** One dive summary row. */
 @Composable
-fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit) {
+fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit, siteName: String? = null) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -37,7 +37,10 @@ fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(dive.number?.let { "#$it" } ?: "Dive", style = MaterialTheme.typography.titleMedium)
             Text(
-                Format.dateTime(dive.startEpochSeconds, dive.utcOffsetSeconds),
+                buildString {
+                    append(Format.dateTime(dive.startEpochSeconds, dive.utcOffsetSeconds))
+                    if (!siteName.isNullOrBlank()) append(" · ").append(siteName)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

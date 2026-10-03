@@ -16,6 +16,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,6 +38,7 @@ import no.synth.divelog.ui.buddies.BuddiesSection
 import no.synth.divelog.ui.dive.DiveDetailScreen
 import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
+import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
 
 private enum class Section(val label: String) {
@@ -79,7 +81,7 @@ fun SynthDivelogApp(
                 Section.DIVES -> DivesSection(container, unitSystem, onDownloadClick, dataVersion)
                 Section.SITES -> SitesSection(container, unitSystem, dataVersion)
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
-                Section.SETTINGS -> SettingsSection(unitSystem, onUnitSystemChange)
+                Section.SETTINGS -> SettingsSection(container, unitSystem, onUnitSystemChange)
             }
         }
     }
@@ -118,16 +120,61 @@ private fun DivesSection(
     }
 
     val dives = remember(dataVersion) { container.dives.allDives() }
+    val siteNames = remember(dataVersion) { container.sites.allSites().associate { it.id to it.name } }
+    var query by remember { mutableStateOf("") }
+    var sort by remember { mutableStateOf(DiveSort.DATE) }
+
+    val shown = remember(dives, query, sort, siteNames) {
+        val q = query.trim().lowercase()
+        dives
+            .filter { d ->
+                if (q.isEmpty()) true
+                else {
+                    val site = d.siteId?.let { siteNames[it] } ?: ""
+                    d.number?.toString()?.contains(q) == true ||
+                        site.lowercase().contains(q) ||
+                        (d.notes?.lowercase()?.contains(q) == true)
+                }
+            }
+            .sortedWith(
+                when (sort) {
+                    DiveSort.DATE -> compareByDescending { it.startEpochSeconds }
+                    DiveSort.NUMBER -> compareByDescending { it.number ?: 0 }
+                    DiveSort.DEPTH -> compareByDescending { it.maxDepthMm ?: 0 }
+                },
+            )
+    }
+
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.End) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
             TextButton(onClick = onDownloadClick) { Text("Download") }
         }
         if (dives.isEmpty()) {
             EmptyState("No dives yet. Tap Download to pull dives from your computer.")
         } else {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Search") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            )
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DiveSort.entries.forEach { s ->
+                    FilterChip(selected = sort == s, onClick = { sort = s }, label = { Text(s.label) })
+                }
+            }
             LazyColumn(Modifier.fillMaxSize()) {
-                items(dives) { dive ->
-                    DiveRow(dive, unitSystem, onClick = { openDiveId = dive.id })
+                items(shown) { dive ->
+                    DiveRow(
+                        dive = dive,
+                        unitSystem = unitSystem,
+                        onClick = { openDiveId = dive.id },
+                        siteName = dive.siteId?.let { siteNames[it] },
+                    )
                     HorizontalDivider()
                 }
             }
@@ -135,21 +182,7 @@ private fun DivesSection(
     }
 }
 
-@Composable
-private fun SettingsSection(unitSystem: UnitSystem, onUnitSystemChange: (UnitSystem) -> Unit) {
-    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Units", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            UnitSystem.entries.forEach { system ->
-                FilterChip(
-                    selected = unitSystem == system,
-                    onClick = { onUnitSystemChange(system) },
-                    label = { Text(if (system == UnitSystem.METRIC) "Metric" else "Imperial") },
-                )
-            }
-        }
-    }
-}
+private enum class DiveSort(val label: String) { DATE("Date"), NUMBER("Number"), DEPTH("Depth") }
 
 @Composable
 private fun EmptyState(message: String) {

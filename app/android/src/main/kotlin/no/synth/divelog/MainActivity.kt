@@ -23,12 +23,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val container = AppContainer(DriverFactory(applicationContext).createDatabase())
+        val settings = SettingsStore(applicationContext)
 
         setContent {
             MaterialTheme {
                 var showDownload by remember { mutableStateOf(false) }
                 var dataVersion by remember { mutableIntStateOf(0) }
-                var unitSystem by remember { mutableStateOf(UnitSystem.METRIC) }
+                var unitSystem by remember { mutableStateOf(settings.unitSystem) }
 
                 if (showDownload) {
                     DownloadScreen(
@@ -40,7 +41,7 @@ class MainActivity : ComponentActivity() {
                     SynthDivelogApp(
                         container = container,
                         unitSystem = unitSystem,
-                        onUnitSystemChange = { unitSystem = it },
+                        onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
                         onDownloadClick = { showDownload = true },
                         dataVersion = dataVersion,
                     )
