@@ -1,13 +1,16 @@
 package no.synth.divelog.ui.dive
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -33,6 +36,8 @@ fun DiveDetailScreen(
     unitSystem: UnitSystem,
     reloadKey: Int = 0,
     onEdit: () -> Unit = {},
+    onChanged: () -> Unit = {},
+    onDeleted: () -> Unit = {},
 ) {
     val dive = remember(diveId, reloadKey) { container.dives.getDive(diveId) } ?: run {
         Text("Dive not found", Modifier.padding(16.dp)); return
@@ -53,6 +58,54 @@ fun DiveDetailScreen(
         selectedRecord?.let { container.dives.eventsForRecord(it.id) } ?: emptyList()
     }
 
+    var showMerge by remember { mutableStateOf(false) }
+    var showDelete by remember { mutableStateOf(false) }
+
+    if (showDelete) {
+        AlertDialog(
+            onDismissRequest = { showDelete = false },
+            title = { Text("Delete dive?") },
+            text = { Text("This removes the dive and its computer records.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    container.dives.deleteDive(diveId); showDelete = false; onDeleted()
+                }) { Text("Delete") }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { showDelete = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (showMerge) {
+        val others = remember(reloadKey) { container.dives.allDives().filter { it.id != diveId } }
+        AlertDialog(
+            onDismissRequest = { showMerge = false },
+            title = { Text("Merge another dive into this one") },
+            text = {
+                if (others.isEmpty()) {
+                    Text("No other dives to merge.")
+                } else {
+                    androidx.compose.foundation.lazy.LazyColumn {
+                        items(others) { other ->
+                            Text(
+                                text = (other.number?.let { "#$it  " } ?: "") +
+                                    Format.dateTime(other.startEpochSeconds, other.utcOffsetSeconds),
+                                modifier = Modifier.fillMaxWidth()
+                                    .clickable {
+                                        container.dives.mergeDives(sourceDiveId = other.id, targetDiveId = diveId)
+                                        showMerge = false
+                                        onChanged()
+                                    }
+                                    .padding(vertical = 12.dp),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { showMerge = false }) { Text("Cancel") } },
+        )
+    }
+
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(
             Modifier.fillMaxWidth().padding(16.dp),
@@ -67,15 +120,26 @@ fun DiveDetailScreen(
 
         ProfileGraph(samples, events, unitSystem, Modifier.fillMaxWidth())
 
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.TextButton(onClick = { showMerge = true }) { Text("Merge in") }
+            androidx.compose.material3.TextButton(onClick = { showDelete = true }) { Text("Delete") }
+        }
+
         if (records.size > 1) {
             Text("Computers", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                records.forEachIndexed { i, rec ->
+            records.forEachIndexed { i, rec ->
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
                     FilterChip(
                         selected = selectedRecord?.id == rec.id,
                         onClick = { selectedRecord = rec },
                         label = { Text(recordLabel(rec, i, dive.primaryComputerRecordId)) },
                     )
+                    androidx.compose.material3.TextButton(
+                        onClick = { container.dives.splitRecordIntoNewDive(rec.id); onChanged() },
+                    ) { Text("Split out") }
                 }
             }
         }

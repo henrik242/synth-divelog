@@ -113,14 +113,22 @@ private fun DivesSection(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                     TextButton(onClick = { openDiveId = null }) { Text("< Dives") }
                 }
-                DiveDetailScreen(container, currentDive, unitSystem, reloadKey = reloadKey, onEdit = { editing = true })
+                DiveDetailScreen(
+                    container = container,
+                    diveId = currentDive,
+                    unitSystem = unitSystem,
+                    reloadKey = reloadKey,
+                    onEdit = { editing = true },
+                    onChanged = { reloadKey++ },
+                    onDeleted = { openDiveId = null; reloadKey++ },
+                )
             }
         }
         return
     }
 
-    val dives = remember(dataVersion) { container.dives.allDives() }
-    val siteNames = remember(dataVersion) { container.sites.allSites().associate { it.id to it.name } }
+    val dives = remember(dataVersion, reloadKey) { container.dives.allDives() }
+    val siteNames = remember(dataVersion, reloadKey) { container.sites.allSites().associate { it.id to it.name } }
     var query by remember { mutableStateOf("") }
     var sort by remember { mutableStateOf(DiveSort.DATE) }
 
