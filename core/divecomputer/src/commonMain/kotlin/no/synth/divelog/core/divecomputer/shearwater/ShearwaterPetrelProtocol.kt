@@ -48,16 +48,21 @@ class ShearwaterPetrelProtocol(
     }
 
     private fun readManifest(cancel: CancellationSignal): List<ManifestEntry> {
+        // The manifest is uncompressed and read in fixed pages until a terminator
+        // record (or an empty page). Only the per-dive reads are compressed.
+        // Each manifest page is read from the same address; the device advances
+        // its own pointer and serves the next page. The seen-guard stops us if it
+        // ever repeats a page (and avoids an endless loop).
         val entries = mutableListOf<ManifestEntry>()
-        var address = MANIFEST_ADDR
+        val seen = HashSet<String>()
         var page = 0
         while (page < MAX_PAGES) {
             if (cancel.isCancelled()) throw DownloadCancelledException()
-            val bytes = memory.read(address, MANIFEST_PAGE_SIZE, cancel = cancel)
+            val bytes = memory.read(MANIFEST_ADDR, MANIFEST_PAGE_SIZE, cancel = cancel)
             val (pageEntries, terminated) = parseManifestPage(bytes)
-            entries += pageEntries
-            if (terminated) break
-            address += MANIFEST_PAGE_SIZE
+            val fresh = pageEntries.filter { seen.add(it.fingerprint) }
+            entries += fresh
+            if (terminated || fresh.isEmpty()) break
             page++
         }
         return entries

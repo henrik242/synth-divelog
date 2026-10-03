@@ -3,6 +3,7 @@ package no.synth.divelog.core.divecomputer.shearwater
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DownloadCancelledException
 import no.synth.divelog.core.divecomputer.ProtocolException
+import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 
 /**
  * Reads a span of device memory using the upload command set: an init that
@@ -17,23 +18,27 @@ class ShearwaterMemory(private val link: ShearwaterLink) {
         cancel: CancellationSignal = CancellationSignal.NONE,
     ): ByteArray {
         begin(baseAddress, size)
-        val out = ByteArray(size)
-        var read = 0
-        // Block sequence counter starts at 1 (diagnostic TransferData convention),
-        // increments per block and wraps through the full byte range.
-        var block = 1
-        while (read < size) {
-            if (cancel.isCancelled()) throw DownloadCancelledException()
-            val data = readBlock(block)
-            if (data.isEmpty()) throw ProtocolException("Empty block $block at offset $read")
-            val n = minOf(data.size, size - read)
-            data.copyInto(out, read, 0, n)
-            read += n
-            block = (block + 1) and 0xFF
-            onProgress(read, size)
+        try {
+            val out = ByteArray(size)
+            var read = 0
+            // Block sequence counter starts at 1 (diagnostic TransferData
+            // convention), increments per block and wraps through the byte range.
+            var block = 1
+            while (read < size) {
+                if (cancel.isCancelled()) throw DownloadCancelledException()
+                val data = readBlock(block)
+                if (data.isEmpty()) throw ProtocolException("Empty block $block at offset $read")
+                val n = minOf(data.size, size - read)
+                data.copyInto(out, read, 0, n)
+                read += n
+                block = (block + 1) and 0xFF
+                onProgress(read, size)
+            }
+            return out
+        } finally {
+            // Always close the transfer so the device is not left mid-session.
+            runCatching { finish() }
         }
-        finish()
-        return out
     }
 
     /**
@@ -47,23 +52,26 @@ class ShearwaterMemory(private val link: ShearwaterLink) {
         cancel: CancellationSignal = CancellationSignal.NONE,
     ): ByteArray {
         begin(baseAddress, MAX_COMPRESSED_SIZE, compressed = true)
-        val raw = ArrayList<Byte>()
-        var block = 1
-        while (true) {
-            if (cancel.isCancelled()) throw DownloadCancelledException()
-            val data = readBlock(block)
-            if (data.isEmpty()) throw ProtocolException("Empty compressed block $block")
-            for (b in data) raw.add(b)
-            val lre = ShearwaterCompression.decompressLre(raw.toByteArray())
-            if (lre.complete) {
-                finish()
-                val result = lre.data
-                ShearwaterCompression.decompressXor(result)
-                return result
+        try {
+            val raw = ArrayList<Byte>()
+            var block = 1
+            while (true) {
+                if (cancel.isCancelled()) throw DownloadCancelledException()
+                val data = readBlock(block)
+                if (data.isEmpty()) throw ProtocolException("Empty compressed block $block")
+                for (b in data) raw.add(b)
+                val lre = ShearwaterCompression.decompressLre(raw.toByteArray())
+                if (lre.complete) {
+                    val result = lre.data
+                    ShearwaterCompression.decompressXor(result)
+                    return result
+                }
+                block = (block + 1) and 0xFF
+                onProgress(raw.size)
+                if (raw.size > MAX_COMPRESSED_SIZE) throw ProtocolException("Compressed dive exceeds limit")
             }
-            block = (block + 1) and 0xFF
-            onProgress(raw.size)
-            if (raw.size > MAX_COMPRESSED_SIZE) throw ProtocolException("Compressed dive exceeds limit")
+        } finally {
+            runCatching { finish() }
         }
     }
 
@@ -81,11 +89,21 @@ class ShearwaterMemory(private val link: ShearwaterLink) {
             ((size ushr 8) and 0xFF).toByte(),
             (size and 0xFF).toByte(),
         )
-        val response = link.exchange(payload)
-        if (response.isEmpty() || response[0] != RSP_INIT) {
-            throw ProtocolException("Bad init response")
+        // The first init after connecting is sometimes dropped by the device's
+        // serial stack; retry a few times before giving up.
+        var lastError: Exception? = null
+        repeat(INIT_RETRIES) {
+            try {
+                val response = link.exchange(payload)
+                if (response.isEmpty() || response[0] != RSP_INIT) {
+                    throw ProtocolException("Bad init response")
+                }
+                return parseMaxLen(response)
+            } catch (e: TransportTimeoutException) {
+                lastError = e
+            }
         }
-        return parseMaxLen(response)
+        throw lastError ?: ProtocolException("No init response")
     }
 
     private fun parseMaxLen(response: ByteArray): Int {
@@ -100,7 +118,9 @@ class ShearwaterMemory(private val link: ShearwaterLink) {
     }
 
     private fun readBlock(block: Int): ByteArray {
-        val response = link.exchange(byteArrayOf(CMD_DATA, block.toByte(), 0x00))
+        // V1 transfer-block request is two bytes: command + counter. (V2 appends
+        // a padding byte; a strict Petrel rejects the extra byte.)
+        val response = link.exchange(byteArrayOf(CMD_DATA, block.toByte()))
         if (response.size < 2 || response[0] != RSP_DATA) {
             throw ProtocolException("Bad block response for block $block")
         }
@@ -130,5 +150,6 @@ class ShearwaterMemory(private val link: ShearwaterLink) {
         private const val INIT_TAG = 0x34.toByte()
         private const val DEFAULT_MAX_LEN = 254
         private const val MAX_COMPRESSED_SIZE = 0xFFFFFF
+        private const val INIT_RETRIES = 4
     }
 }

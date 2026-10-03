@@ -46,8 +46,16 @@ class BluetoothRfcommTransport(
         }
         socket = s
         output = s.outputStream
+        val input = s.inputStream
+        // Let the link settle, then discard anything left over from a previous
+        // session so a fresh exchange starts clean.
+        runCatching { Thread.sleep(SETTLE_MS) }
+        runCatching {
+            val available = input.available()
+            if (available > 0) input.skip(available.toLong())
+        }
         running = true
-        reader = Thread({ pump(s.inputStream) }, "rfcomm-reader").apply {
+        reader = Thread({ pump(input) }, "rfcomm-reader").apply {
             isDaemon = true
             start()
         }
@@ -107,6 +115,7 @@ class BluetoothRfcommTransport(
     companion object {
         /** Well-known Bluetooth Serial Port Profile UUID. */
         val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+        private const val SETTLE_MS = 300L
         private val EMPTY = ByteArray(0)
     }
 }

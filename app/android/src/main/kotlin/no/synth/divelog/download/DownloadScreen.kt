@@ -65,7 +65,8 @@ fun DownloadScreen(
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Download dives", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Put the dive computer in Bluetooth upload mode, then pick it below.",
+            "Put the dive computer in Bluetooth upload mode, then pick it below. " +
+                "If it asks for a pairing code, it is 0000.",
             style = MaterialTheme.typography.bodyMedium,
         )
 
