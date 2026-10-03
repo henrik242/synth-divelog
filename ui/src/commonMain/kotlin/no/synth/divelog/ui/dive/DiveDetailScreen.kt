@@ -31,13 +31,15 @@ fun DiveDetailScreen(
     container: AppContainer,
     diveId: Long,
     unitSystem: UnitSystem,
+    reloadKey: Int = 0,
+    onEdit: () -> Unit = {},
 ) {
-    val dive = remember(diveId) { container.dives.getDive(diveId) } ?: run {
+    val dive = remember(diveId, reloadKey) { container.dives.getDive(diveId) } ?: run {
         Text("Dive not found", Modifier.padding(16.dp)); return
     }
-    val records = remember(diveId) { container.dives.recordsForDive(diveId) }
-    val site = remember(diveId) { dive.siteId?.let { container.sites.site(it) } }
-    val buddies = remember(diveId) { container.buddies.buddiesForDive(diveId) }
+    val records = remember(diveId, reloadKey) { container.dives.recordsForDive(diveId) }
+    val site = remember(diveId, reloadKey) { dive.siteId?.let { container.sites.site(it) } }
+    val buddies = remember(diveId, reloadKey) { container.buddies.buddiesForDive(diveId) }
 
     var selectedRecord by remember(diveId) {
         mutableStateOf(
@@ -52,11 +54,16 @@ fun DiveDetailScreen(
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text(
-            text = dive.number?.let { "Dive #$it" } ?: "Dive",
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(16.dp),
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = dive.number?.let { "Dive #$it" } ?: "Dive",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            androidx.compose.material3.TextButton(onClick = onEdit) { Text("Edit") }
+        }
 
         ProfileGraph(samples, events, unitSystem, Modifier.fillMaxWidth())
 

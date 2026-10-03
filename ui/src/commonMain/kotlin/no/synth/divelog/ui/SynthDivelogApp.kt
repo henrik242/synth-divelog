@@ -34,6 +34,7 @@ import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.dive.DiveDetailScreen
+import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.format.Format
 
 private enum class Section(val label: String) {
@@ -90,14 +91,26 @@ private fun DivesSection(
     dataVersion: Int,
 ) {
     var openDiveId by remember(dataVersion) { mutableStateOf<Long?>(null) }
+    var editing by remember(dataVersion) { mutableStateOf(false) }
+    var reloadKey by remember(dataVersion) { mutableStateOf(0) }
 
     val currentDive = openDiveId
     if (currentDive != null) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                TextButton(onClick = { openDiveId = null }) { Text("< Dives") }
+        if (editing) {
+            DiveEditScreen(
+                container = container,
+                diveId = currentDive,
+                unitSystem = unitSystem,
+                onDone = { editing = false; reloadKey++ },
+                onCancel = { editing = false },
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                    TextButton(onClick = { openDiveId = null }) { Text("< Dives") }
+                }
+                DiveDetailScreen(container, currentDive, unitSystem, reloadKey = reloadKey, onEdit = { editing = true })
             }
-            DiveDetailScreen(container, currentDive, unitSystem)
         }
         return
     }
