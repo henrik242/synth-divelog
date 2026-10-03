@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -29,6 +30,19 @@ android {
 
 dependencies {
     implementation(project(":ui"))
+    implementation(project(":core:model"))
+    implementation(project(":core:divecomputer"))
+    implementation(project(":core:transport"))
+
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
+
+    implementation(compose.runtime)
+    implementation(compose.foundation)
+    implementation(compose.material3)
+    implementation(compose.ui)
+
+    implementation(libs.jetbrains.lifecycle.viewmodel)
+    implementation(libs.jetbrains.lifecycle.viewmodel.compose)
+    implementation(libs.kotlinx.coroutines.android)
 }

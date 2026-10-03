@@ -1,27 +1,27 @@
 [versions]
 # Build
-agp = "9.4.0"
+agp = "9.4.1"
 kotlin = "2.4.20"
 composeMultiplatform = "1.12.1"
-sqldelight = "2.3.2"
+sqldelight = "2.4.0"
 
 # Android SDK levels
 android-compileSdk = "37"
-android-targetSdk = "36"
-android-minSdk = "26"
+android-targetSdk = "37"
+android-minSdk = "33"
 
 # AndroidX (android target only)
 androidx-activityCompose = "1.13.0"
-androidx-coreKtx = "1.17.0"
+androidx-coreKtx = "1.19.1"
 
 # Multiplatform AndroidX (org.jetbrains.androidx.*) -- used from M3 onwards
-jetbrains-lifecycle = "2.9.0"
+jetbrains-lifecycle = "2.11.0"
 
 # kotlinx -- first referenced in M1; versions re-verified when used
-kotlinx-coroutines = "1.10.2"
+kotlinx-coroutines = "1.11.0"
 kotlinx-datetime = "0.8.0"
-kotlinx-serialization = "1.9.0"
-kotlinx-io = "0.9.0"
+kotlinx-serialization = "1.11.0"
+kotlinx-io = "0.9.1"
 
 [libraries]
 # kotlinx
