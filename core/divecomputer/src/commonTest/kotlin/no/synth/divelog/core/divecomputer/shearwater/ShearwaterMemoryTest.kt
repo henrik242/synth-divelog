@@ -1,7 +1,3 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 package no.synth.divelog.core.divecomputer.shearwater
 
 import no.synth.divelog.core.divecomputer.CancellationSignal
@@ -29,8 +25,8 @@ class ShearwaterMemoryTest {
         val transcript = Transcript(
             listOf(
                 response(0x75, 0x10, 0x04), // init: maxlen = 4
-                response(0x76, 0x00, 0x01, 0x02, 0x03, 0x04), // block 0
-                response(0x76, 0x01, 0x05, 0x06, 0x07, 0x08), // block 1
+                response(0x76, 0x01, 0x01, 0x02, 0x03, 0x04), // block 1 (counter starts at 1)
+                response(0x76, 0x02, 0x05, 0x06, 0x07, 0x08), // block 2
                 response(0x77, 0x00), // exit
             ),
         )
@@ -60,8 +56,8 @@ class ShearwaterMemoryTest {
         val transcript = Transcript(
             listOf(
                 response(0x75, 0x10, 0x04),
-                response(0x76, 0x00, 0x01, 0x02, 0x03, 0x04),
-                response(0x76, 0x01, 0x05, 0x06, 0x07, 0x08),
+                response(0x76, 0x01, 0x01, 0x02, 0x03, 0x04),
+                response(0x76, 0x02, 0x05, 0x06, 0x07, 0x08),
                 response(0x77, 0x00),
             ),
         )

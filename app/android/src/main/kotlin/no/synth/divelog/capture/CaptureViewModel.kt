@@ -1,7 +1,3 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 package no.synth.divelog.capture
 
 import androidx.compose.runtime.getValue
@@ -37,7 +33,9 @@ sealed interface CaptureState {
     data class Connecting(val deviceName: String) : CaptureState
     data class Downloading(val bytesRead: Int, val totalBytes: Int, val dives: Int) : CaptureState
     data class Done(val summary: CaptureSummary) : CaptureState
-    data class Failed(val message: String) : CaptureState
+
+    /** Download failed; [transcriptFile] holds whatever exchange was recorded, for diagnosis. */
+    data class Failed(val message: String, val transcriptFile: File?) : CaptureState
 }
 
 /**
@@ -57,39 +55,39 @@ class CaptureViewModel : ViewModel() {
         job = viewModelScope.launch(Dispatchers.IO) {
             var deviceInfo = DeviceInfo(vendor = "Shearwater", model = "Predator")
             var diveCount = 0
+            val recording = RecordingTransport(BluetoothDevices.transportFor(device.raw)) {
+                System.currentTimeMillis()
+            }
             try {
                 state = CaptureState.Connecting(device.name ?: device.address)
-                val recording = RecordingTransport(BluetoothDevices.transportFor(device.raw)) {
-                    System.currentTimeMillis()
-                }
                 recording.open()
-                try {
-                    val protocol = ShearwaterPredatorProtocol(recording)
-                    val listener = object : DownloadListener {
-                        override fun onDeviceInfo(info: DeviceInfo) {
-                            deviceInfo = info
-                        }
-
-                        override fun onProgress(current: Int, total: Int) {
-                            state = CaptureState.Downloading(current, total, diveCount)
-                        }
-
-                        override fun onDiveDownloaded(index: Int) {
-                            diveCount = index + 1
-                        }
+                val protocol = ShearwaterPredatorProtocol(recording)
+                val listener = object : DownloadListener {
+                    override fun onDeviceInfo(info: DeviceInfo) {
+                        deviceInfo = info
                     }
-                    val cancel = CancellationSignal { !isActive }
-                    val dives = protocol.download(knownFingerprint = null, listener = listener, cancel = cancel)
-                    val summary = saveCapture(captureDir, recording.transcript().toText(), deviceInfo, dives.map { it.fingerprint })
-                    state = CaptureState.Done(summary)
-                } finally {
-                    recording.close()
+
+                    override fun onProgress(current: Int, total: Int) {
+                        state = CaptureState.Downloading(current, total, diveCount)
+                    }
+
+                    override fun onDiveDownloaded(index: Int) {
+                        diveCount = index + 1
+                    }
                 }
+                val cancel = CancellationSignal { !isActive }
+                val dives = protocol.download(knownFingerprint = null, listener = listener, cancel = cancel)
+                val summary = saveCapture(captureDir, recording.transcript().toText(), deviceInfo, dives.map { it.fingerprint })
+                state = CaptureState.Done(summary)
             } catch (e: CancellationException) {
+                saveTranscript(captureDir, recording) // keep the partial exchange even on cancel
                 state = CaptureState.Idle
                 throw e
             } catch (e: Exception) {
-                state = CaptureState.Failed(e.message ?: e.toString())
+                val partial = saveTranscript(captureDir, recording)
+                state = CaptureState.Failed(e.message ?: e.toString(), partial)
+            } finally {
+                recording.close()
             }
         }
     }
@@ -101,6 +99,14 @@ class CaptureViewModel : ViewModel() {
     fun reset() {
         if (job?.isActive != true) state = CaptureState.Idle
     }
+
+    /** Write just the recorded exchange; used when a download fails or is cancelled. */
+    private fun saveTranscript(dir: File, recording: RecordingTransport): File? = runCatching {
+        dir.mkdirs()
+        File(dir, "capture-${System.currentTimeMillis()}.transcript.txt").apply {
+            writeText(recording.transcript().toText())
+        }
+    }.getOrNull()
 
     private fun saveCapture(
         dir: File,

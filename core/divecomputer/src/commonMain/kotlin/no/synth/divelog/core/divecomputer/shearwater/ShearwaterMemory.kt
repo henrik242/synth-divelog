@@ -1,7 +1,3 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 package no.synth.divelog.core.divecomputer.shearwater
 
 import no.synth.divelog.core.divecomputer.CancellationSignal
@@ -20,15 +16,17 @@ class ShearwaterMemory(private val link: ShearwaterLink) {
         onProgress: (read: Int, total: Int) -> Unit = { _, _ -> },
         cancel: CancellationSignal = CancellationSignal.NONE,
     ): ByteArray {
-        val maxLen = begin(baseAddress, size)
+        begin(baseAddress, size)
         val out = ByteArray(size)
         var read = 0
-        var block = 0
+        // Block sequence counter starts at 1 (diagnostic TransferData convention),
+        // increments per block and wraps through the full byte range.
+        var block = 1
         while (read < size) {
             if (cancel.isCancelled()) throw DownloadCancelledException()
             val data = readBlock(block)
             if (data.isEmpty()) throw ProtocolException("Empty block $block at offset $read")
-            val n = minOf(data.size, size - read, maxLen)
+            val n = minOf(data.size, size - read)
             data.copyInto(out, read, 0, n)
             read += n
             block = (block + 1) and 0xFF

@@ -22,3 +22,6 @@ local.properties
 # without explicit consent (see plan "Testing"). Keep raw captures out of git.
 /captures/
 *.divelog-capture
+
+# Local Predator screenshots (personal dive data)
+/scratch-shots/

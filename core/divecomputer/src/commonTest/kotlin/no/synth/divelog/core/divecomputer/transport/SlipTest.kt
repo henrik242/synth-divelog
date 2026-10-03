@@ -1,7 +1,3 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 package no.synth.divelog.core.divecomputer.transport
 
 import kotlin.test.Test
@@ -10,19 +6,18 @@ import kotlin.test.assertEquals
 
 class SlipTest {
     @Test
-    fun encodeWrapsInEndDelimiters() {
+    fun encodeTerminatesWithEndAndHasNoLeadingDelimiter() {
         val encoded = Slip.encode(byteArrayOf(0x01, 0x02))
-        assertEquals(Slip.END, encoded.first().toInt() and 0xFF)
         assertEquals(Slip.END, encoded.last().toInt() and 0xFF)
+        assertEquals(0x01, encoded.first().toInt() and 0xFF) // first byte is payload, not END
     }
 
     @Test
     fun escapesEndAndEscBytes() {
         val payload = byteArrayOf(0xC0.toByte(), 0xDB.toByte(), 0x10)
         val encoded = Slip.encode(payload)
-        // END -> ESC ESC_END, ESC -> ESC ESC_ESC, plus the two delimiters.
+        // END -> ESC ESC_END, ESC -> ESC ESC_ESC, then a single trailing END.
         val expected = byteArrayOf(
-            0xC0.toByte(),
             0xDB.toByte(), 0xDC.toByte(),
             0xDB.toByte(), 0xDD.toByte(),
             0x10,
@@ -35,7 +30,7 @@ class SlipTest {
     fun unescapeInvertsEscaping() {
         val payload = byteArrayOf(0xC0.toByte(), 0xDB.toByte(), 0x00, 0x7F, 0xDB.toByte(), 0xDC.toByte())
         val encoded = Slip.encode(payload)
-        val inner = encoded.copyOfRange(1, encoded.size - 1)
+        val inner = encoded.copyOfRange(0, encoded.size - 1) // drop trailing END
         assertContentEquals(payload, Slip.unescape(inner))
     }
 

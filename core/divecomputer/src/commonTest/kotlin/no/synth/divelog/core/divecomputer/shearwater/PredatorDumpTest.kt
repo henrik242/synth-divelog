@@ -1,7 +1,3 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 package no.synth.divelog.core.divecomputer.shearwater
 
 import kotlin.test.Test
@@ -46,6 +42,25 @@ class PredatorDumpTest {
         assertEquals("aabbccdd", dives[1].fingerprint) // number 5
         assertEquals(2 * blockSize, dives[0].data.size)
         assertEquals(PredatorDump.FORMAT_ID, dives[0].formatId)
+    }
+
+    @Test
+    fun extractsADiveThatWrapsTheRingBoundary() {
+        // Newest dive opens near the end (block 6) and its closing wraps to block 1.
+        val memory = dump(8)
+        writeOpening(memory, block = 3, number = 800, fingerprint = byteArrayOf(0x11, 0x22, 0x33, 0x44))
+        writeClosing(memory, block = 4)
+        writeOpening(memory, block = 6, number = 900, fingerprint = byteArrayOf(0xAA.toByte(), 0xBB.toByte(), 0xCC.toByte(), 0xDD.toByte()))
+        writeClosing(memory, block = 1)
+
+        val dives = PredatorDump.extract(memory)
+
+        assertEquals(2, dives.size)
+        // Wrapped dive is newest (number 900): blocks 6,7 + 0,1 = 4 blocks.
+        assertEquals("aabbccdd", dives[0].fingerprint)
+        assertEquals(4 * blockSize, dives[0].data.size)
+        assertEquals("11223344", dives[1].fingerprint)
+        assertEquals(2 * blockSize, dives[1].data.size)
     }
 
     @Test

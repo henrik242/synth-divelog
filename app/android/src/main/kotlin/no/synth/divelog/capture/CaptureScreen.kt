@@ -1,7 +1,3 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 package no.synth.divelog.capture
 
 import android.Manifest
@@ -108,7 +104,12 @@ fun CaptureScreen(viewModel: CaptureViewModel = viewModel()) {
             is CaptureState.Failed -> StatusCard("Download failed") {
                 Text(state.message, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = { viewModel.reset() }) { Text("Back") }
+                val file = state.transcriptFile
+                if (file != null) {
+                    Text("A partial transcript was saved - share it so the exchange can be diagnosed.")
+                    Button(onClick = { shareFiles(context, listOf(file)) }) { Text("Share partial transcript") }
+                }
+                OutlinedButton(onClick = { viewModel.reset() }) { Text("Back") }
             }
         }
     }
@@ -174,12 +175,12 @@ private fun DoneCard(summary: CaptureSummary, onDismiss: () -> Unit) {
 }
 
 private fun shareCapture(context: android.content.Context, summary: CaptureSummary) {
+    shareFiles(context, listOf(summary.transcriptFile, summary.summaryFile))
+}
+
+private fun shareFiles(context: android.content.Context, files: List<File>) {
     val authority = "${context.packageName}.fileprovider"
-    val uris = ArrayList(
-        listOf(summary.transcriptFile, summary.summaryFile).map {
-            FileProvider.getUriForFile(context, authority, it)
-        },
-    )
+    val uris = ArrayList(files.map { FileProvider.getUriForFile(context, authority, it) })
     val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
         type = "text/plain"
         putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)

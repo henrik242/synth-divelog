@@ -1,7 +1,3 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 package no.synth.divelog.core.divecomputer.transport
 
 /**
@@ -57,7 +53,7 @@ class ReplayTransport(
         closed = true
     }
 
-    /** Advance to the next event of [direction], skipping nothing; returns null at the end. */
+    /** Consume the next event, which must be a WRITE (strict mode only). */
     private fun nextEvent(direction: Direction): TransportEvent? {
         if (index >= events.size) return null
         val event = events[index]
@@ -68,5 +64,22 @@ class ReplayTransport(
         return event
     }
 
-    private fun nextReadEvent(): TransportEvent? = nextEvent(Direction.READ)
+    /**
+     * Next READ event. In strict mode the next event must be a READ; in lenient
+     * mode any WRITE events (which [write] ignored) are skipped over.
+     */
+    private fun nextReadEvent(): TransportEvent? {
+        while (index < events.size) {
+            val event = events[index]
+            if (event.direction == Direction.READ) {
+                index++
+                return event
+            }
+            require(!strictWrites) {
+                "Transcript expected a READ but a WRITE is next at $index"
+            }
+            index++ // lenient: skip the recorded write
+        }
+        return null
+    }
 }

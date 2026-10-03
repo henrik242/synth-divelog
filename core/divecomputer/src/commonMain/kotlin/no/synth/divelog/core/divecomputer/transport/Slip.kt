@@ -1,7 +1,3 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 package no.synth.divelog.core.divecomputer.transport
 
 /**
@@ -15,10 +11,13 @@ object Slip {
     const val ESC_END: Int = 0xDC
     const val ESC_ESC: Int = 0xDD
 
-    /** Escape a payload and wrap it in [END] delimiters. */
+    /**
+     * Escape a payload and terminate it with a single trailing [END]. No leading
+     * delimiter: a leading [END] would present an empty frame that some devices
+     * reject.
+     */
     fun encode(payload: ByteArray): ByteArray {
-        val out = ArrayList<Byte>(payload.size + 2)
-        out.add(END.toByte())
+        val out = ArrayList<Byte>(payload.size + 1)
         for (b in payload) {
             when (b.toInt() and 0xFF) {
                 END -> {

@@ -1,7 +1,3 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 package no.synth.divelog.core.db
 
 import no.synth.divelog.core.db.sql.DiveDatabase
@@ -118,7 +114,7 @@ class DiveRepository(private val db: DiveDatabase) {
     /** Create a fresh dive from the incoming record; its summary becomes the dive's. */
     fun importAsNewDive(incoming: IncomingDive): ImportResult.CreatedDive = db.transactionWithResult {
         dives.insertDive(
-            nextDiveNumber().toLong(),
+            (incoming.number ?: nextDiveNumber()).toLong(),
             incoming.startEpochSeconds,
             incoming.utcOffsetSeconds.toLong(),
             incoming.durationSeconds.toLong(),
