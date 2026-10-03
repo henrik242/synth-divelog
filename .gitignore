@@ -1,0 +1,24 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local config
+local.properties
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+
+# OS
+.DS_Store
+
+# Android
+*.apk
+*.aab
+
+# Captured dive-computer fixtures contain personal dive data; never commit
+# without explicit consent (see plan "Testing"). Keep raw captures out of git.
+/captures/
+*.divelog-capture
