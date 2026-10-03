@@ -87,6 +87,14 @@ Both stages are implemented and unit-tested in `ShearwaterCompression`
 (`decompressLre`, then `decompressXor`). The Predator dump is neither compressed
 nor XORed; this applies only to Petrel per-dive reads.
 
+## Clean close (open item)
+
+After a successful download the Petrel shows "bluetooth error: disconnect" on its
+screen. The exit handshake is clean (`37` -> `77 00`) and the download is complete,
+so this is cosmetic. The stock vendor software reportedly does not trigger it, so
+the device may expect a specific end-of-session step (an extra command, or a wait
+after the exit reply) before the socket closes. Not yet investigated. **Open item.**
+
 ## Protocol selection
 
 The app picks this protocol when the paired Bluetooth device name contains
