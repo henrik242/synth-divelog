@@ -9,15 +9,21 @@ codebase.
 
 ## Status
 
-M1 (model and storage) in progress on top of M0. The Android app launches to a
-placeholder screen; the domain model, SQLDelight schema, repositories and the
-import/duplicate/merge/split logic are in place and covered by JVM tests.
+Version 1 (Android) complete: M0-M3, plus a statistics screen.
+
+- M0 skeleton, M1 model + SQLDelight storage, M2 Shearwater Predator download
+  (verified against a real device), M3 Android UI.
+- The app downloads dives from a Shearwater Predator over Bluetooth, imports
+  them (skipping duplicates, with a merge-review step for a dive recorded by two
+  computers), and lets you browse and edit dives, sites and buddies with a
+  profile graph, search/sort, units toggle and per-dive merge/split/delete.
 
 Storage uses fixed integer units (depth mm, pressure mbar, temperature mK,
 duration s, gas permille); the raw download blob is kept so a record can be
-re-parsed after a parser fix. Duplicate detection is per device + fingerprint;
-an overlapping dive from another computer can be merged into one dive with two
-records; dives can be split and manually merged.
+re-parsed after a parser fix.
+
+Later work (not started; some need a decision first): M4 Subsurface XML / UDDF
+import-export, M5 desktop, M6 iOS, M7 UDCF / divelogs.de DLD.
 
 ## Modules
 
