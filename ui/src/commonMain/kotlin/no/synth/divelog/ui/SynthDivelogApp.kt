@@ -40,9 +40,10 @@ import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
+import no.synth.divelog.ui.stats.StatisticsSection
 
 private enum class Section(val label: String) {
-    DIVES("Dives"), SITES("Sites"), BUDDIES("Buddies"), SETTINGS("Settings")
+    DIVES("Dives"), SITES("Sites"), BUDDIES("Buddies"), STATS("Stats"), SETTINGS("Settings")
 }
 
 /**
@@ -81,6 +82,7 @@ fun SynthDivelogApp(
                 Section.DIVES -> DivesSection(container, unitSystem, onDownloadClick, dataVersion)
                 Section.SITES -> SitesSection(container, unitSystem, dataVersion)
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
+                Section.STATS -> StatisticsSection(container, unitSystem, dataVersion)
                 Section.SETTINGS -> SettingsSection(container, unitSystem, onUnitSystemChange)
             }
         }

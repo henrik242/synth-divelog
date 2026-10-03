@@ -18,6 +18,9 @@ object Format {
     private fun wallClock(epochSeconds: Long, utcOffsetSeconds: Int): LocalDateTime =
         Instant.fromEpochSeconds(epochSeconds + utcOffsetSeconds).toLocalDateTime(TimeZone.UTC)
 
+    fun year(epochSeconds: Long, utcOffsetSeconds: Int): Int =
+        wallClock(epochSeconds, utcOffsetSeconds).year
+
     fun date(epochSeconds: Long, utcOffsetSeconds: Int): String {
         val t = wallClock(epochSeconds, utcOffsetSeconds)
         return "${t.day} ${months[t.month.ordinal]} ${t.year}"
