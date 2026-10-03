@@ -37,19 +37,35 @@ class BluetoothRfcommTransport(
 
     @SuppressLint("MissingPermission")
     override fun open() {
-        val s = device.createRfcommSocketToServiceRecord(serviceUuid)
-        try {
-            s.connect()
-        } catch (e: Exception) {
-            runCatching { s.close() }
-            throw TransportException("Could not connect to ${device.address}", e)
-        }
+        // Prefer an insecure (unencrypted) RFCOMM link: older dive computers pair
+        // with a fixed PIN and their weak radios drop an encrypted channel under
+        // load. Fall back to a secure socket if the insecure connect is refused.
+        val s = connectPreferInsecure()
         socket = s
         output = s.outputStream
         running = true
         reader = Thread({ pump(s.inputStream) }, "rfcomm-reader").apply {
             isDaemon = true
             start()
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun connectPreferInsecure(): BluetoothSocket {
+        val insecure = device.createInsecureRfcommSocketToServiceRecord(serviceUuid)
+        try {
+            insecure.connect()
+            return insecure
+        } catch (e: Exception) {
+            runCatching { insecure.close() }
+        }
+        val secure = device.createRfcommSocketToServiceRecord(serviceUuid)
+        try {
+            secure.connect()
+            return secure
+        } catch (e: Exception) {
+            runCatching { secure.close() }
+            throw TransportException("Could not connect to ${device.address}", e)
         }
     }
 
