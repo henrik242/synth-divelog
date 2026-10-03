@@ -22,7 +22,7 @@ kotlinx-coroutines = "1.11.0"
 kotlinx-datetime = "0.8.0"
 kotlinx-serialization = "1.11.0"
 kotlinx-io = "0.9.1"
-xmlutil = "1.0.1"
+xmlutil = "1.0.2.1"
 
 [libraries]
 # kotlinx

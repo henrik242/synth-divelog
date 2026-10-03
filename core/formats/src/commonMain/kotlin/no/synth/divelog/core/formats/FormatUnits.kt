@@ -62,4 +62,12 @@ internal object FormatUnits {
     // volume: litres; storage is millilitres
     fun mlToLitres(ml: Int): String = "${oneDecimal(ml / 1000.0)} l"
     fun litresToMl(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+
+    // SI plain decimals (UDDF): metres, Kelvin, gas fraction
+    fun siMetres(mm: Int): String = (mm / 1000.0).toString()
+    fun siMetresToMm(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+    fun siKelvin(mk: Int): String = (mk / 1000.0).toString()
+    fun siKelvinToMk(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+    fun siFraction(permille: Int): String = (permille / 1000.0).toString()
+    fun siFractionToPermille(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
 }
