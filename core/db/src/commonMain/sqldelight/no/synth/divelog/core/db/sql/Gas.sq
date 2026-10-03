@@ -1,0 +1,44 @@
+CREATE TABLE gasMix (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    o2Permille INTEGER NOT NULL,
+    hePermille INTEGER NOT NULL
+);
+
+CREATE TABLE tank (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    diveId INTEGER NOT NULL REFERENCES dive(id) ON DELETE CASCADE,
+    tankIndex INTEGER NOT NULL,
+    volumeMl INTEGER,
+    workingPressureMbar INTEGER,
+    startPressureMbar INTEGER,
+    endPressureMbar INTEGER,
+    gasMixId INTEGER REFERENCES gasMix(id) ON DELETE SET NULL
+);
+
+CREATE INDEX tank_dive ON tank(diveId);
+
+insertGasMix:
+INSERT INTO gasMix(o2Permille, hePermille) VALUES (?, ?);
+
+selectGasMixById:
+SELECT * FROM gasMix WHERE id = ?;
+
+findGasMix:
+SELECT * FROM gasMix WHERE o2Permille = ? AND hePermille = ? LIMIT 1;
+
+insertTank:
+INSERT INTO tank(diveId, tankIndex, volumeMl, workingPressureMbar, startPressureMbar, endPressureMbar, gasMixId)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectTanksForDive:
+SELECT * FROM tank WHERE diveId = ? ORDER BY tankIndex;
+
+updateTank:
+UPDATE tank SET tankIndex = ?, volumeMl = ?, workingPressureMbar = ?, startPressureMbar = ?, endPressureMbar = ?, gasMixId = ?
+WHERE id = ?;
+
+deleteTank:
+DELETE FROM tank WHERE id = ?;
+
+lastInsertRowId:
+SELECT last_insert_rowid();

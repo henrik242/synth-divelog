@@ -1,0 +1,45 @@
+CREATE TABLE buddy (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE diveBuddy (
+    diveId INTEGER NOT NULL REFERENCES dive(id) ON DELETE CASCADE,
+    buddyId INTEGER NOT NULL REFERENCES buddy(id) ON DELETE CASCADE,
+    PRIMARY KEY (diveId, buddyId)
+);
+
+CREATE INDEX diveBuddy_buddy ON diveBuddy(buddyId);
+
+insertBuddy:
+INSERT INTO buddy(name) VALUES (?);
+
+selectAllBuddies:
+SELECT * FROM buddy ORDER BY name;
+
+selectBuddyById:
+SELECT * FROM buddy WHERE id = ?;
+
+updateBuddy:
+UPDATE buddy SET name = ? WHERE id = ?;
+
+deleteBuddy:
+DELETE FROM buddy WHERE id = ?;
+
+linkDiveBuddy:
+INSERT OR IGNORE INTO diveBuddy(diveId, buddyId) VALUES (?, ?);
+
+unlinkDiveBuddy:
+DELETE FROM diveBuddy WHERE diveId = ? AND buddyId = ?;
+
+selectBuddiesForDive:
+SELECT buddy.* FROM buddy
+JOIN diveBuddy ON diveBuddy.buddyId = buddy.id
+WHERE diveBuddy.diveId = ?
+ORDER BY buddy.name;
+
+selectDiveIdsForBuddy:
+SELECT diveId FROM diveBuddy WHERE buddyId = ?;
+
+lastInsertRowId:
+SELECT last_insert_rowid();

@@ -1,0 +1,47 @@
+CREATE TABLE diveComputerRecord (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    diveId INTEGER NOT NULL REFERENCES dive(id) ON DELETE CASCADE,
+    deviceId INTEGER REFERENCES device(id) ON DELETE SET NULL,
+    startEpochSeconds INTEGER NOT NULL,
+    durationSeconds INTEGER NOT NULL,
+    maxDepthMm INTEGER,
+    rawData BLOB NOT NULL,
+    rawFormatId TEXT NOT NULL,
+    fingerprint TEXT NOT NULL
+);
+
+CREATE INDEX record_dive ON diveComputerRecord(diveId);
+CREATE INDEX record_fingerprint ON diveComputerRecord(deviceId, fingerprint);
+
+insertRecord:
+INSERT INTO diveComputerRecord(diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawData, rawFormatId, fingerprint)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Summary columns only (no raw blob), for lists and overview.
+selectRecordSummaryById:
+SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
+FROM diveComputerRecord WHERE id = ?;
+
+selectRecordSummariesForDive:
+SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
+FROM diveComputerRecord WHERE diveId = ? ORDER BY startEpochSeconds;
+
+selectRawData:
+SELECT rawData FROM diveComputerRecord WHERE id = ?;
+
+-- Duplicate detection: same device plus same fingerprint.
+findByDeviceAndFingerprint:
+SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
+FROM diveComputerRecord WHERE deviceId = ? AND fingerprint = ? LIMIT 1;
+
+countRecordsForDive:
+SELECT count(*) FROM diveComputerRecord WHERE diveId = ?;
+
+reassignRecordToDive:
+UPDATE diveComputerRecord SET diveId = ? WHERE id = ?;
+
+deleteRecord:
+DELETE FROM diveComputerRecord WHERE id = ?;
+
+lastInsertRowId:
+SELECT last_insert_rowid();

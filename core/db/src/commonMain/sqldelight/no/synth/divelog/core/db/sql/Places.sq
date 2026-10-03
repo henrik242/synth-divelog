@@ -1,0 +1,79 @@
+CREATE TABLE country (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE place (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    countryId INTEGER NOT NULL REFERENCES country(id) ON DELETE CASCADE,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE site (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    placeId INTEGER NOT NULL REFERENCES place(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    latitude REAL,
+    longitude REAL,
+    notes TEXT
+);
+
+CREATE INDEX place_country ON place(countryId);
+CREATE INDEX site_place ON site(placeId);
+
+-- country
+insertCountry:
+INSERT INTO country(name) VALUES (?);
+
+selectAllCountries:
+SELECT * FROM country ORDER BY name;
+
+selectCountryById:
+SELECT * FROM country WHERE id = ?;
+
+selectCountryByName:
+SELECT * FROM country WHERE name = ?;
+
+updateCountry:
+UPDATE country SET name = ? WHERE id = ?;
+
+deleteCountry:
+DELETE FROM country WHERE id = ?;
+
+-- place
+insertPlace:
+INSERT INTO place(countryId, name) VALUES (?, ?);
+
+selectPlacesByCountry:
+SELECT * FROM place WHERE countryId = ? ORDER BY name;
+
+selectPlaceById:
+SELECT * FROM place WHERE id = ?;
+
+updatePlace:
+UPDATE place SET countryId = ?, name = ? WHERE id = ?;
+
+deletePlace:
+DELETE FROM place WHERE id = ?;
+
+-- site
+insertSite:
+INSERT INTO site(placeId, name, latitude, longitude, notes) VALUES (?, ?, ?, ?, ?);
+
+selectSitesByPlace:
+SELECT * FROM site WHERE placeId = ? ORDER BY name;
+
+selectSiteById:
+SELECT * FROM site WHERE id = ?;
+
+selectAllSites:
+SELECT * FROM site ORDER BY name;
+
+updateSite:
+UPDATE site SET placeId = ?, name = ?, latitude = ?, longitude = ?, notes = ? WHERE id = ?;
+
+deleteSite:
+DELETE FROM site WHERE id = ?;
+
+lastInsertRowId:
+SELECT last_insert_rowid();

@@ -1,0 +1,59 @@
+CREATE TABLE dive (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number INTEGER,
+    startEpochSeconds INTEGER NOT NULL,
+    utcOffsetSeconds INTEGER NOT NULL,
+    durationSeconds INTEGER NOT NULL,
+    maxDepthMm INTEGER,
+    meanDepthMm INTEGER,
+    waterTempMk INTEGER,
+    airTempMk INTEGER,
+    notes TEXT,
+    rating INTEGER,
+    visibility INTEGER,
+    siteId INTEGER REFERENCES site(id) ON DELETE SET NULL,
+    -- Not a foreign key: dive <-> record is a cycle; integrity is kept in code.
+    primaryComputerRecordId INTEGER
+);
+
+CREATE INDEX dive_start ON dive(startEpochSeconds);
+CREATE INDEX dive_site ON dive(siteId);
+
+insertDive:
+INSERT INTO dive(number, startEpochSeconds, utcOffsetSeconds, durationSeconds, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, notes, rating, visibility, siteId, primaryComputerRecordId)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectAllDives:
+SELECT * FROM dive ORDER BY startEpochSeconds DESC;
+
+selectDiveById:
+SELECT * FROM dive WHERE id = ?;
+
+selectDivesBySite:
+SELECT * FROM dive WHERE siteId = ? ORDER BY startEpochSeconds DESC;
+
+-- Dives whose [start, end) time range overlaps the given range.
+selectOverlappingDives:
+SELECT * FROM dive
+WHERE startEpochSeconds < :rangeEnd
+  AND (startEpochSeconds + durationSeconds) > :rangeStart
+ORDER BY startEpochSeconds;
+
+updateDive:
+UPDATE dive SET number = ?, startEpochSeconds = ?, utcOffsetSeconds = ?, durationSeconds = ?, maxDepthMm = ?, meanDepthMm = ?, waterTempMk = ?, airTempMk = ?, notes = ?, rating = ?, visibility = ?, siteId = ?, primaryComputerRecordId = ?
+WHERE id = ?;
+
+setPrimaryRecord:
+UPDATE dive SET primaryComputerRecordId = ? WHERE id = ?;
+
+setDiveSite:
+UPDATE dive SET siteId = ? WHERE id = ?;
+
+deleteDive:
+DELETE FROM dive WHERE id = ?;
+
+maxDiveNumber:
+SELECT max(number) AS maxNumber FROM dive;
+
+lastInsertRowId:
+SELECT last_insert_rowid();

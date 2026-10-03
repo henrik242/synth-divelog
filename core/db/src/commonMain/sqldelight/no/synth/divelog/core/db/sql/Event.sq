@@ -1,0 +1,15 @@
+CREATE TABLE event (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recordId INTEGER NOT NULL REFERENCES diveComputerRecord(id) ON DELETE CASCADE,
+    timeOffsetSeconds INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    value INTEGER
+);
+
+CREATE INDEX event_record ON event(recordId);
+
+insertEvent:
+INSERT INTO event(recordId, timeOffsetSeconds, type, value) VALUES (?, ?, ?, ?);
+
+selectEventsForRecord:
+SELECT * FROM event WHERE recordId = ? ORDER BY timeOffsetSeconds, id;

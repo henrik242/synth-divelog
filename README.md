@@ -9,8 +9,15 @@ codebase.
 
 ## Status
 
-M0 (skeleton). The Android app launches to a placeholder screen and common
-tests run on the JVM without an emulator.
+M1 (model and storage) in progress on top of M0. The Android app launches to a
+placeholder screen; the domain model, SQLDelight schema, repositories and the
+import/duplicate/merge/split logic are in place and covered by JVM tests.
+
+Storage uses fixed integer units (depth mm, pressure mbar, temperature mK,
+duration s, gas permille); the raw download blob is kept so a record can be
+re-parsed after a parser fix. Duplicate detection is per device + fingerprint;
+an overlapping dive from another computer can be merged into one dive with two
+records; dives can be split and manually merged.
 
 ## Modules
 

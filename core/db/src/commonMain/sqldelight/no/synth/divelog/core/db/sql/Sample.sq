@@ -1,0 +1,39 @@
+CREATE TABLE sample (
+    recordId INTEGER NOT NULL REFERENCES diveComputerRecord(id) ON DELETE CASCADE,
+    timeOffsetSeconds INTEGER NOT NULL,
+    depthMm INTEGER,
+    temperatureMk INTEGER,
+    ppO2Mbar INTEGER,
+    ndlSeconds INTEGER,
+    ceilingMm INTEGER,
+    stopDepthMm INTEGER,
+    stopTimeSeconds INTEGER,
+    cnsPermille INTEGER,
+    activeGasIndex INTEGER,
+    PRIMARY KEY (recordId, timeOffsetSeconds)
+);
+
+CREATE TABLE sampleTankPressure (
+    recordId INTEGER NOT NULL REFERENCES diveComputerRecord(id) ON DELETE CASCADE,
+    timeOffsetSeconds INTEGER NOT NULL,
+    tankIndex INTEGER NOT NULL,
+    pressureMbar INTEGER NOT NULL,
+    PRIMARY KEY (recordId, timeOffsetSeconds, tankIndex)
+);
+
+insertSample:
+INSERT INTO sample(recordId, timeOffsetSeconds, depthMm, temperatureMk, ppO2Mbar, ndlSeconds, ceilingMm, stopDepthMm, stopTimeSeconds, cnsPermille, activeGasIndex)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectSamplesForRecord:
+SELECT * FROM sample WHERE recordId = ? ORDER BY timeOffsetSeconds;
+
+countSamplesForRecord:
+SELECT count(*) FROM sample WHERE recordId = ?;
+
+insertSampleTankPressure:
+INSERT INTO sampleTankPressure(recordId, timeOffsetSeconds, tankIndex, pressureMbar)
+VALUES (?, ?, ?, ?);
+
+selectTankPressuresForRecord:
+SELECT * FROM sampleTankPressure WHERE recordId = ? ORDER BY timeOffsetSeconds, tankIndex;

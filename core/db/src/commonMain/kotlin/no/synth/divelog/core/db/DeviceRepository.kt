@@ -1,0 +1,62 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+package no.synth.divelog.core.db
+
+import no.synth.divelog.core.db.sql.DiveDatabase
+import no.synth.divelog.core.model.Device
+
+/** Dive computers the user has downloaded from. */
+class DeviceRepository(private val db: DiveDatabase) {
+    private val q = db.deviceQueries
+
+    fun add(device: Device): Long = db.transactionWithResult {
+        q.insertDevice(
+            device.vendor,
+            device.model,
+            device.serial,
+            device.firmware,
+            device.nickname,
+            device.bluetoothAddress,
+        )
+        q.lastInsertRowId().executeAsOne()
+    }
+
+    fun all(): List<Device> = q.selectAllDevices().executeAsList().map { it.toDomain() }
+
+    fun get(id: Long): Device? = q.selectDeviceById(id).executeAsOneOrNull()?.toDomain()
+
+    fun byAddress(address: String): Device? =
+        q.selectDeviceByAddress(address).executeAsOneOrNull()?.toDomain()
+
+    fun update(device: Device) = q.updateDevice(
+        device.vendor,
+        device.model,
+        device.serial,
+        device.firmware,
+        device.nickname,
+        device.bluetoothAddress,
+        device.id,
+    )
+
+    fun delete(id: Long) = q.deleteDevice(id)
+
+    /** Find an existing device by Bluetooth address, or create one. */
+    fun getOrCreate(device: Device): Long = db.transactionWithResult {
+        val existing = device.bluetoothAddress?.let {
+            q.selectDeviceByAddress(it).executeAsOneOrNull()
+        }
+        existing?.id ?: run {
+            q.insertDevice(
+                device.vendor,
+                device.model,
+                device.serial,
+                device.firmware,
+                device.nickname,
+                device.bluetoothAddress,
+            )
+            q.lastInsertRowId().executeAsOne()
+        }
+    }
+}

@@ -1,0 +1,34 @@
+CREATE TABLE device (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vendor TEXT NOT NULL,
+    model TEXT NOT NULL,
+    serial TEXT,
+    firmware TEXT,
+    nickname TEXT,
+    bluetoothAddress TEXT
+);
+
+CREATE INDEX device_address ON device(bluetoothAddress);
+
+insertDevice:
+INSERT INTO device(vendor, model, serial, firmware, nickname, bluetoothAddress)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectAllDevices:
+SELECT * FROM device ORDER BY vendor, model;
+
+selectDeviceById:
+SELECT * FROM device WHERE id = ?;
+
+selectDeviceByAddress:
+SELECT * FROM device WHERE bluetoothAddress = ?;
+
+updateDevice:
+UPDATE device SET vendor = ?, model = ?, serial = ?, firmware = ?, nickname = ?, bluetoothAddress = ?
+WHERE id = ?;
+
+deleteDevice:
+DELETE FROM device WHERE id = ?;
+
+lastInsertRowId:
+SELECT last_insert_rowid();
