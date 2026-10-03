@@ -43,6 +43,7 @@ fun DiveEditScreen(
     val allBuddies = remember(diveId) { container.buddies.all() }
     val linkedBuddyIds = remember(diveId) { container.buddies.buddiesForDive(diveId).map { it.id }.toSet() }
 
+    var number by remember { mutableStateOf(dive.number?.toString() ?: "") }
     var notes by remember { mutableStateOf(dive.notes ?: "") }
     var rating by remember { mutableStateOf(dive.rating ?: 0) }
     var visibility by remember { mutableStateOf(dive.visibility?.let { (it / 1000).toString() } ?: "") }
@@ -62,6 +63,7 @@ fun DiveEditScreen(
         }
         container.dives.updateDive(
             dive.copy(
+                number = number.trim().toIntOrNull(),
                 notes = notes.ifBlank { null },
                 rating = rating.takeIf { it in 1..5 },
                 visibility = visibility.trim().toIntOrNull()?.let { it * 1000 },
@@ -80,6 +82,14 @@ fun DiveEditScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("Edit dive", style = MaterialTheme.typography.headlineSmall)
+
+        OutlinedTextField(
+            number,
+            { number = it.filter { c -> c.isDigit() } },
+            label = { Text("Dive number") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth())
 
