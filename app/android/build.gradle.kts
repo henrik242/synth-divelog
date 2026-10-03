@@ -34,6 +34,7 @@ dependencies {
     implementation(project(":core:db"))
     implementation(project(":core:divecomputer"))
     implementation(project(":core:transport"))
+    implementation(project(":core:formats"))
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)

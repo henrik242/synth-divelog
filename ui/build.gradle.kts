@@ -24,6 +24,7 @@ kotlin {
             implementation(compose.ui)
             implementation(project(":core:model"))
             implementation(project(":core:db"))
+            implementation(project(":core:formats"))
             implementation(libs.jetbrains.lifecycle.viewmodel)
             implementation(libs.jetbrains.lifecycle.viewmodel.compose)
             implementation(libs.kotlinx.coroutines.core)

@@ -32,6 +32,8 @@ fun SettingsSection(
     container: AppContainer,
     unitSystem: UnitSystem,
     onUnitSystemChange: (UnitSystem) -> Unit,
+    onImport: () -> Unit = {},
+    onExport: (formatId: String) -> Unit = {},
 ) {
     var version by remember { mutableIntStateOf(0) }
     val devices = remember(version) { container.devices.all() }
@@ -49,6 +51,15 @@ fun SettingsSection(
                     label = { Text(if (system == UnitSystem.METRIC) "Metric" else "Imperial") },
                 )
             }
+        }
+
+        HorizontalDivider()
+
+        Text("Import / export", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onImport) { Text("Import file") }
+            OutlinedButton(onClick = { onExport("subsurface-xml") }) { Text("Export XML") }
+            OutlinedButton(onClick = { onExport("uddf") }) { Text("Export UDDF") }
         }
 
         HorizontalDivider()
