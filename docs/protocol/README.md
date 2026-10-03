@@ -16,6 +16,9 @@ a guess to be confirmed against the next capture.
 | [transport.md](transport.md) | Bluetooth/serial link, SLIP framing, packet header and the shared upload command set. Common to every Shearwater device. |
 | [shearwater-predator.md](shearwater-predator.md) | Predator download: one uncompressed memory dump, ring-buffer extraction, dive-log field offsets. |
 | [shearwater-petrel1.md](shearwater-petrel1.md) | Petrel 1 download: dive manifest, per-dive compressed reads, the compression scheme. Reuses the Predator log format. |
+| [suunto-serial.md](suunto-serial.md) | Suunto USB cable, chipsets, and the two Suunto protocol families. **Planning only, unverified.** |
+| [suunto-zoop.md](suunto-zoop.md) | Zoop / old-Vyper family serial protocol. **Planning only, unverified.** |
+| [suunto-helo2.md](suunto-helo2.md) | HelO2 / D9 family serial protocol. **Planning only, unverified.** |
 
 ## How to read a field offset
 
