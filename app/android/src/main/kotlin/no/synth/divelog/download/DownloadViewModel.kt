@@ -39,7 +39,13 @@ data class MergeReviewItem(
 sealed interface DownloadState {
     data object Idle : DownloadState
     data class Connecting(val deviceName: String) : DownloadState
-    data class Downloading(val bytesRead: Int, val totalBytes: Int) : DownloadState
+    data class Downloading(
+        val bytesRead: Int,
+        val totalBytes: Int,
+        val diveIndex: Int = 0,
+        val diveCount: Int = 0,
+        val etaSeconds: Long? = null,
+    ) : DownloadState
     data object Importing : DownloadState
     data class Reviewing(
         val items: List<MergeReviewItem>,
@@ -63,7 +69,7 @@ class DownloadViewModel(private val container: AppContainer) : ViewModel() {
 
     private var job: Job? = null
 
-    fun start(device: PairedDevice, captureDir: File) {
+    fun start(device: PairedDevice, captureDir: File, limit: Int? = null) {
         if (job?.isActive == true) return
         job = viewModelScope.launch(Dispatchers.IO) {
             var info = DeviceInfo(vendor = "Shearwater", model = "Predator")
@@ -79,13 +85,24 @@ class DownloadViewModel(private val container: AppContainer) : ViewModel() {
                 } else {
                     ShearwaterPredatorProtocol(recording)
                 }
+                var diveCount = 0
+                var divesDone = 0
+                val startMs = System.currentTimeMillis()
                 val listener = object : DownloadListener {
                     override fun onDeviceInfo(i: DeviceInfo) { info = i }
+                    override fun onDiveCount(total: Int) { diveCount = total }
                     override fun onProgress(current: Int, total: Int) {
-                        state = DownloadState.Downloading(current, total)
+                        state = DownloadState.Downloading(
+                            bytesRead = current,
+                            totalBytes = total,
+                            diveIndex = divesDone + 1,
+                            diveCount = diveCount,
+                            etaSeconds = estimateEta(startMs, divesDone, diveCount, current, total),
+                        )
                     }
+                    override fun onDiveDownloaded(index: Int) { divesDone++ }
                 }
-                val rawDives = protocol.download(null, listener, CancellationSignal { !isActive })
+                val rawDives = protocol.download(null, listener, CancellationSignal { !isActive }, limit)
                 saveTranscript(captureDir, recording)
 
                 state = DownloadState.Importing
@@ -164,6 +181,35 @@ class DownloadViewModel(private val container: AppContainer) : ViewModel() {
                     Format.depth(it.maxDepthMm, UnitSystem.METRIC)
             } ?: "existing dive",
         )
+    }
+
+    /**
+     * Rough time-left estimate, in seconds, or null while there is nothing to go
+     * on. For dives of unknown size (Petrel) it extrapolates from the average time
+     * per completed dive; for a fixed-size dump (Predator) it extrapolates from
+     * bytes-per-millisecond so far.
+     */
+    private fun estimateEta(
+        startMs: Long,
+        divesDone: Int,
+        diveCount: Int,
+        bytesRead: Int,
+        totalBytes: Int,
+    ): Long? {
+        val elapsed = System.currentTimeMillis() - startMs
+        if (elapsed <= 0) return null
+        return when {
+            diveCount > 0 && divesDone > 0 -> {
+                val perDive = elapsed.toDouble() / divesDone
+                val remaining = (diveCount - divesDone).coerceAtLeast(0)
+                (perDive * remaining / 1000.0).toLong()
+            }
+            totalBytes > 0 && bytesRead > 0 -> {
+                val perByte = elapsed.toDouble() / bytesRead
+                (perByte * (totalBytes - bytesRead) / 1000.0).toLong()
+            }
+            else -> null
+        }
     }
 
     private fun saveTranscript(dir: File, recording: RecordingTransport): File? = runCatching {

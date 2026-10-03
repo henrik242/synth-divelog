@@ -26,6 +26,9 @@ class RawDive(
 interface DownloadListener {
     fun onDeviceInfo(info: DeviceInfo) {}
 
+    /** Total number of dives about to be downloaded, once known (e.g. from a manifest). */
+    fun onDiveCount(total: Int) {}
+
     /** [current] of [total] units done; [total] is 0 while still unknown. */
     fun onProgress(current: Int, total: Int) {}
 
@@ -51,12 +54,15 @@ interface DiveComputerProtocol {
 
     /**
      * Download dives, skipping anything at or before [knownFingerprint] (the
-     * newest dive already stored for this device), newest first.
+     * newest dive already stored for this device), newest first. [limit], when set,
+     * returns only the newest that many dives; for devices that serve dives one at a
+     * time this also avoids fetching the rest.
      */
     fun download(
         knownFingerprint: String?,
         listener: DownloadListener = object : DownloadListener {},
         cancel: CancellationSignal = CancellationSignal.NONE,
+        limit: Int? = null,
     ): List<RawDive>
 }
 

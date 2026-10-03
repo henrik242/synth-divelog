@@ -29,6 +29,7 @@ class ShearwaterPredatorProtocol(
         knownFingerprint: String?,
         listener: DownloadListener,
         cancel: CancellationSignal,
+        limit: Int?,
     ): List<RawDive> {
         val dump = memory.read(
             baseAddress = BASE_ADDRESS,
@@ -41,11 +42,13 @@ class ShearwaterPredatorProtocol(
 
         val all = PredatorDump.extract(dump)
         // Dives are newest first; stop at the one already stored for this device.
-        val fresh = if (knownFingerprint == null) {
+        val new = if (knownFingerprint == null) {
             all
         } else {
             all.takeWhile { it.fingerprint != knownFingerprint }
         }
+        // The full dump is already read in one go, so a limit only trims the result.
+        val fresh = if (limit != null && limit > 0) new.take(limit) else new
         fresh.forEachIndexed { index, _ -> listener.onDiveDownloaded(index) }
         return fresh
     }

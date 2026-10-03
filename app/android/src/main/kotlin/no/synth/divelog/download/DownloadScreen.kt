@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -85,7 +88,7 @@ fun DownloadScreen(
             DownloadState.Idle -> DevicePicker(
                 devices = devices,
                 onRefresh = { devices = BluetoothDevices.paired(context) },
-                onPick = { viewModel.start(it, File(context.filesDir, "captures")) },
+                onPick = { device, limit -> viewModel.start(device, File(context.filesDir, "captures"), limit) },
                 onBack = onBack,
             )
 
@@ -95,10 +98,25 @@ fun DownloadScreen(
             }
 
             is DownloadState.Downloading -> StatusCard("Downloading...") {
-                val fraction = if (state.totalBytes > 0) state.bytesRead.toFloat() / state.totalBytes else 0f
-                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(8.dp))
-                Text("${state.bytesRead} / ${state.totalBytes} bytes")
+                if (state.totalBytes > 0) {
+                    // Known total (Predator full dump): show a real progress bar.
+                    LinearProgressIndicator(
+                        progress = { state.bytesRead.toFloat() / state.totalBytes },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("${state.bytesRead} / ${state.totalBytes} bytes")
+                } else {
+                    // Unknown total (Petrel per-dive compressed read): count dives instead.
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    if (state.diveCount > 0) {
+                        Text("Dive ${state.diveIndex} of ${state.diveCount} (${state.bytesRead} bytes)")
+                    } else {
+                        Text("${state.bytesRead} bytes")
+                    }
+                }
+                state.etaSeconds?.let { Text("About ${formatEta(it)} left") }
                 OutlinedButton(onClick = { viewModel.cancel() }) { Text("Cancel") }
             }
 
@@ -140,15 +158,38 @@ fun DownloadScreen(
     }
 }
 
+private data class DownloadAmount(val label: String, val limit: Int?)
+
+private val DOWNLOAD_AMOUNTS = listOf(
+    DownloadAmount("Latest 5", 5),
+    DownloadAmount("Latest 25", 25),
+    DownloadAmount("Latest 100", 100),
+    DownloadAmount("All", null),
+)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DevicePicker(
     devices: List<PairedDevice>,
     onRefresh: () -> Unit,
-    onPick: (PairedDevice) -> Unit,
+    onPick: (PairedDevice, Int?) -> Unit,
     onBack: () -> Unit,
 ) {
+    var amount by remember { mutableStateOf(DOWNLOAD_AMOUNTS.last()) } // default: All
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = onRefresh) { Text("Refresh paired devices") }
+
+        Text("How many dives", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DOWNLOAD_AMOUNTS.forEach { option ->
+                FilterChip(
+                    selected = amount == option,
+                    onClick = { amount = option },
+                    label = { Text(option.label) },
+                )
+            }
+        }
+
         if (devices.isEmpty()) {
             Text("No paired devices. Pair the computer in system Bluetooth settings first.")
         } else {
@@ -159,7 +200,7 @@ private fun DevicePicker(
                             Text(device.name ?: "(unnamed)", style = MaterialTheme.typography.titleMedium)
                             Text(device.address, style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(8.dp))
-                            Button(onClick = { onPick(device) }) { Text("Download") }
+                            Button(onClick = { onPick(device, amount.limit) }) { Text("Download ${amount.label.lowercase()}") }
                         }
                     }
                 }
@@ -167,6 +208,12 @@ private fun DevicePicker(
         }
         OutlinedButton(onClick = onBack) { Text("Back") }
     }
+}
+
+private fun formatEta(seconds: Long): String = when {
+    seconds < 60 -> "${seconds}s"
+    seconds < 3600 -> "${seconds / 60}m ${seconds % 60}s"
+    else -> "${seconds / 3600}h ${(seconds % 3600) / 60}m"
 }
 
 @Composable
