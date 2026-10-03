@@ -24,7 +24,11 @@ Storage uses fixed integer units (depth mm, pressure mbar, temperature mK,
 duration s, gas permille); the raw download blob is kept so a record can be
 re-parsed after a parser fix.
 
-Later work (not started; some need a decision first): M5 desktop, M6 iOS, M7 UDCF /
+M5 desktop (JVM): a first cut runs - browse/edit/import/export/re-parse over a
+file-backed database. Bluetooth download stays Android-only until a serial/USB
+transport lands.
+
+Later work (not started; some need a decision first): M6 iOS, M7 UDCF /
 divelogs.de DLD, M8 cloud sync, M9 Suunto download over USB cable (Zoop and HelO2;
 see [docs/protocol](docs/protocol/suunto-serial.md)).
 
@@ -38,6 +42,7 @@ see [docs/protocol](docs/protocol/suunto-serial.md)).
 | `:core:transport` | `expect`/`actual` transports (Android RFCOMM first). |
 | `:ui` | Shared Compose Multiplatform screens and view models. |
 | `:app:android` | Android entry point. |
+| `:app:desktop` | Desktop (JVM) Compose entry point. |
 
 Shared modules declare both a `jvm()` target (so common tests run on the JVM)
 and an Android target. Android APIs stay out of `:core:model`,
@@ -65,6 +70,9 @@ AGP 9.4.0 / Gradle 9.8.0, JDK 17+. Android compileSdk 36, minSdk 26.
 
 # Android debug APK
 ./gradlew :app:android:assembleDebug
+
+# Desktop app (JVM)
+./gradlew :app:desktop:run
 ```
 
 Requires a local Android SDK; point `local.properties` (`sdk.dir=...`) or
