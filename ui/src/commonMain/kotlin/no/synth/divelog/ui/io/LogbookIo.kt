@@ -9,6 +9,9 @@ import no.synth.divelog.core.formats.SubsurfaceXml
 import no.synth.divelog.core.formats.TankEntry
 import no.synth.divelog.core.formats.UddfFormat
 import no.synth.divelog.core.db.ImportResult
+import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.shearwater.PredatorDump
+import no.synth.divelog.core.divecomputer.shearwater.PredatorParser
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Tank
@@ -171,7 +174,33 @@ class LogbookIo(private val container: AppContainer) {
         )
     }
 
+    /**
+     * Re-parse every stored dive from its saved raw download, rebuilding samples,
+     * events and summaries while keeping user-entered fields (number, notes,
+     * rating, site). Lets a parser improvement reach already-imported dives without
+     * a re-download. File imports keep no raw data, so they are left untouched.
+     * Returns the number of records re-parsed.
+     */
+    fun reparseAll(): Int {
+        val parser = PredatorParser()
+        var count = 0
+        for (dive in container.dives.allDives()) {
+            for (record in container.dives.recordsForDive(dive.id)) {
+                if (record.rawFormatId !in REPARSEABLE_FORMATS) continue
+                val raw = container.dives.rawData(record.id) ?: continue
+                val incoming = runCatching {
+                    parser.parse(RawDive(record.fingerprint, raw, record.rawFormatId))
+                }.getOrNull() ?: continue
+                container.dives.reparseRecord(record.id, incoming)
+                count++
+            }
+        }
+        return count
+    }
+
     companion object {
+        private val REPARSEABLE_FORMATS = setOf(PredatorDump.FORMAT_ID, PredatorParser.PETREL_FORMAT_ID)
+
         fun formats(): List<DiveFormat> = listOf(SubsurfaceXml(), UddfFormat())
 
         /** Guess the format from the file content. */

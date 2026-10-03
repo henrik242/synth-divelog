@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onReparse = {
                             scope.launch(Dispatchers.IO) {
-                                val count = Reparse.all(container)
+                                val count = logbook.reparseAll()
                                 dataVersion++
                                 withContext(Dispatchers.Main) {
                                     android.widget.Toast

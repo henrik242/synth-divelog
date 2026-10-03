@@ -25,6 +25,7 @@ kotlin {
             implementation(project(":core:model"))
             implementation(project(":core:db"))
             implementation(project(":core:formats"))
+            implementation(project(":core:divecomputer"))
             implementation(libs.jetbrains.lifecycle.viewmodel)
             implementation(libs.jetbrains.lifecycle.viewmodel.compose)
             implementation(libs.kotlinx.coroutines.core)
