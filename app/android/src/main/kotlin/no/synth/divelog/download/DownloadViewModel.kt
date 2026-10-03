@@ -13,8 +13,10 @@ import kotlinx.coroutines.launch
 import no.synth.divelog.core.db.ImportDecision
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DeviceInfo
+import no.synth.divelog.core.divecomputer.DiveComputerProtocol
 import no.synth.divelog.core.divecomputer.DownloadListener
 import no.synth.divelog.core.divecomputer.shearwater.PredatorParser
+import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPetrelProtocol
 import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPredatorProtocol
 import no.synth.divelog.core.divecomputer.transport.RecordingTransport
 import no.synth.divelog.core.model.Device
@@ -71,7 +73,12 @@ class DownloadViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 state = DownloadState.Connecting(device.name ?: device.address)
                 recording.open()
-                val protocol = ShearwaterPredatorProtocol(recording)
+                val isPetrel = (device.name ?: "").contains("petrel", ignoreCase = true)
+                val protocol: DiveComputerProtocol = if (isPetrel) {
+                    ShearwaterPetrelProtocol(recording)
+                } else {
+                    ShearwaterPredatorProtocol(recording)
+                }
                 val listener = object : DownloadListener {
                     override fun onDeviceInfo(i: DeviceInfo) { info = i }
                     override fun onProgress(current: Int, total: Int) {
@@ -136,6 +143,11 @@ class DownloadViewModel(private val container: AppContainer) : ViewModel() {
 
     fun cancel() {
         job?.cancel()
+    }
+
+    /** Return to the device picker after a finished or failed download. */
+    fun reset() {
+        if (job?.isActive != true) state = DownloadState.Idle
     }
 
     private fun reviewItem(incoming: IncomingDive, existingDiveId: Long): MergeReviewItem {

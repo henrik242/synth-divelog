@@ -65,7 +65,7 @@ fun DownloadScreen(
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Download dives", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Put the Predator in Bluetooth upload mode, then pick it below.",
+            "Put the dive computer in Bluetooth upload mode, then pick it below.",
             style = MaterialTheme.typography.bodyMedium,
         )
 
@@ -126,10 +126,13 @@ fun DownloadScreen(
                         "skipped ${state.skipped} already stored.",
                 )
                 Button(onClick = onImported) { Text("Done") }
+                OutlinedButton(onClick = { viewModel.reset() }) { Text("Download another") }
             }
 
             is DownloadState.Failed -> StatusCard("Download failed") {
                 Text(state.message, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = { viewModel.reset() }) { Text("Try again") }
                 OutlinedButton(onClick = onBack) { Text("Back") }
             }
         }

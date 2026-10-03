@@ -36,11 +36,42 @@ class ShearwaterMemory(private val link: ShearwaterLink) {
         return out
     }
 
+    /**
+     * Read a compressed region of unknown length (Petrel dive). The compressed
+     * stream signals its own end, so blocks are pulled until the run-length stage
+     * reports completion, then the block XOR stage is undone.
+     */
+    fun readCompressed(
+        baseAddress: Long,
+        onProgress: (read: Int) -> Unit = {},
+        cancel: CancellationSignal = CancellationSignal.NONE,
+    ): ByteArray {
+        begin(baseAddress, MAX_COMPRESSED_SIZE, compressed = true)
+        val raw = ArrayList<Byte>()
+        var block = 1
+        while (true) {
+            if (cancel.isCancelled()) throw DownloadCancelledException()
+            val data = readBlock(block)
+            if (data.isEmpty()) throw ProtocolException("Empty compressed block $block")
+            for (b in data) raw.add(b)
+            val lre = ShearwaterCompression.decompressLre(raw.toByteArray())
+            if (lre.complete) {
+                finish()
+                val result = lre.data
+                ShearwaterCompression.decompressXor(result)
+                return result
+            }
+            block = (block + 1) and 0xFF
+            onProgress(raw.size)
+            if (raw.size > MAX_COMPRESSED_SIZE) throw ProtocolException("Compressed dive exceeds limit")
+        }
+    }
+
     /** Send the init command; returns the maximum block payload length. */
-    private fun begin(baseAddress: Long, size: Int): Int {
+    private fun begin(baseAddress: Long, size: Int, compressed: Boolean = false): Int {
         val payload = byteArrayOf(
             CMD_INIT,
-            COMPRESSION_OFF,
+            if (compressed) COMPRESSION_ON else COMPRESSION_OFF,
             INIT_TAG,
             ((baseAddress ushr 24) and 0xFF).toByte(),
             ((baseAddress ushr 16) and 0xFF).toByte(),
@@ -95,7 +126,9 @@ class ShearwaterMemory(private val link: ShearwaterLink) {
         private const val RSP_DATA = 0x76.toByte()
         private const val RSP_EXIT = 0x77.toByte()
         private const val COMPRESSION_OFF = 0x00.toByte()
+        private const val COMPRESSION_ON = 0x10.toByte()
         private const val INIT_TAG = 0x34.toByte()
         private const val DEFAULT_MAX_LEN = 254
+        private const val MAX_COMPRESSED_SIZE = 0xFFFFFF
     }
 }
