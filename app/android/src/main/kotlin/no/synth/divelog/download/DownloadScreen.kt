@@ -103,8 +103,28 @@ fun DownloadScreen(
 
             DownloadState.Importing -> StatusCard("Importing...") { CircularProgressIndicator() }
 
+            is DownloadState.Reviewing -> {
+                val item = state.items[state.index]
+                StatusCard("Merge dive? (${state.index + 1}/${state.items.size})") {
+                    Text("This download overlaps an existing dive - likely the same dive from another computer.")
+                    Spacer(Modifier.height(8.dp))
+                    Text("Incoming:  ${item.incomingLabel}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Existing:  ${item.existingLabel}", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = { viewModel.resolveReview(merge = true) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Merge into existing dive")
+                    }
+                    OutlinedButton(onClick = { viewModel.resolveReview(merge = false) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Keep as separate dive")
+                    }
+                }
+            }
+
             is DownloadState.Done -> StatusCard("Download complete") {
-                Text("Imported ${state.imported} new dive(s), skipped ${state.skipped} already stored.")
+                Text(
+                    "Imported ${state.imported} new, merged ${state.merged}, " +
+                        "skipped ${state.skipped} already stored.",
+                )
                 Button(onClick = onImported) { Text("Done") }
             }
 
