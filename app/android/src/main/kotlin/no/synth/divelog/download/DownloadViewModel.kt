@@ -1,5 +1,6 @@
 package no.synth.divelog.download
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -63,7 +64,10 @@ sealed interface DownloadState {
  * skipped; a dive that overlaps an existing one (another computer on the same
  * dive) is held for a merge decision before being attached or kept separate.
  */
-class DownloadViewModel(private val container: AppContainer) : ViewModel() {
+class DownloadViewModel(
+    private val container: AppContainer,
+    private val appContext: Context,
+) : ViewModel() {
     var state: DownloadState by mutableStateOf(DownloadState.Idle)
         private set
 
@@ -71,6 +75,7 @@ class DownloadViewModel(private val container: AppContainer) : ViewModel() {
 
     fun start(device: PairedDevice, captureDir: File, limit: Int? = null) {
         if (job?.isActive == true) return
+        DownloadService.start(appContext, "Connecting to ${device.name ?: device.address}...")
         job = viewModelScope.launch(Dispatchers.IO) {
             var info = DeviceInfo(vendor = "Shearwater", model = "Predator")
             val recording = RecordingTransport(BluetoothDevices.transportFor(device.raw)) {
@@ -90,7 +95,10 @@ class DownloadViewModel(private val container: AppContainer) : ViewModel() {
                 val startMs = System.currentTimeMillis()
                 val listener = object : DownloadListener {
                     override fun onDeviceInfo(i: DeviceInfo) { info = i }
-                    override fun onDiveCount(total: Int) { diveCount = total }
+                    override fun onDiveCount(total: Int) {
+                        diveCount = total
+                        DownloadService.publish(if (total > 0) "Downloading $total dives" else "Downloading dives")
+                    }
                     override fun onProgress(current: Int, total: Int) {
                         state = DownloadState.Downloading(
                             bytesRead = current,
@@ -100,12 +108,17 @@ class DownloadViewModel(private val container: AppContainer) : ViewModel() {
                             etaSeconds = estimateEta(startMs, divesDone, diveCount, current, total),
                         )
                     }
-                    override fun onDiveDownloaded(index: Int) { divesDone++ }
+                    override fun onDiveDownloaded(index: Int) {
+                        divesDone++
+                        // One update per dive (not per byte) keeps the notification cheap.
+                        if (diveCount > 0) DownloadService.publish("Dive $divesDone of $diveCount")
+                    }
                 }
                 val rawDives = protocol.download(null, listener, CancellationSignal { !isActive }, limit)
                 saveTranscript(captureDir, recording)
 
                 state = DownloadState.Importing
+                DownloadService.publish("Importing dives...")
                 val deviceId = container.devices.getOrCreate(
                     Device(vendor = info.vendor, model = info.model, bluetoothAddress = device.address),
                 )
@@ -133,6 +146,7 @@ class DownloadViewModel(private val container: AppContainer) : ViewModel() {
                 state = DownloadState.Failed(e.message ?: e.toString(), saveTranscript(captureDir, recording))
             } finally {
                 recording.close()
+                DownloadService.stop(appContext)
             }
         }
     }

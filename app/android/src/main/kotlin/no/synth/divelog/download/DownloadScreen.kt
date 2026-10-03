@@ -47,6 +47,12 @@ private fun hasConnectPermission(context: android.content.Context): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
         android.content.pm.PackageManager.PERMISSION_GRANTED
 
+/** Bluetooth is required; the notification permission (API 33+) is nice-to-have for the download notification. */
+private fun downloadPermissions(): Array<String> = buildList {
+    add(Manifest.permission.BLUETOOTH_CONNECT)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+}.toTypedArray()
+
 @Composable
 fun DownloadScreen(
     container: AppContainer,
@@ -54,7 +60,7 @@ fun DownloadScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val viewModel: DownloadViewModel = viewModel { DownloadViewModel(container) }
+    val viewModel: DownloadViewModel = viewModel { DownloadViewModel(container, context.applicationContext) }
     var granted by remember { mutableStateOf(hasConnectPermission(context)) }
     var devices by remember { mutableStateOf(if (granted) BluetoothDevices.paired(context) else emptyList()) }
 
@@ -74,7 +80,7 @@ fun DownloadScreen(
         )
 
         if (!granted) {
-            Button(onClick = { permissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT)) }) {
+            Button(onClick = { permissionLauncher.launch(downloadPermissions()) }) {
                 Text("Grant Bluetooth permission")
             }
             OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }) {
