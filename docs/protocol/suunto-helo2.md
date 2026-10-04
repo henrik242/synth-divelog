@@ -10,26 +10,21 @@ family split.
 - **9600 baud, 8N1.** `DTR` held high powers the interface; give it ~100 ms to settle
   and flush the buffers before the first command.
 - **Half-duplex**, the same `RTS` polarity as the old Vyper family: drive `RTS`
-  **high to transmit** and **low to receive**, flipping it around each write. Unlike
-  the old single-wire cable the proper interface does **not echo** the sent bytes, so
-  there is nothing to discard. Let the UART drain (~50 ms) after a write before
-  switching to receive so the last byte is not cut off.
-- **Turnaround is timing-sensitive.** The device replies fast and there is no echo to
-  sync on, so the RTS switch to receive must land in a narrow window (~6-10 ms after the
-  write) or the reply is lost (short replies) or clipped (long ones show a garbage head
-  and a correct tail). The FTDI latency timer makes a fixed delay hit or miss by phase,
-  and jSerialComm exposes no `tcdrain`/latency control. So the transport jitters the
-  settle (`txSettleMs` + random `txJitterMs`) and `SuuntoD9Link` resends and rereads,
-  validating header and CRC, until a reply lands (fast-failing a missed turnaround on
-  the first byte). GetVersion survived a fixed 50 ms settle only because that reply is
-  slower to formulate.
-- Verified on hardware with a line-settings probe (GetVersion `0f 00 00 0f`). The
-  original Suunto cable replied `0f 00 04 ...` only under this half-duplex,
-  RTS-high-to-transmit config; full-duplex (RTS held either way) and the inverted
-  polarity all stayed silent. The reference driver describes the transmit state as
-  `set_rts(0)`, which maps to the opposite physical level through this FTDI cable, so
-  the measured polarity is what counts. A third-party single-wire cable echoed our
-  own bytes instead of relaying the reply, so it is not usable as-is.
+  **high to transmit** and **low to receive**, flipping it around each write. Let the
+  UART drain after a write before switching to receive so the last byte is not cut off.
+- **The reliable turnaround sync is reading the command echo back.** The reference
+  driver (and dctool) read the just-sent bytes back - which blocks until the command is
+  physically on the wire - then flip to receive. The line does echo on both cables when
+  driven this way; both the original and a third-party cable read fine under the
+  reference tool. Our own read path does NOT do the echo-read sync, and instead times
+  the RTS flip, which is unreliable: the reply is fast and the FTDI latency timer makes
+  a fixed settle hit or miss by phase, so we jitter the settle and have `SuuntoD9Link`
+  resend/reread (validating header + CRC) until a reply lands. That workaround's hit
+  rate is cable/chip dependent - ~40%/attempt on one FTDI (so retries reach 100%),
+  lower on another. The proper fix for cable-independent reliability is to implement
+  the echo-read sync; a JNA attempt to do so had an unresolved termios config bug.
+- Do NOT conclude a cable is "bad" from our read failing: the reference tool reads it,
+  so a failure is our turnaround, not the hardware.
 
 ## Packet framing
 
