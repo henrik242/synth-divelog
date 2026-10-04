@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
@@ -25,10 +26,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -50,6 +53,7 @@ import no.synth.divelog.ui.buddies.BuddiesSection
 import no.synth.divelog.ui.dive.DiveDetailScreen
 import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
+import no.synth.divelog.ui.format.Format
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
 import no.synth.divelog.ui.stats.StatisticsSection
@@ -178,16 +182,23 @@ private fun DivesSection(
     val siteNames = remember(dataVersion, reloadKey) { container.sites.allSites().associate { it.id to it.name } }
     var query by remember { mutableStateOf("") }
     var sort by remember { mutableStateOf(DiveSort.DATE) }
+    var selectedYear by remember { mutableStateOf<Int?>(null) }
 
-    val shown = remember(dives, query, sort, siteNames) {
+    val years = remember(dives) {
+        dives.map { Format.year(it.startEpochSeconds, it.utcOffsetSeconds) }.distinct().sortedDescending()
+    }
+
+    val shown = remember(dives, query, sort, selectedYear, siteNames) {
         val q = query.trim().lowercase()
         dives
+            .filter { selectedYear == null || Format.year(it.startEpochSeconds, it.utcOffsetSeconds) == selectedYear }
             .filter { d ->
                 if (q.isEmpty()) true
                 else {
                     val site = d.siteId?.let { siteNames[it] } ?: ""
                     d.number?.toString()?.contains(q) == true ||
                         site.lowercase().contains(q) ||
+                        Format.date(d.startEpochSeconds, d.utcOffsetSeconds).lowercase().contains(q) ||
                         (d.notes?.lowercase()?.contains(q) == true)
                 }
             }
@@ -196,8 +207,17 @@ private fun DivesSection(
                     DiveSort.DATE -> compareByDescending { it.startEpochSeconds }
                     DiveSort.NUMBER -> compareByDescending { it.number ?: 0 }
                     DiveSort.DEPTH -> compareByDescending { it.maxDepthMm ?: 0 }
+                    DiveSort.DURATION -> compareByDescending { it.durationSeconds }
                 },
             )
+    }
+    // Group by month only for the date sort, where month headers make sense.
+    val grouped = remember(shown, sort) {
+        if (sort == DiveSort.DATE) {
+            shown.groupBy { Format.monthYear(it.startEpochSeconds, it.utcOffsetSeconds) }
+        } else {
+            null
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -217,27 +237,65 @@ private fun DivesSection(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             )
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DiveSort.entries.forEach { s ->
+            LazyRow(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(DiveSort.entries.toList()) { s ->
                     FilterChip(selected = sort == s, onClick = { sort = s }, label = { Text(s.label) })
                 }
             }
+            if (years.size > 1) {
+                LazyRow(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
+                        FilterChip(
+                            selected = selectedYear == null,
+                            onClick = { selectedYear = null },
+                            label = { Text("All") },
+                        )
+                    }
+                    items(years) { y ->
+                        FilterChip(
+                            selected = selectedYear == y,
+                            onClick = { selectedYear = if (selectedYear == y) null else y },
+                            label = { Text("$y") },
+                        )
+                    }
+                }
+            }
             LazyColumn(Modifier.fillMaxSize()) {
-                items(shown) { dive ->
-                    DiveRow(
-                        dive = dive,
-                        unitSystem = unitSystem,
-                        onClick = { openDiveId = dive.id },
-                        siteName = dive.siteId?.let { siteNames[it] },
-                    )
-                    HorizontalDivider()
+                if (grouped != null) {
+                    grouped.forEach { (month, monthDives) ->
+                        item {
+                            Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant) {
+                                Text(
+                                    month,
+                                    Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        items(monthDives) { dive ->
+                            DiveRow(dive, unitSystem, onClick = { openDiveId = dive.id }, siteName = dive.siteId?.let { siteNames[it] })
+                            HorizontalDivider()
+                        }
+                    }
+                } else {
+                    items(shown) { dive ->
+                        DiveRow(dive, unitSystem, onClick = { openDiveId = dive.id }, siteName = dive.siteId?.let { siteNames[it] })
+                        HorizontalDivider()
+                    }
                 }
             }
         }
     }
 }
 
-private enum class DiveSort(val label: String) { DATE("Date"), NUMBER("Number"), DEPTH("Depth") }
+private enum class DiveSort(val label: String) { DATE("Date"), NUMBER("Number"), DEPTH("Depth"), DURATION("Duration") }
 
 @Composable
 private fun EmptyState(message: String) {

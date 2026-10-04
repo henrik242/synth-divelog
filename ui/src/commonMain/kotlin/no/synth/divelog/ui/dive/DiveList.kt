@@ -27,28 +27,45 @@ import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.format.Format
 
-/** One dive summary row. */
+/** One dive summary row: site (or date) as the headline, depth emphasized. */
 @Composable
 fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit, siteName: String? = null) {
+    val hasSite = !siteName.isNullOrBlank()
+    val headline = if (hasSite) siteName!! else Format.date(dive.startEpochSeconds, dive.utcOffsetSeconds)
+    val secondary = buildList {
+        dive.number?.let { add("#$it") }
+        add(
+            if (hasSite) Format.dateTime(dive.startEpochSeconds, dive.utcOffsetSeconds)
+            else Format.time(dive.startEpochSeconds, dive.utcOffsetSeconds),
+        )
+    }.joinToString(" · ")
+
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(dive.number?.let { "#$it" } ?: "Dive", style = MaterialTheme.typography.titleMedium)
+            Text(headline, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                buildString {
-                    append(Format.dateTime(dive.startEpochSeconds, dive.utcOffsetSeconds))
-                    if (!siteName.isNullOrBlank()) append(" · ").append(siteName)
-                },
+                secondary,
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(Format.depth(dive.maxDepthMm, unitSystem))
-            Text("${Format.duration(dive.durationSeconds)} min", style = MaterialTheme.typography.bodySmall)
+        Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 12.dp)) {
+            Text(
+                Format.depth(dive.maxDepthMm, unitSystem),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                "${Format.duration(dive.durationSeconds)} min",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

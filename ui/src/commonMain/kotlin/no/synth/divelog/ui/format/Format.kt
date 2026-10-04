@@ -18,8 +18,19 @@ object Format {
     private fun wallClock(epochSeconds: Long, utcOffsetSeconds: Int): LocalDateTime =
         Instant.fromEpochSeconds(epochSeconds + utcOffsetSeconds).toLocalDateTime(TimeZone.UTC)
 
+    private val fullMonths = listOf(
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    )
+
     fun year(epochSeconds: Long, utcOffsetSeconds: Int): Int =
         wallClock(epochSeconds, utcOffsetSeconds).year
+
+    /** Month and year, e.g. "August 2026", for list section headers. */
+    fun monthYear(epochSeconds: Long, utcOffsetSeconds: Int): String {
+        val t = wallClock(epochSeconds, utcOffsetSeconds)
+        return "${fullMonths[t.month.ordinal]} ${t.year}"
+    }
 
     fun date(epochSeconds: Long, utcOffsetSeconds: Int): String {
         val t = wallClock(epochSeconds, utcOffsetSeconds)
