@@ -231,7 +231,8 @@ private fun probeLines(portName: String) {
 private fun readProbe(portName: String) {
     val port = SerialPort.getCommPort(portName)
     port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
-    port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 3000, 0)
+    val mode = SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING
+    port.setComPortTimeouts(mode, 3000, 2000)
     if (!port.openPort()) {
         println("Could not open $portName")
         return
@@ -242,24 +243,29 @@ private fun readProbe(portName: String) {
         Thread.sleep(100)
         runCatching { port.flushIOBuffers() }
 
-        // Half-duplex exchange: RTS high to transmit, drain, optionally read the echo
-        // back, then RTS low to receive and read the reply.
-        fun exchange(command: ByteArray, maxReply: Int, txSettleMs: Long, readEcho: Boolean): ByteArray {
+        fun setReadTimeout(ms: Int) = port.setComPortTimeouts(mode, ms, 2000)
+
+        // Half-duplex exchange: RTS high to transmit, blocking write, a short settle to
+        // let the command drain off the wire, then RTS low to receive. The device replies
+        // fast, so if the settle is too long the reply is lost while we are still in
+        // transmit; too short and we clip our own command. The sweep below finds the window.
+        fun exchange(command: ByteArray, maxReply: Int, txSettleMs: Long): ByteArray {
             runCatching { port.flushIOBuffers() }
             port.setRTS() // transmit
             port.writeBytes(command, command.size)
-            Thread.sleep(txSettleMs)
-            if (readEcho) {
-                val echo = ByteArray(command.size)
-                port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 600, 0)
-                val e = port.readBytes(echo, echo.size)
-                println("      echo read: ${if (e > 0) hex(echo.copyOf(e)) else "(none)"}")
-                port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 3000, 0)
-            }
+            if (txSettleMs > 0) Thread.sleep(txSettleMs)
             port.clearRTS() // receive
             val buf = ByteArray(maxReply)
             val n = port.readBytes(buf, buf.size)
             return if (n > 0) buf.copyOf(n) else ByteArray(0)
+        }
+
+        fun drain(label: String) {
+            setReadTimeout(300)
+            val t = ByteArray(200)
+            val n = port.readBytes(t, t.size)
+            if (n > 0) println("      (drained $label: ${hex(t.copyOf(n))})")
+            setReadTimeout(3000)
         }
 
         fun readMemoryCmd(address: Int, count: Int): ByteArray {
@@ -269,45 +275,23 @@ private fun readProbe(portName: String) {
             return c + crc.toByte()
         }
 
-        val version = exchange(byteArrayOf(0x0F, 0x00, 0x00, 0x0F), 16, 50, readEcho = false)
+        val version = exchange(byteArrayOf(0x0F, 0x00, 0x00, 0x0F), 16, 50)
         println("GetVersion: ${if (version.isEmpty()) "(no bytes)" else hex(version)}")
         if (version.isEmpty()) {
             println("No version reply, aborting read probe.")
             return
         }
-        // The version reply can arrive in chunks; drain the tail so it does not get
-        // mistaken for the next reply (flushIOBuffers is unreliable on this cable).
-        run {
-            port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 300, 0)
-            val drain = ByteArray(32)
-            val d = port.readBytes(drain, drain.size)
-            if (d > 0) println("  (drained version tail: ${hex(drain.copyOf(d))})")
-            port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 3000, 0)
-        }
+        drain("version tail")
 
-        // The reference download reads the serial and a header at 0x0190 before the
-        // dive ring buffer; low addresses may be unmapped. Try the real addresses.
-        data class Case(val label: String, val addr: Int, val count: Int, val settle: Long, val echo: Boolean)
-        val cases = listOf(
-            Case("addr 0x0190 count 8   settle 50", 0x0190, 8, 50, false),
-            Case("addr 0x0190 count 4   settle 50", 0x0190, 4, 50, false),
-            Case("addr 0x0190 count 8   settle 50  +echo", 0x0190, 8, 50, true),
-            Case("addr 0x0023 count 4   settle 50", 0x0023, 4, 50, false),
-            Case("addr 0x0000 count 4   settle 50", 0x0000, 4, 50, false),
-            Case("addr 0x0000 count 120 settle 50", 0x0000, 120, 50, false),
-        )
-        for (c in cases) {
-            val cmd = readMemoryCmd(c.addr, c.count)
-            println("ReadMemory ${c.label}  (sent ${hex(cmd)}):")
-            val reply = exchange(cmd, c.count + 16, c.settle, c.echo)
-            println("      reply: ${if (reply.isEmpty()) "(no bytes)" else hex(reply)}")
-            // Drain any trailing bytes so a chunked reply does not bleed into the next case.
-            port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 300, 0)
-            val tail = ByteArray(160)
-            val t = port.readBytes(tail, tail.size)
-            if (t > 0) println("      (drained tail: ${hex(tail.copyOf(t))})")
-            port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 3000, 0)
-            Thread.sleep(200)
+        // Sweep short settle times. The command is 7 bytes (~7 ms on the wire); a clean
+        // reply for count 8 at 0x0190 is 05 00 0b 01 90 08 <8 data> <crc> (15 bytes, starts
+        // with 05). Whichever settle yields that cleanly is the turnaround we need.
+        println("Sweeping settle times for ReadMemory 0x0190 count 8 (want 05 00 0b 01 90 08 ...):")
+        for (settle in listOf(0L, 2L, 4L, 6L, 8L, 10L, 12L, 16L, 20L, 30L)) {
+            val reply = exchange(readMemoryCmd(0x0190, 8), 24, settle)
+            println("  settle ${settle}ms: ${if (reply.isEmpty()) "(no bytes)" else hex(reply)}")
+            drain("tail")
+            Thread.sleep(150)
         }
     } finally {
         runCatching { port.closePort() }
