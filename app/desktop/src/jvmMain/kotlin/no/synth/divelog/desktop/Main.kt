@@ -7,13 +7,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import no.synth.divelog.core.db.DriverFactory
 import no.synth.divelog.core.db.createDatabase
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.SynthDivelogApp
 import no.synth.divelog.ui.SynthTheme
+import no.synth.divelog.ui.download.DesktopSerialPorts
 import no.synth.divelog.ui.io.LogbookIo
 import no.synth.divelog.ui.settings.AppSettings
 import no.synth.divelog.ui.settings.SettingsStore
@@ -24,22 +24,20 @@ import java.io.File
 
 /**
  * Desktop (JVM) entry point. Reuses the shared Compose UI and core repositories
- * over a file-backed SQLite database in the user's home. The Download button opens a
- * picker for the Suunto family and serial port, then runs the wired download; file
- * import/export, re-parse and cloud sync go through the shared logbook and sync code.
+ * over a file-backed SQLite database in the user's home. The Download button runs the
+ * shared wired-serial download over jSerialComm; file import/export, re-parse and cloud
+ * sync go through the shared logbook and sync code.
  */
 fun main() = application {
     val settings = remember { AppSettings(SettingsStore()) }
     val container = remember { AppContainer(DriverFactory(databasePath()).createDatabase()) }
     val logbook = remember { LogbookIo(container) }
     val cloud = remember { CloudGit(cloudDir()) }
+    val serialPorts = remember { DesktopSerialPorts() }
     val scope = rememberCoroutineScope()
     var unitSystem by remember { mutableStateOf(settings.unitSystem) }
     var dataVersion by remember { mutableStateOf(0) }
     var status by remember { mutableStateOf<String?>(null) }
-    var downloadState by remember { mutableStateOf<DesktopDownloadState>(DesktopDownloadState.Idle) }
-    var showDownloadPicker by remember { mutableStateOf(false) }
-    val cancelDownload = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     Window(onCloseRequest = ::exitApplication, title = "Synth Divelog") {
         SynthTheme {
@@ -50,11 +48,8 @@ fun main() = application {
                     unitSystem = it
                     settings.unitSystem = it
                 },
-                onDownloadClick = {
-                    if (downloadState is DesktopDownloadState.Idle && !showDownloadPicker) {
-                        showDownloadPicker = true
-                    }
-                },
+                serialPorts = serialPorts,
+                onDownloaded = { dataVersion++ },
                 onImport = {
                     val path = pickFile(FileDialog.LOAD)
                     if (path != null) {
@@ -96,32 +91,6 @@ fun main() = application {
                 onStatusShown = { status = null },
                 dataVersion = dataVersion,
             )
-            if (showDownloadPicker) {
-                DesktopDownloadPickerDialog(
-                    onStart = { family, port ->
-                        showDownloadPicker = false
-                        cancelDownload.set(false)
-                        downloadState = DesktopDownloadState.Running(0f, "Connecting to the dive computer")
-                        scope.launch(Dispatchers.IO) {
-                            val result = try {
-                                downloadToLogbook(container, family, port, isCancelled = { cancelDownload.get() }) { f, label ->
-                                    downloadState = DesktopDownloadState.Running(f, label)
-                                }
-                            } catch (e: Exception) {
-                                "Download failed: ${e.message ?: e::class.simpleName}"
-                            } finally {
-                                downloadState = DesktopDownloadState.Idle
-                            }
-                            status = result
-                            dataVersion++
-                        }
-                    },
-                    onCancel = { showDownloadPicker = false },
-                )
-            }
-            (downloadState as? DesktopDownloadState.Running)?.let {
-                DesktopDownloadDialog(it, onCancel = { cancelDownload.set(true) })
-            }
         }
     }
 }

@@ -19,9 +19,10 @@ import platform.UIKit.UIViewController
 
 /**
  * iOS entry point: hosts the shared Compose UI in a UIViewController for the Swift
- * app to present. Reuses the shared repositories, settings and cloud sync. Wired
- * download is Android-only; file import/export awaits a native document picker, so
- * import/export on iOS goes through the Subsurface cloud.
+ * app to present. Reuses the shared repositories, settings and cloud sync. Dive-computer
+ * download is unavailable on iOS (no serial layer), so the Download button says so; file
+ * import/export awaits a native document picker, so import/export on iOS goes through the
+ * Subsurface cloud.
  */
 fun MainViewController(): UIViewController = ComposeUIViewController {
     val settings = remember { AppSettings(SettingsStore()) }
@@ -41,7 +42,6 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
                 unitSystem = it
                 settings.unitSystem = it
             },
-            onDownloadClick = {},
             onReparse = {
                 scope.launch {
                     val count = withContext(Dispatchers.Default) { logbook.reparseAll() }

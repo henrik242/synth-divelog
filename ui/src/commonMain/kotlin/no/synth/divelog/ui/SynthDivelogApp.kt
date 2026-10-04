@@ -66,6 +66,15 @@ import no.synth.divelog.ui.dive.DiveDetailScreen
 import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
 import no.synth.divelog.ui.components.EmptyState
+import no.synth.divelog.ui.download.DiveComputerType
+import no.synth.divelog.ui.download.DownloadChooserDialog
+import no.synth.divelog.ui.download.DownloadController
+import no.synth.divelog.ui.download.DownloadPickerDialog
+import no.synth.divelog.ui.download.DownloadProgressDialog
+import no.synth.divelog.ui.download.DownloadUiState
+import no.synth.divelog.ui.download.NoSerialPorts
+import no.synth.divelog.ui.download.SerialPortInfo
+import no.synth.divelog.ui.download.SerialPorts
 import no.synth.divelog.ui.format.Format
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
@@ -80,9 +89,12 @@ private enum class Section(val label: String, val icon: ImageVector, val selecte
 }
 
 /**
- * Root of the shared app. Reads from [container]; [onDownloadClick] launches the
- * platform download flow, and [dataVersion] is bumped by the host to trigger a
- * reload after an import.
+ * Root of the shared app. Reads from [container]. The Download button drives the shared
+ * wired-serial download over [serialPorts] (desktop jSerialComm, Android USB-serial);
+ * where a platform has another download path too (Android Bluetooth Shearwater),
+ * [onExtraDownload] exposes it under [extraDownloadLabel] and the button offers a choice.
+ * [onDownloaded] lets the host refresh after a shared download; [dataVersion] is bumped
+ * by the host to trigger a reload after an import.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -90,7 +102,11 @@ fun SynthDivelogApp(
     container: AppContainer,
     unitSystem: UnitSystem,
     onUnitSystemChange: (UnitSystem) -> Unit,
-    onDownloadClick: () -> Unit,
+    serialPorts: SerialPorts = NoSerialPorts(),
+    downloadTypes: List<DiveComputerType> = DiveComputerType.entries,
+    extraDownloadLabel: String? = null,
+    onExtraDownload: (() -> Unit)? = null,
+    onDownloaded: () -> Unit = {},
     onImport: () -> Unit = {},
     onExport: (formatId: String) -> Unit = {},
     onReparse: () -> Unit = {},
@@ -115,6 +131,36 @@ fun SynthDivelogApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var backArmed by remember { mutableStateOf(false) }
+
+    // Shared wired-serial download: picker, progress and orchestration over [serialPorts].
+    val controller = remember(container, serialPorts) { DownloadController(container, serialPorts) }
+    var downloadUi by remember { mutableStateOf<DownloadUiState>(DownloadUiState.Hidden) }
+    var pickerPorts by remember { mutableStateOf<List<SerialPortInfo>>(emptyList()) }
+    val cancelDownload = remember { mutableStateOf(false) }
+
+    fun startSerialDownload(type: DiveComputerType, portId: String) {
+        cancelDownload.value = false
+        downloadUi = DownloadUiState.Running(0f, "Connecting to the dive computer")
+        scope.launch {
+            val result = runCatching {
+                controller.download(type, portId, cancel = { cancelDownload.value }) { fraction, label ->
+                    downloadUi = DownloadUiState.Running(fraction, label)
+                }
+            }.getOrElse { "Download failed: ${it.message ?: it::class.simpleName}" }
+            downloadUi = DownloadUiState.Hidden
+            onDownloaded()
+            snackbarHostState.showSnackbar(result)
+        }
+    }
+
+    val onDownloadClick: () -> Unit = {
+        when {
+            serialPorts.downloadSupported && onExtraDownload != null -> downloadUi = DownloadUiState.Chooser
+            serialPorts.downloadSupported -> { pickerPorts = serialPorts.list(); downloadUi = DownloadUiState.Picker }
+            onExtraDownload != null -> onExtraDownload()
+            else -> scope.launch { snackbarHostState.showSnackbar("Download is not available on this device.") }
+        }
+    }
 
     // Hosts that lack a native toast (desktop, iOS) surface import/cloud results here.
     LaunchedEffect(statusMessage) {
@@ -199,6 +245,28 @@ fun SynthDivelogApp(
                     onCloudConfigChange = onCloudConfigChange,
                     onCloudPull = onCloudPull,
                     onCloudPush = onCloudPush,
+                )
+            }
+
+            when (val ui = downloadUi) {
+                DownloadUiState.Hidden -> {}
+                DownloadUiState.Chooser -> DownloadChooserDialog(
+                    serialLabel = "USB cable",
+                    extraLabel = extraDownloadLabel ?: "Other",
+                    onSerial = { pickerPorts = serialPorts.list(); downloadUi = DownloadUiState.Picker },
+                    onExtra = { downloadUi = DownloadUiState.Hidden; onExtraDownload?.invoke() },
+                    onCancel = { downloadUi = DownloadUiState.Hidden },
+                )
+                DownloadUiState.Picker -> DownloadPickerDialog(
+                    types = downloadTypes,
+                    ports = pickerPorts,
+                    onRefresh = { serialPorts.list() },
+                    onStart = { type, portId -> startSerialDownload(type, portId) },
+                    onCancel = { downloadUi = DownloadUiState.Hidden },
+                )
+                is DownloadUiState.Running -> DownloadProgressDialog(
+                    state = ui,
+                    onCancel = { cancelDownload.value = true },
                 )
             }
         }

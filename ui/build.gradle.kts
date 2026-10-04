@@ -44,9 +44,13 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(libs.jgit)
+            // Desktop serial ports for the shared wired download.
+            implementation(project(":core:transport"))
         }
         androidMain.dependencies {
             implementation(libs.jgit)
+            // USB-serial adapters and the USB permission flow for the shared wired download.
+            implementation(project(":core:transport"))
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

@@ -25,6 +25,8 @@ import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.download.DownloadScreen
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.SynthDivelogApp
+import no.synth.divelog.ui.download.AndroidSerialPorts
+import no.synth.divelog.ui.download.DiveComputerType
 import no.synth.divelog.ui.io.LogbookIo
 import no.synth.divelog.ui.settings.AppSettings
 import no.synth.divelog.ui.settings.SettingsStore
@@ -79,7 +81,12 @@ class MainActivity : ComponentActivity() {
                         container = container,
                         unitSystem = unitSystem,
                         onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
-                        onDownloadClick = { showDownload = true },
+                        serialPorts = remember { AndroidSerialPorts(context.applicationContext) },
+                        // USB-serial on Android carries the Suunto cable; Shearwater is Bluetooth (below).
+                        downloadTypes = DiveComputerType.SUUNTO,
+                        extraDownloadLabel = "Bluetooth (Shearwater)",
+                        onExtraDownload = { showDownload = true },
+                        onDownloaded = { dataVersion++ },
                         onImport = { importLauncher.launch(arrayOf("*/*")) },
                         onExport = { formatId ->
                             scope.launch(Dispatchers.IO) {
