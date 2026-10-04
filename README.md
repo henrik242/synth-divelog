@@ -24,13 +24,15 @@ Storage uses fixed integer units (depth mm, pressure mbar, temperature mK,
 duration s, gas permille); the raw download blob is kept so a record can be
 re-parsed after a parser fix.
 
-M5 desktop (JVM): a first cut runs - browse/edit/import/export/re-parse over a
-file-backed database. Bluetooth download stays Android-only until a serial/USB
+M5 desktop (JVM) and M6 iOS: first cuts run. Both reuse the shared UI and core -
+browse/edit dives, sites and buddies over a native database (desktop also does
+import/export/re-parse). Bluetooth download stays Android-only until a serial/USB
 transport lands.
 
-Later work (not started; some need a decision first): M6 iOS, M7 UDCF /
-divelogs.de DLD, M8 cloud sync, M9 Suunto download over USB cable (Zoop and HelO2;
-see [docs/protocol](docs/protocol/suunto-serial.md)).
+Later work (not started; some need a decision first): M7 UDCF / divelogs.de DLD,
+M8 cloud sync, M9 Suunto download over USB cable (Zoop and HelO2; see
+[docs/protocol](docs/protocol/suunto-serial.md)). iOS file import/export via
+document pickers is a follow-up to M6.
 
 ## Modules
 
@@ -43,6 +45,7 @@ see [docs/protocol](docs/protocol/suunto-serial.md)).
 | `:ui` | Shared Compose Multiplatform screens and view models. |
 | `:app:android` | Android entry point. |
 | `:app:desktop` | Desktop (JVM) Compose entry point. |
+| `iosApp/` | iOS SwiftUI app hosting the shared Compose UI (`:ui` iOS framework). |
 
 Shared modules declare both a `jvm()` target (so common tests run on the JVM)
 and an Android target. Android APIs stay out of `:core:model`,
@@ -73,6 +76,12 @@ AGP 9.4.0 / Gradle 9.8.0, JDK 17+. Android compileSdk 36, minSdk 26.
 
 # Desktop app (JVM)
 ./gradlew :app:desktop:run
+
+# iOS app (simulator): build the framework, then the Xcode app
+./gradlew :ui:linkDebugFrameworkIosSimulatorArm64
+xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp \
+  -sdk iphonesimulator -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
 Requires a local Android SDK; point `local.properties` (`sdk.dir=...`) or
