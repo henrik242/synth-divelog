@@ -323,10 +323,10 @@ private fun readProbe(portName: String) {
 }
 
 /**
- * The raw read of 0x0190 works ~20% of attempts but the transport ~0%. This runs raw
- * reads under several settle/cadence regimes (same port session) to find what drives the
- * hit rate: the settle value, settle randomness, or the gap between attempts (phase of the
- * FTDI frame clock). Each regime does 16 attempts and reports the hit count.
+ * Thread.sleep is coarse, which could smear the turnaround across the narrow ~6-10ms
+ * window and explain the low, run-varying hit rate. This sweeps a microsecond-precise
+ * busy-wait settle at fixed values (20 attempts each) to see whether precise timing lands
+ * reliably. It reads the version first so we know the device is live this run.
  */
 private fun diffTest(portName: String) {
     val cmd0190 = run {
@@ -335,7 +335,12 @@ private fun diffTest(portName: String) {
         for (b in c) crc = crc xor (b.toInt() and 0xFF)
         c + crc.toByte()
     }
-    val rnd = java.util.Random()
+    val getVersion = byteArrayOf(0x0F, 0x00, 0x00, 0x0F)
+    fun busyWaitMs(ms: Long) {
+        val end = System.nanoTime() + ms * 1_000_000
+        while (System.nanoTime() < end) { /* spin for precise timing */ }
+    }
+
     val port = SerialPort.getCommPort(portName)
     port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
     port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING, 300, 2000)
@@ -343,29 +348,28 @@ private fun diffTest(portName: String) {
     try {
         port.setDTR(); port.clearRTS(); Thread.sleep(100); runCatching { port.flushIOBuffers() }
 
-        // flush clears any leftover from a prior hit, so no separate drain is needed.
-        fun attempt(settle: Long): Boolean {
+        fun exchange(cmd: ByteArray, settleMs: Long): ByteArray {
             runCatching { port.flushIOBuffers() }
-            port.setRTS(); port.writeBytes(cmd0190, cmd0190.size); Thread.sleep(settle); port.clearRTS()
+            port.setRTS(); port.writeBytes(cmd, cmd.size); busyWaitMs(settleMs); port.clearRTS()
             val buf = ByteArray(32)
             val n = port.readBytes(buf, buf.size)
-            return n > 0 && buf[0] == 0x05.toByte()
+            return if (n > 0) buf.copyOf(n) else ByteArray(0)
         }
 
-        fun regime(label: String, settle: () -> Long, inter: () -> Long) {
+        val v = exchange(getVersion, 8)
+        println("Version check: ${if (v.isEmpty()) "(no reply - device may be asleep!)" else hex(v)}")
+        Thread.sleep(150)
+
+        println("Precise busy-wait settle sweep on 0x0190 (hit = reply starting 0x05):")
+        for (s in listOf(3L, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14)) {
             var ok = 0
-            repeat(16) { if (attempt(settle())) ok++; Thread.sleep(inter()) }
-            println("  $label -> $ok/16")
+            repeat(20) {
+                val r = exchange(cmd0190, s)
+                if (r.isNotEmpty() && r[0] == 0x05.toByte()) ok++
+                Thread.sleep(50)
+            }
+            println("  settle ${s}ms busy -> $ok/20")
         }
-
-        // warm up comms with a GetVersion-ish exchange.
-        attempt(8)
-        println("Regimes (hit = reply starting 0x05):")
-        regime("settle 6/10, inter 120ms", { if (rnd.nextBoolean()) 6 else 10 }, { 120 })
-        regime("settle 4..16, inter 120ms", { 4L + rnd.nextInt(13) }, { 120 })
-        regime("settle 6/10, inter 0ms   ", { if (rnd.nextBoolean()) 6 else 10 }, { 0 })
-        regime("settle 6/10, inter 0..40 ", { if (rnd.nextBoolean()) 6 else 10 }, { rnd.nextInt(41).toLong() })
-        regime("settle 0..30, inter 0..40", { rnd.nextInt(31).toLong() }, { rnd.nextInt(41).toLong() })
     } finally {
         runCatching { port.closePort() }
     }
