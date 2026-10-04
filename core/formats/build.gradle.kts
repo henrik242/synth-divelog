@@ -6,6 +6,9 @@ plugins {
 kotlin {
     jvm()
 
+    iosArm64()
+    iosSimulatorArm64()
+
     android {
         namespace = "no.synth.divelog.core.formats"
         compileSdk = libs.versions.android.compileSdk.get().toInt()

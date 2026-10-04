@@ -8,6 +8,13 @@ plugins {
 kotlin {
     jvm()
 
+    listOf(iosArm64(), iosSimulatorArm64()).forEach { iosTarget ->
+        iosTarget.binaries.framework {
+            baseName = "SynthDivelogUI"
+            isStatic = true
+        }
+    }
+
     android {
         namespace = "no.synth.divelog.ui"
         compileSdk = libs.versions.android.compileSdk.get().toInt()

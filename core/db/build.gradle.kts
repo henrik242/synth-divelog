@@ -11,6 +11,9 @@ kotlin {
 
     jvm()
 
+    iosArm64()
+    iosSimulatorArm64()
+
     android {
         namespace = "no.synth.divelog.core.db"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -29,6 +32,9 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(libs.sqldelight.driver.sqlite)
+        }
+        iosMain.dependencies {
+            implementation(libs.sqldelight.driver.native)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

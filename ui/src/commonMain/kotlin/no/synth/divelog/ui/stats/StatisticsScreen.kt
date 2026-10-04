@@ -40,7 +40,8 @@ fun StatisticsSection(container: AppContainer, unitSystem: UnitSystem, dataVersi
     val perYear = dives
         .groupingBy { Format.year(it.startEpochSeconds, it.utcOffsetSeconds) }
         .eachCount()
-        .toSortedMap(compareByDescending { it })
+        .toList()
+        .sortedByDescending { it.first }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -56,13 +57,13 @@ fun StatisticsSection(container: AppContainer, unitSystem: UnitSystem, dataVersi
         }
 
         Text("Dives per year", style = MaterialTheme.typography.titleMedium)
-        val maxCount = perYear.values.maxOrNull() ?: 1
+        val maxCount = perYear.maxOfOrNull { it.second } ?: 1
         perYear.forEach { (year, count) ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("$year", Modifier.width(56.dp), style = MaterialTheme.typography.bodyMedium)
                 Box(
                     Modifier
-                        .fillMaxWidth(fraction = 0.1f + 0.8f * count / maxCount)
+                        .fillMaxWidth(fraction = 0.1f + 0.8f * (count.toFloat() / maxCount.toFloat()))
                         .height(20.dp)
                         .background(MaterialTheme.colorScheme.primary),
                 )
