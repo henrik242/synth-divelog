@@ -18,13 +18,9 @@ class AppSettings(private val store: SettingsStore) {
             .getOrDefault(UnitSystem.METRIC)
         set(value) = store.putString(KEY_UNITS, value.name)
 
-    var cloudUrl: String
-        get() = store.getString(KEY_CLOUD_URL) ?: ""
-        set(value) = store.putString(KEY_CLOUD_URL, value)
-
-    var cloudUsername: String
-        get() = store.getString(KEY_CLOUD_USER) ?: ""
-        set(value) = store.putString(KEY_CLOUD_USER, value)
+    var cloudEmail: String
+        get() = store.getString(KEY_CLOUD_EMAIL) ?: ""
+        set(value) = store.putString(KEY_CLOUD_EMAIL, value)
 
     var cloudPassword: String
         get() = store.getString(KEY_CLOUD_PASS) ?: ""
@@ -32,8 +28,7 @@ class AppSettings(private val store: SettingsStore) {
 
     private companion object {
         const val KEY_UNITS = "unit_system"
-        const val KEY_CLOUD_URL = "cloud_url"
-        const val KEY_CLOUD_USER = "cloud_user"
+        const val KEY_CLOUD_EMAIL = "cloud_email"
         const val KEY_CLOUD_PASS = "cloud_pass"
     }
 }

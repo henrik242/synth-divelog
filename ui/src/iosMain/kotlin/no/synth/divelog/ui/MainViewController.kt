@@ -14,7 +14,7 @@ import no.synth.divelog.core.db.createDatabase
 import no.synth.divelog.ui.io.LogbookIo
 import no.synth.divelog.ui.settings.AppSettings
 import no.synth.divelog.ui.settings.SettingsStore
-import no.synth.divelog.ui.sync.CloudSync
+import no.synth.divelog.ui.sync.CloudGit
 import platform.UIKit.UIViewController
 
 /**
@@ -27,6 +27,7 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
     val settings = remember { AppSettings(SettingsStore()) }
     val container = remember { AppContainer(DriverFactory().createDatabase()) }
     val logbook = remember { LogbookIo(container) }
+    val cloud = remember { CloudGit("") }
     val scope = rememberCoroutineScope()
     var unitSystem by remember { mutableStateOf(settings.unitSystem) }
     var dataVersion by remember { mutableStateOf(0) }
@@ -49,29 +50,26 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
                 }
             },
             cloudEnabled = true,
-            initialCloudUrl = settings.cloudUrl,
-            initialCloudUsername = settings.cloudUsername,
+            initialCloudEmail = settings.cloudEmail,
             initialCloudPassword = settings.cloudPassword,
-            onCloudConfigChange = { url, user, pass ->
-                settings.cloudUrl = url
-                settings.cloudUsername = user
+            onCloudConfigChange = { email, pass ->
+                settings.cloudEmail = email
                 settings.cloudPassword = pass
             },
-            onCloudPull = { url, user, pass ->
+            onCloudPull = { email, pass ->
                 scope.launch {
                     status = runCatching {
-                        val text = CloudSync.pull(url, user, pass)
-                        withContext(Dispatchers.Default) { logbook.cloudPullMessage(text) }
+                        val files = cloud.pull(email, pass)
+                        withContext(Dispatchers.Default) { logbook.cloudImportMessage(files) }
                     }.getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
                     dataVersion++
                 }
             },
-            onCloudPush = { url, user, pass ->
+            onCloudPush = { email, pass ->
                 scope.launch {
                     status = runCatching {
-                        val format = LogbookIo.formats().first { it.id == "subsurface-xml" }
-                        val body = withContext(Dispatchers.Default) { logbook.exportAll(format) }
-                        CloudSync.push(url, user, pass, body)
+                        val tree = withContext(Dispatchers.Default) { logbook.exportCloudTree() }
+                        cloud.push(email, pass, tree)
                         "Pushed to the cloud"
                     }.getOrElse { "Push failed: ${it.message ?: it::class.simpleName}" }
                 }

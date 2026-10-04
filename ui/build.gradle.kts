@@ -42,6 +42,12 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
         }
+        jvmMain.dependencies {
+            implementation(libs.jgit)
+        }
+        androidMain.dependencies {
+            implementation(libs.jgit)
+        }
         commonTest.dependencies {
             implementation(kotlin("test"))
         }

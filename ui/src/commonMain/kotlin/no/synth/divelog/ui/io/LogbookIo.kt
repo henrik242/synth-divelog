@@ -4,6 +4,7 @@ import no.synth.divelog.core.formats.ComputerEntry
 import no.synth.divelog.core.formats.DiveEntry
 import no.synth.divelog.core.formats.DiveFormat
 import no.synth.divelog.core.formats.DiveLog
+import no.synth.divelog.core.formats.GitLogFormat
 import no.synth.divelog.core.formats.SiteRef
 import no.synth.divelog.core.formats.SubsurfaceXml
 import no.synth.divelog.core.formats.TankEntry
@@ -22,7 +23,12 @@ data class ImportCounts(val imported: Int, val skipped: Int)
 /** Exports the logbook to, and imports it from, the file formats. */
 class LogbookIo(private val container: AppContainer) {
 
-    fun exportAll(format: DiveFormat): String {
+    fun exportAll(format: DiveFormat): String = format.write(buildDiveLog())
+
+    /** Serialize the whole logbook into the cloud git storage format. */
+    fun exportCloudTree(): Map<String, String> = GitLogFormat().write(buildDiveLog())
+
+    private fun buildDiveLog(): DiveLog {
         val entries = container.dives.allDives().map { dive ->
             val computers = container.dives.recordsForDive(dive.id).map { r ->
                 ComputerEntry(
@@ -63,7 +69,7 @@ class LogbookIo(private val container: AppContainer) {
                 computers = computers,
             )
         }
-        return format.write(DiveLog(entries))
+        return DiveLog(entries)
     }
 
     /** Detect and import file [text], returning a user-facing summary. */
@@ -73,20 +79,22 @@ class LogbookIo(private val container: AppContainer) {
         return "Imported ${counts.imported}, skipped ${counts.skipped} (${format.displayName})"
     }
 
-    /** Detect and import a file pulled from the cloud, returning a user-facing summary. */
-    fun cloudPullMessage(text: String): String {
-        val format = detect(text) ?: return "Downloaded, but not a recognized dive-log file"
-        val counts = import(format, text)
+    /** Import the files pulled from the cloud git repo, returning a user-facing summary. */
+    fun cloudImportMessage(files: Map<String, String>): String {
+        val log = GitLogFormat().read(files)
+        val counts = importLog(log, "subsurface-cloud", "Subsurface cloud")
         return "Pulled: imported ${counts.imported}, skipped ${counts.skipped}"
     }
 
-    fun import(format: DiveFormat, text: String): ImportCounts {
-        val log = format.read(text)
-        val deviceId = container.devices.getOrCreate(Device(vendor = "Imported", model = format.displayName))
+    fun import(format: DiveFormat, text: String): ImportCounts =
+        importLog(format.read(text), format.id, format.displayName)
+
+    private fun importLog(log: DiveLog, formatId: String, displayName: String): ImportCounts {
+        val deviceId = container.devices.getOrCreate(Device(vendor = "Imported", model = displayName))
         var imported = 0
         var skipped = 0
         for (entry in log.dives) {
-            val fingerprint = "import:${format.id}:${entry.startEpochSeconds}:${entry.number ?: 0}:${entry.maxDepthMm ?: 0}"
+            val fingerprint = "import:$formatId:${entry.startEpochSeconds}:${entry.number ?: 0}:${entry.maxDepthMm ?: 0}"
             val primary = entry.computers.firstOrNull { it.samples.isNotEmpty() } ?: entry.computers.firstOrNull()
             val incoming = IncomingDive(
                 deviceId = deviceId,
@@ -99,7 +107,7 @@ class LogbookIo(private val container: AppContainer) {
                 waterTempMk = entry.waterTempMk,
                 airTempMk = entry.airTempMk,
                 rawData = ByteArray(0), // raw not retained for file imports
-                rawFormatId = format.id,
+                rawFormatId = formatId,
                 fingerprint = fingerprint,
                 samples = primary?.samples ?: emptyList(),
                 events = primary?.events ?: emptyList(),

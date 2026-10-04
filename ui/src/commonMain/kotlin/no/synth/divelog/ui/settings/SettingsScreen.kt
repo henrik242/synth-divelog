@@ -39,12 +39,11 @@ fun SettingsSection(
     onExport: (formatId: String) -> Unit = {},
     onReparse: () -> Unit = {},
     cloudEnabled: Boolean = false,
-    initialCloudUrl: String = "",
-    initialCloudUsername: String = "",
+    initialCloudEmail: String = "",
     initialCloudPassword: String = "",
-    onCloudConfigChange: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
-    onCloudPull: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
-    onCloudPush: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
+    onCloudConfigChange: (email: String, pass: String) -> Unit = { _, _ -> },
+    onCloudPull: (email: String, pass: String) -> Unit = { _, _ -> },
+    onCloudPush: (email: String, pass: String) -> Unit = { _, _ -> },
 ) {
     var version by remember { mutableIntStateOf(0) }
     val devices = remember(version) { container.devices.all() }
@@ -105,12 +104,11 @@ fun SettingsSection(
         cloudDialog?.let { action ->
             CloudDialog(
                 action = action,
-                initialUrl = initialCloudUrl,
-                initialUsername = initialCloudUsername,
+                initialEmail = initialCloudEmail,
                 initialPassword = initialCloudPassword,
-                onConfirm = { url, user, pass ->
-                    onCloudConfigChange(url, user, pass)
-                    if (action == CloudAction.IMPORT) onCloudPull(url, user, pass) else onCloudPush(url, user, pass)
+                onConfirm = { email, pass ->
+                    onCloudConfigChange(email, pass)
+                    if (action == CloudAction.IMPORT) onCloudPull(email, pass) else onCloudPush(email, pass)
                     cloudDialog = null
                 },
                 onDismiss = { cloudDialog = null },
@@ -155,35 +153,33 @@ private enum class CloudAction(val title: String, val confirm: String) {
 @Composable
 private fun CloudDialog(
     action: CloudAction,
-    initialUrl: String,
-    initialUsername: String,
+    initialEmail: String,
     initialPassword: String,
-    onConfirm: (url: String, user: String, pass: String) -> Unit,
+    onConfirm: (email: String, pass: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var url by remember { mutableStateOf(initialUrl) }
-    var user by remember { mutableStateOf(initialUsername) }
+    var email by remember { mutableStateOf(initialEmail) }
     var pass by remember { mutableStateOf(initialPassword) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(action.title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    url, { url = it },
-                    label = { Text("Subsurface XML URL (https://...)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                Text(
+                    "The Subsurface cloud stores your logbook as a git repository. Sign in " +
+                        "with the email and password of your Subsurface cloud account.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
-                    user, { user = it },
-                    label = { Text("Username (optional)") },
+                    email, { email = it },
+                    label = { Text("Subsurface cloud email") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     pass, { pass = it },
-                    label = { Text("Password (optional)") },
+                    label = { Text("Subsurface cloud password") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
@@ -191,7 +187,10 @@ private fun CloudDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(url.trim(), user.trim(), pass) }, enabled = url.isNotBlank()) {
+            TextButton(
+                onClick = { onConfirm(email.trim(), pass) },
+                enabled = email.isNotBlank() && pass.isNotBlank(),
+            ) {
                 Text(action.confirm)
             }
         },

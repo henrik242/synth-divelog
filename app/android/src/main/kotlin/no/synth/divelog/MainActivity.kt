@@ -28,7 +28,7 @@ import no.synth.divelog.ui.SynthDivelogApp
 import no.synth.divelog.ui.io.LogbookIo
 import no.synth.divelog.ui.settings.AppSettings
 import no.synth.divelog.ui.settings.SettingsStore
-import no.synth.divelog.ui.sync.CloudSync
+import no.synth.divelog.ui.sync.CloudGit
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
         val container = AppContainer(DriverFactory(applicationContext).createDatabase())
         val settings = AppSettings(SettingsStore(applicationContext))
         val logbook = LogbookIo(container)
+        val cloud = CloudGit(File(applicationContext.filesDir, "cloud").absolutePath)
 
         setContent {
             no.synth.divelog.ui.SynthTheme {
@@ -99,18 +100,16 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         cloudEnabled = true,
-                        initialCloudUrl = settings.cloudUrl,
-                        initialCloudUsername = settings.cloudUsername,
+                        initialCloudEmail = settings.cloudEmail,
                         initialCloudPassword = settings.cloudPassword,
-                        onCloudConfigChange = { url, user, pass ->
-                            settings.cloudUrl = url
-                            settings.cloudUsername = user
+                        onCloudConfigChange = { email, pass ->
+                            settings.cloudEmail = email
                             settings.cloudPassword = pass
                         },
-                        onCloudPull = { url, user, pass ->
+                        onCloudPull = { email, pass ->
                             scope.launch(Dispatchers.IO) {
                                 val message = runCatching {
-                                    logbook.cloudPullMessage(CloudSync.pull(url, user, pass))
+                                    logbook.cloudImportMessage(cloud.pull(email, pass))
                                 }.getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
                                 dataVersion++
                                 withContext(Dispatchers.Main) {
@@ -118,11 +117,10 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onCloudPush = { url, user, pass ->
+                        onCloudPush = { email, pass ->
                             scope.launch(Dispatchers.IO) {
                                 val message = runCatching {
-                                    val format = LogbookIo.formats().first { it.id == "subsurface-xml" }
-                                    CloudSync.push(url, user, pass, logbook.exportAll(format))
+                                    cloud.push(email, pass, logbook.exportCloudTree())
                                     "Pushed to the cloud"
                                 }.getOrElse { "Push failed: ${it.message ?: it::class.simpleName}" }
                                 withContext(Dispatchers.Main) {
