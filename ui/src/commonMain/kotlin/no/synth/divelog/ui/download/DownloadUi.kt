@@ -49,13 +49,15 @@ fun DownloadPickerDialog(
     types: List<DiveComputerType>,
     ports: List<SerialPortInfo>,
     onRefresh: () -> List<SerialPortInfo>,
-    onStart: (type: DiveComputerType, portId: String) -> Unit,
+    onStart: (type: DiveComputerType, portId: String, amount: DownloadAmount) -> Unit,
     onCancel: () -> Unit,
 ) {
     var type by remember { mutableStateOf(types.first()) }
     var current by remember { mutableStateOf(ports) }
     var port by remember { mutableStateOf(preferredPort(ports)) }
     var portMenuOpen by remember { mutableStateOf(false) }
+    var amount by remember { mutableStateOf<DownloadAmount>(DownloadAmount.NewOnly) }
+    var amountMenuOpen by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onCancel,
@@ -95,10 +97,23 @@ fun DownloadPickerDialog(
                     current = onRefresh()
                     if (port == null || current.none { it.id == port?.id }) port = preferredPort(current)
                 }) { Text("Refresh ports") }
+
+                Text("Download", style = MaterialTheme.typography.labelLarge)
+                Box {
+                    OutlinedButton(onClick = { amountMenuOpen = true }) { Text(amount.label) }
+                    DropdownMenu(expanded = amountMenuOpen, onDismissRequest = { amountMenuOpen = false }) {
+                        DownloadAmount.options.forEach { a ->
+                            DropdownMenuItem(
+                                text = { Text(a.label) },
+                                onClick = { amount = a; amountMenuOpen = false },
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(enabled = port != null, onClick = { port?.let { onStart(type, it.id) } }) {
+            TextButton(enabled = port != null, onClick = { port?.let { onStart(type, it.id, amount) } }) {
                 Text("Download")
             }
         },

@@ -98,6 +98,13 @@ class DiveRepository(private val db: DiveDatabase) {
 
     // --- Import ---
 
+    /**
+     * Fingerprint of the newest dive already stored for [deviceId], or null if none.
+     * Passed to a protocol download so it stops once it reaches dives already here.
+     */
+    fun newestFingerprint(deviceId: Long): String? =
+        records.selectNewestFingerprintForDevice(deviceId).executeAsOneOrNull()
+
     /** Decide what to do with an incoming record without writing anything. */
     fun classify(incoming: IncomingDive): ImportDecision {
         val duplicate = incoming.deviceId?.let { deviceId ->

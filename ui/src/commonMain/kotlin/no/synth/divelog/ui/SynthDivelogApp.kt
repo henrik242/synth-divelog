@@ -68,6 +68,7 @@ import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.download.DiveComputerType
+import no.synth.divelog.ui.download.DownloadAmount
 import no.synth.divelog.ui.download.DownloadController
 import no.synth.divelog.ui.download.DownloadPickerDialog
 import no.synth.divelog.ui.download.DownloadProgressDialog
@@ -140,7 +141,7 @@ fun SynthDivelogApp(
     var pickerPorts by remember { mutableStateOf<List<SerialPortInfo>>(emptyList()) }
     val cancelDownload = remember { mutableStateOf(false) }
 
-    fun startSerialDownload(type: DiveComputerType, portId: String) {
+    fun startSerialDownload(type: DiveComputerType, portId: String, amount: DownloadAmount) {
         cancelDownload.value = false
         downloadUi = DownloadUiState.Running(0f, "Connecting to the dive computer")
         scope.launch {
@@ -151,6 +152,7 @@ fun SynthDivelogApp(
                         type = type,
                         portId = portId,
                         cancel = { cancelDownload.value },
+                        amount = amount,
                         onProgress = { fraction, label -> downloadUi = DownloadUiState.Running(fraction, label) },
                         confirmMerge = { review ->
                             val answer = CompletableDeferred<Boolean>()
@@ -272,7 +274,7 @@ fun SynthDivelogApp(
                     types = downloadTypes,
                     ports = pickerPorts,
                     onRefresh = { serialPorts.list() },
-                    onStart = { type, portId -> startSerialDownload(type, portId) },
+                    onStart = { type, portId, amount -> startSerialDownload(type, portId, amount) },
                     onCancel = { downloadUi = DownloadUiState.Hidden },
                 )
                 is DownloadUiState.Running -> DownloadProgressDialog(

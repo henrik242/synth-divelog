@@ -34,6 +34,12 @@ findByDeviceAndFingerprint:
 SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
 FROM diveComputerRecord WHERE deviceId = ? AND fingerprint = ? LIMIT 1;
 
+-- Fingerprint of the newest stored dive for a device, for an incremental download
+-- (the protocol walks newest-first and stops when it reaches this one).
+selectNewestFingerprintForDevice:
+SELECT fingerprint FROM diveComputerRecord WHERE deviceId = ?
+ORDER BY startEpochSeconds DESC LIMIT 1;
+
 countRecordsForDive:
 SELECT count(*) FROM diveComputerRecord WHERE diveId = ?;
 

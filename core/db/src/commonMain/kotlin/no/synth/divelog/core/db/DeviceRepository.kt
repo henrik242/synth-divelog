@@ -38,6 +38,10 @@ class DeviceRepository(private val db: DiveDatabase) {
 
     fun delete(id: Long) = q.deleteDevice(id)
 
+    /** Id of an existing device matching [device]'s address, or null if none is stored yet. */
+    fun findId(device: Device): Long? =
+        device.bluetoothAddress?.let { q.selectDeviceByAddress(it).executeAsOneOrNull()?.id }
+
     /** Find an existing device by Bluetooth address, or create one. */
     fun getOrCreate(device: Device): Long = db.transactionWithResult {
         val existing = device.bluetoothAddress?.let {

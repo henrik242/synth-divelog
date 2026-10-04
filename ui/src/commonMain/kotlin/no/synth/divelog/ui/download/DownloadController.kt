@@ -103,6 +103,37 @@ private val SHEARWATER_SPP_PARAMS = SerialParams(
 data class MergeReview(val incomingLabel: String, val existingLabel: String)
 
 /**
+ * How much of the device to pull. [NewOnly] is incremental: the download stops at the
+ * newest dive already stored for this device, so a repeat download fetches nothing (and
+ * for devices served one dive at a time, reads nothing) past what is already here. The
+ * [Latest] options re-read the newest N regardless of what is stored, and [All] re-reads
+ * everything; both leave duplicate skipping to the import step.
+ */
+sealed interface DownloadAmount {
+    val label: String
+
+    /** Incremental: only dives newer than the newest already stored. */
+    data object NewOnly : DownloadAmount {
+        override val label = "New dives only"
+    }
+
+    /** The newest [count] dives, whether or not they are already stored. */
+    data class Latest(val count: Int) : DownloadAmount {
+        override val label = "Latest $count"
+    }
+
+    /** Every dive on the device. */
+    data object All : DownloadAmount {
+        override val label = "All dives"
+    }
+
+    companion object {
+        /** The options offered in the picker, in order; [NewOnly] is the default. */
+        val options: List<DownloadAmount> = listOf(NewOnly, Latest(5), Latest(25), Latest(100), All)
+    }
+}
+
+/**
  * Platform-agnostic orchestration of a wired download: open a [Transport] for the
  * chosen [DiveComputerType] and port, run that type's protocol over it, parse each raw
  * dive and import it through the shared pipeline (device identity plus dedupe), then
@@ -125,12 +156,26 @@ class DownloadController(
         portId: String,
         cancel: () -> Boolean,
         onProgress: (fraction: Float, label: String) -> Unit,
+        amount: DownloadAmount = DownloadAmount.NewOnly,
         confirmMerge: suspend (MergeReview) -> Boolean = { false },
     ): String = withContext(Dispatchers.Default) {
         onProgress(0f, "Connecting to the dive computer")
         val transport = serialPorts.open(portId, type.serialParams)
         try {
             val protocol = type.protocol(transport)
+            // For an incremental download the protocol needs the stop fingerprint up front,
+            // which means resolving the device identity before the download. That needs the
+            // serial the device reports, so read its info first; readDeviceInfo is cheap and,
+            // for the manifest devices where incremental actually saves reads, costs nothing.
+            val knownFingerprint = if (amount is DownloadAmount.NewOnly) {
+                onProgress(0f, "Checking the device")
+                val info = runCatching { protocol.readDeviceInfo() }.getOrNull()
+                container.devices.findId(type.device(info))?.let { container.dives.newestFingerprint(it) }
+            } else {
+                null
+            }
+            val limit = (amount as? DownloadAmount.Latest)?.count
+
             var deviceInfo: DeviceInfo? = null
             val listener = object : DownloadListener {
                 override fun onDeviceInfo(info: DeviceInfo) {
@@ -144,10 +189,10 @@ class DownloadController(
                 }
             }
             val raws = protocol.download(
-                knownFingerprint = null,
+                knownFingerprint = knownFingerprint,
                 listener = listener,
                 cancel = CancellationSignal { cancel() },
-                limit = null,
+                limit = limit,
             )
             onProgress(1f, "Parsing dives")
             val deviceId = container.devices.getOrCreate(type.device(deviceInfo))
