@@ -36,7 +36,8 @@ class JSerialCommTransport(
         if (params.halfDuplex) {
             setRts(params.rtsTransmitHigh) // drive the line to transmit
             writeAll(data)
-            if (params.txSettleMs > 0) sleep(params.txSettleMs)
+            val settle = params.txSettleMs + if (params.txJitterMs > 0) (0..params.txJitterMs).random() else 0
+            if (settle > 0) sleep(settle)
             setRts(!params.rtsTransmitHigh) // switch the line to receive
             if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
             if (params.discardsEcho) discardEcho(data.size)
@@ -77,7 +78,13 @@ class JSerialCommTransport(
     }
 
     private fun applyReadTimeout(ms: Int) {
-        port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, ms.coerceAtLeast(1), 0)
+        // Blocking writes so writeBytes returns only once the OS buffer is drained,
+        // which tightens the half-duplex turnaround timing.
+        port.setComPortTimeouts(
+            SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING,
+            ms.coerceAtLeast(1),
+            WRITE_TIMEOUT_MS,
+        )
     }
 
     private fun setRts(on: Boolean) {
@@ -109,6 +116,7 @@ class JSerialCommTransport(
     companion object {
         private const val DEFAULT_READ_TIMEOUT_MS = 3_000
         private const val ECHO_TIMEOUT_MS = 500
+        private const val WRITE_TIMEOUT_MS = 2_000
 
         /** System serial port names available to the desktop app, for a picker. */
         fun availablePortNames(): List<String> = SerialPort.getCommPorts().map { it.systemPortName }

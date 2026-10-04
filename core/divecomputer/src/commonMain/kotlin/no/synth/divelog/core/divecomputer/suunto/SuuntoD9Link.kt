@@ -2,6 +2,7 @@ package no.synth.divelog.core.divecomputer.suunto
 
 import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.transport.Transport
+import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 
 /**
  * Command layer for the newer Suunto D9 family (HelO2, Vyper2, Cobra2/3, Vyper Air
@@ -59,28 +60,57 @@ class SuuntoD9Link(
         val request = SuuntoCrc.appended(
             byteArrayOf(command, ((params.size ushr 8) and 0xFF).toByte(), (params.size and 0xFF).toByte()) + params,
         )
-        transport.write(request)
-
         // Reply = command + 2 length bytes + echoed params + data + crc.
         val replyLen = 3 + params.size + expectedDataLen + 1
-        val reply = readExact(replyLen)
-        if (reply[0] != command) {
-            throw ProtocolException("D9: bad command echo 0x${hex(reply[0])} for 0x${hex(command)}")
+
+        // The half-duplex turnaround on this cable is timing-sensitive and has no echo
+        // to sync on, so a reply can be missed or clipped. Resend and reread, letting the
+        // transport's write jitter vary the turnaround phase, until a reply validates.
+        var lastError = "no reply"
+        repeat(MAX_TURNAROUND_RETRIES) {
+            transport.write(request)
+            val reply = readReply(replyLen)
+            when {
+                reply == null -> lastError = "no reply"
+                reply[0] != command -> lastError = "bad echo 0x${hex(reply[0])}"
+                reply[reply.size - 1] != SuuntoCrc.xor(reply, 0, reply.size - 1) -> lastError = "CRC mismatch"
+                else -> return reply.copyOfRange(0, reply.size - 1)
+            }
+            drainInput()
         }
-        val crc = SuuntoCrc.xor(reply, 0, reply.size - 1)
-        if (reply[reply.size - 1] != crc) throw ProtocolException("D9: CRC mismatch on reply to 0x${hex(command)}")
-        return reply.copyOfRange(0, reply.size - 1)
+        throw ProtocolException("D9: no valid reply to 0x${hex(command)} after $MAX_TURNAROUND_RETRIES tries ($lastError)")
     }
 
-    private fun readExact(n: Int): ByteArray {
+    /** Read a full [n]-byte reply, or null if it times out or stalls part way. */
+    private fun readReply(n: Int): ByteArray? {
         val buffer = ByteArray(n)
         var got = 0
         while (got < n) {
-            val r = transport.read(buffer, got, n - got, timeoutMs)
-            if (r <= 0) throw ProtocolException("D9: stream ended after $got of $n bytes")
+            // A missed turnaround shows up as silence on the first byte; fail fast there
+            // so a retry can try a new phase, but allow longer for the rest of the reply.
+            val t = if (got == 0) FIRST_BYTE_TIMEOUT_MS else CHUNK_TIMEOUT_MS
+            val r = try {
+                transport.read(buffer, got, n - got, t)
+            } catch (e: TransportTimeoutException) {
+                return null
+            }
+            if (r <= 0) return null
             got += r
         }
         return buffer
+    }
+
+    /** Drop any leftover bytes so a partial or stale reply does not corrupt the next read. */
+    private fun drainInput() {
+        val scratch = ByteArray(64)
+        while (true) {
+            val r = try {
+                transport.read(scratch, 0, scratch.size, DRAIN_TIMEOUT_MS)
+            } catch (e: TransportTimeoutException) {
+                return
+            }
+            if (r <= 0) return
+        }
     }
 
     private fun hex(b: Byte): String = (b.toInt() and 0xFF).toString(16).padStart(2, '0')
@@ -90,5 +120,9 @@ class SuuntoD9Link(
         private const val VERSION_LEN = 4
         private const val CMD_READ = 0x05.toByte()
         private const val CMD_VERSION = 0x0F.toByte()
+        private const val MAX_TURNAROUND_RETRIES = 24
+        private const val FIRST_BYTE_TIMEOUT_MS = 200L
+        private const val CHUNK_TIMEOUT_MS = 400L
+        private const val DRAIN_TIMEOUT_MS = 50L
     }
 }

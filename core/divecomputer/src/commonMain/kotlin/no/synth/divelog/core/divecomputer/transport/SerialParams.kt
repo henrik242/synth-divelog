@@ -38,6 +38,13 @@ data class SerialParams(
     val powerUpMs: Long = 0,
     /** Milliseconds to let the UART drain before switching RTS to receive. */
     val txSettleMs: Long = 0,
+    /**
+     * Extra random milliseconds (0..[txJitterMs]) added to [txSettleMs] on each write.
+     * The D9 cable gives no echo to sync the turnaround on, and the FTDI latency timer
+     * makes a fixed delay land in or out of the reply window depending on phase; jitter
+     * lets retries sample different phases so one lands in the window.
+     */
+    val txJitterMs: Long = 0,
     /** Milliseconds to wait after switching RTS to receive before the reply is expected. */
     val rxSettleMs: Long = 0,
 )

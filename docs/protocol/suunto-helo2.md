@@ -14,6 +14,15 @@ family split.
   the old single-wire cable the proper interface does **not echo** the sent bytes, so
   there is nothing to discard. Let the UART drain (~50 ms) after a write before
   switching to receive so the last byte is not cut off.
+- **Turnaround is timing-sensitive.** The device replies fast and there is no echo to
+  sync on, so the RTS switch to receive must land in a narrow window (~6-10 ms after the
+  write) or the reply is lost (short replies) or clipped (long ones show a garbage head
+  and a correct tail). The FTDI latency timer makes a fixed delay hit or miss by phase,
+  and jSerialComm exposes no `tcdrain`/latency control. So the transport jitters the
+  settle (`txSettleMs` + random `txJitterMs`) and `SuuntoD9Link` resends and rereads,
+  validating header and CRC, until a reply lands (fast-failing a missed turnaround on
+  the first byte). GetVersion survived a fixed 50 ms settle only because that reply is
+  slower to formulate.
 - Verified on hardware with a line-settings probe (GetVersion `0f 00 00 0f`). The
   original Suunto cable replied `0f 00 04 ...` only under this half-duplex,
   RTS-high-to-transmit config; full-duplex (RTS held either way) and the inverted

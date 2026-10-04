@@ -48,7 +48,9 @@ class SuuntoD9Protocol(
          * 9600 8N1, half-duplex. Verified on hardware: the interface uses the same
          * RTS-high-to-transmit polarity as the old Vyper family, but the proper cable
          * does not echo the sent bytes, so there is nothing to discard. DTR powers the
-         * interface; let the UART drain after each write before the reply.
+         * interface. The device replies fast and there is no echo to sync the turnaround
+         * on, so the RTS-to-receive switch must land in a narrow window (~6-10 ms after
+         * the write); the jitter lets [SuuntoD9Link]'s retries sample different phases.
          */
         val SERIAL_PARAMS = SerialParams(
             baudRate = 9600,
@@ -60,7 +62,8 @@ class SuuntoD9Protocol(
             rtsTransmitHigh = true,
             discardsEcho = false,
             powerUpMs = 100,
-            txSettleMs = 50,
+            txSettleMs = 4,
+            txJitterMs = 12,
         )
     }
 }

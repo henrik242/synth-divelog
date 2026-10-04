@@ -47,7 +47,8 @@ class UsbSerialTransport(
             if (params.halfDuplex) {
                 port.rts = params.rtsTransmitHigh // drive the line to transmit
                 port.write(data, WRITE_TIMEOUT_MS)
-                if (params.txSettleMs > 0) sleep(params.txSettleMs)
+                val settle = params.txSettleMs + if (params.txJitterMs > 0) (0..params.txJitterMs).random() else 0
+                if (settle > 0) sleep(settle)
                 port.rts = !params.rtsTransmitHigh // switch the line to receive
                 if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
                 if (params.discardsEcho) discardEcho(data.size)
