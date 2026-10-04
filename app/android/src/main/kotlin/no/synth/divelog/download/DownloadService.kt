@@ -21,11 +21,11 @@ import kotlinx.coroutines.launch
 
 /**
  * Keeps a dive-computer download alive while the app is backgrounded or the screen
- * is off. The download coroutine lives in [DownloadViewModel]; this service only
- * holds a wake lock and a foreground notification for its duration so the system
- * does not suspend the CPU or reap the process mid-transfer. The view model starts
- * it when a download begins and stops it when the download ends; the notification
- * text follows [status].
+ * is off. The download coroutine lives in the shared download flow; this service only
+ * holds a wake lock and a foreground notification for its duration so the system does
+ * not suspend the CPU or reap the process mid-transfer. The host starts it when a
+ * download begins and stops it when the download ends; the notification text follows
+ * [status].
  */
 class DownloadService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null

@@ -1,6 +1,10 @@
 package no.synth.divelog
 
+import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -8,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -15,18 +20,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import no.synth.divelog.core.db.DriverFactory
 import no.synth.divelog.core.db.createDatabase
 import no.synth.divelog.core.model.units.UnitSystem
-import no.synth.divelog.download.DownloadScreen
+import no.synth.divelog.download.DownloadService
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.SynthDivelogApp
 import no.synth.divelog.ui.download.AndroidSerialPorts
-import no.synth.divelog.ui.download.DiveComputerType
 import no.synth.divelog.ui.io.LogbookIo
 import no.synth.divelog.ui.settings.AppSettings
 import no.synth.divelog.ui.settings.SettingsStore
@@ -47,7 +53,7 @@ class MainActivity : ComponentActivity() {
             no.synth.divelog.ui.SynthTheme {
                 val context = LocalContext.current
                 val scope = rememberCoroutineScope()
-                var showDownload by remember { mutableStateOf(false) }
+                val prepareDownload = rememberDownloadPermissionRequest(context)
                 var dataVersion by remember { mutableIntStateOf(0) }
                 var unitSystem by remember { mutableStateOf(settings.unitSystem) }
 
@@ -70,75 +76,73 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (showDownload) {
-                    DownloadScreen(
-                        container = container,
-                        onImported = { showDownload = false; dataVersion++ },
-                        onBack = { showDownload = false },
-                    )
-                } else {
-                    SynthDivelogApp(
-                        container = container,
-                        unitSystem = unitSystem,
-                        onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
-                        serialPorts = remember { AndroidSerialPorts(context.applicationContext) },
-                        // USB-serial on Android carries the Suunto cable; Shearwater is Bluetooth (below).
-                        downloadTypes = DiveComputerType.SUUNTO,
-                        extraDownloadLabel = "Bluetooth (Shearwater)",
-                        onExtraDownload = { showDownload = true },
-                        onDownloaded = { dataVersion++ },
-                        onImport = { importLauncher.launch(arrayOf("*/*")) },
-                        onExport = { formatId ->
-                            scope.launch(Dispatchers.IO) {
-                                val format = LogbookIo.formats().first { it.id == formatId }
-                                val text = logbook.exportAll(format)
-                                shareExport(context, formatId, text)
+                SynthDivelogApp(
+                    container = container,
+                    unitSystem = unitSystem,
+                    onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
+                    serialPorts = remember { AndroidSerialPorts(context.applicationContext) },
+                    // Request Bluetooth and notification permissions before the picker lists devices.
+                    onPrepareDownload = prepareDownload,
+                    // Hold the process awake with a foreground service for the length of the download.
+                    onDownloadActive = { active ->
+                        if (active) {
+                            DownloadService.start(context.applicationContext, "Downloading dives")
+                        } else {
+                            DownloadService.stop(context.applicationContext)
+                        }
+                    },
+                    onDownloaded = { dataVersion++ },
+                    onImport = { importLauncher.launch(arrayOf("*/*")) },
+                    onExport = { formatId ->
+                        scope.launch(Dispatchers.IO) {
+                            val format = LogbookIo.formats().first { it.id == formatId }
+                            val text = logbook.exportAll(format)
+                            shareExport(context, formatId, text)
+                        }
+                    },
+                    onReparse = {
+                        scope.launch(Dispatchers.IO) {
+                            val count = logbook.reparseAll()
+                            dataVersion++
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast
+                                    .makeText(context, "Re-parsed $count dives", android.widget.Toast.LENGTH_SHORT)
+                                    .show()
                             }
-                        },
-                        onReparse = {
-                            scope.launch(Dispatchers.IO) {
-                                val count = logbook.reparseAll()
-                                dataVersion++
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast
-                                        .makeText(context, "Re-parsed $count dives", android.widget.Toast.LENGTH_SHORT)
-                                        .show()
-                                }
+                        }
+                    },
+                    cloudEnabled = true,
+                    initialCloudEmail = settings.cloudEmail,
+                    initialCloudPassword = settings.cloudPassword,
+                    onCloudConfigChange = { email, pass ->
+                        settings.cloudEmail = email
+                        settings.cloudPassword = pass
+                    },
+                    onCloudPull = { email, pass ->
+                        scope.launch(Dispatchers.IO) {
+                            val message = runCatching {
+                                logbook.cloudImportMessage(cloud.pull(email, pass))
+                            }.getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
+                            dataVersion++
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
                             }
-                        },
-                        cloudEnabled = true,
-                        initialCloudEmail = settings.cloudEmail,
-                        initialCloudPassword = settings.cloudPassword,
-                        onCloudConfigChange = { email, pass ->
-                            settings.cloudEmail = email
-                            settings.cloudPassword = pass
-                        },
-                        onCloudPull = { email, pass ->
-                            scope.launch(Dispatchers.IO) {
-                                val message = runCatching {
-                                    logbook.cloudImportMessage(cloud.pull(email, pass))
-                                }.getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
-                                dataVersion++
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
-                                }
+                        }
+                    },
+                    onCloudPush = { email, pass ->
+                        scope.launch(Dispatchers.IO) {
+                            val message = runCatching {
+                                cloud.push(email, pass, logbook.exportCloudTree())
+                                "Pushed to the cloud"
+                            }.getOrElse { "Push failed: ${it.message ?: it::class.simpleName}" }
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
                             }
-                        },
-                        onCloudPush = { email, pass ->
-                            scope.launch(Dispatchers.IO) {
-                                val message = runCatching {
-                                    cloud.push(email, pass, logbook.exportCloudTree())
-                                    "Pushed to the cloud"
-                                }.getOrElse { "Push failed: ${it.message ?: it::class.simpleName}" }
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        },
-                        onExit = { this@MainActivity.finish() },
-                        dataVersion = dataVersion,
-                    )
-                }
+                        }
+                    },
+                    onExit = { this@MainActivity.finish() },
+                    dataVersion = dataVersion,
+                )
             }
         }
     }
@@ -156,3 +160,37 @@ class MainActivity : ComponentActivity() {
         context.startActivity(Intent.createChooser(intent, "Export logbook").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 }
+
+/**
+ * Builds a suspend action that requests the permissions the download needs and resolves
+ * once the user has responded. Bluetooth-connect gates the paired-device list and the
+ * RFCOMM connection; the notification permission lets the foreground service show its
+ * notification. USB-only downloads work without either, so a denial is not fatal.
+ */
+@Composable
+private fun rememberDownloadPermissionRequest(context: Context): suspend () -> Unit {
+    val pending = remember { mutableStateOf<CompletableDeferred<Unit>?>(null) }
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        pending.value?.complete(Unit)
+        pending.value = null
+    }
+    return {
+        val missing = downloadPermissions().filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            val deferred = CompletableDeferred<Unit>()
+            pending.value = deferred
+            launcher.launch(missing.toTypedArray())
+            deferred.await()
+        }
+    }
+}
+
+/** Bluetooth is required to reach a paired computer; the notification permission (API 33+) backs the service. */
+private fun downloadPermissions(): Array<String> = buildList {
+    add(Manifest.permission.BLUETOOTH_CONNECT)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+}.toTypedArray()
