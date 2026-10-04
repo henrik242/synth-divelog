@@ -31,10 +31,12 @@ fun main(args: Array<String>) {
     val ports = JSerialCommTransport.availablePortNames()
     println("Available serial ports: ${if (ports.isEmpty()) "(none)" else ports.joinToString()}")
 
-    // An arg that names a family is the family; anything else is the port name.
-    // This way "D9" alone selects the family and lets the port auto-detect.
+    // An arg that names a family is the family; "probe" selects probe mode; anything
+    // else is the port name. This way "D9" or "D9 probe" leaves the port to auto-detect.
     val familyArg = args.firstNotNullOfOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.getOrNull() }
-    val portArg = args.firstOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure }
+    val portArg = args.firstOrNull {
+        !it.equals("probe", ignoreCase = true) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
+    }
 
     val family = familyArg ?: SuuntoFamily.VYPER
     val portName = portArg
