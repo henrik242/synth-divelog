@@ -34,7 +34,7 @@ fun main(args: Array<String>) {
     // An arg that names a family is the family; "probe" selects probe mode; anything
     // else is the port name. This way "D9" or "D9 probe" leaves the port to auto-detect.
     val familyArg = args.firstNotNullOfOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.getOrNull() }
-    val keywords = setOf("probe", "readprobe", "difftest", "jnatest")
+    val keywords = setOf("probe", "readprobe", "difftest", "jnatest", "rawdump")
     val portArg = args.firstOrNull {
         !keywords.contains(it.lowercase()) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
     }
@@ -76,6 +76,14 @@ fun main(args: Array<String>) {
     // jSerialComm cannot do. If this reads 0x0190 reliably, the transport moves to JNA.
     if (args.any { it.equals("jnatest", ignoreCase = true) }) {
         posixJnaTest(portName)
+        return
+    }
+
+    // "rawdump" brute-forces a full D9 memory dump using the raw read path with heavy
+    // randomized retries, for when the turnaround only lands a fraction of the time. Best
+    // run right after replugging so the HelO2 is freshly in Data transfer.
+    if (args.any { it.equals("rawdump", ignoreCase = true) }) {
+        rawDump(portName)
         return
     }
 
@@ -377,6 +385,114 @@ private fun diffTest(portName: String) {
             }
             println("  settle ${s}ms busy -> $ok/20")
         }
+    } finally {
+        runCatching { port.closePort() }
+    }
+}
+
+/**
+ * Brute-force the whole D9 memory using the raw read path (which lands the half-duplex
+ * turnaround a fraction of the time) with heavy randomized retries per page. A warm-up
+ * canary and a consecutive-failure circuit breaker keep it from grinding for an hour when
+ * the device is asleep or degraded. Unreadable pages are filled 0xFF so the .bin stays
+ * address-aligned and whatever was captured is always saved.
+ */
+private fun rawDump(portName: String) {
+    val rnd = java.util.Random()
+    val port = SerialPort.getCommPort(portName)
+    port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
+    port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING, 150, 2000)
+    if (!port.openPort()) { println("Could not open $portName"); return }
+    try {
+        port.setDTR(); port.clearRTS(); Thread.sleep(100); runCatching { port.flushIOBuffers() }
+
+        fun crc(b: ByteArray, n: Int): Byte {
+            var c = 0
+            for (i in 0 until n) c = c xor (b[i].toInt() and 0xFF)
+            return c.toByte()
+        }
+        fun readMemoryCmd(address: Int, count: Int): ByteArray {
+            val c = byteArrayOf(0x05, 0x00, 0x03, ((address ushr 8) and 0xFF).toByte(), (address and 0xFF).toByte(), (count and 0xFF).toByte())
+            return c + crc(c, c.size)
+        }
+
+        // One raw turnaround attempt; returns the validated data bytes or null.
+        fun attempt(address: Int, count: Int): ByteArray? {
+            val cmd = readMemoryCmd(address, count)
+            val replyLen = 7 + count
+            runCatching { port.flushIOBuffers() }
+            port.setRTS()
+            port.writeBytes(cmd, cmd.size)
+            Thread.sleep(4L + rnd.nextInt(13)) // settle 4..16ms
+            port.clearRTS()
+            val buf = ByteArray(replyLen)
+            var got = 0
+            val deadline = System.currentTimeMillis() + 400
+            while (got < replyLen && System.currentTimeMillis() < deadline) {
+                val tmp = ByteArray(replyLen - got)
+                val n = port.readBytes(tmp, tmp.size)
+                if (n > 0) { tmp.copyInto(buf, got, 0, n); got += n }
+            }
+            if (got != replyLen) return null
+            if (buf[0] != 0x05.toByte()) return null
+            if (buf[replyLen - 1] != crc(buf, replyLen - 1)) return null
+            return buf.copyOfRange(6, 6 + count)
+        }
+
+        fun readPage(address: Int, count: Int, maxTries: Int): ByteArray? {
+            repeat(maxTries) {
+                attempt(address, count)?.let { return it }
+                Thread.sleep(rnd.nextInt(26).toLong()) // 0..25ms, break phase-lock
+            }
+            return null
+        }
+
+        println("Warm-up canary at 0x0190 (up to 80 tries)...")
+        val canary = readPage(0x0190, 8, 80)
+        if (canary == null) {
+            println("Canary failed: the device is not responding well this session.")
+            println("Unplug and replug the HelO2 so it is freshly in Data transfer, then rerun.")
+            return
+        }
+        println("Canary ok: ${hex(canary)}")
+
+        val start = System.currentTimeMillis()
+        val out = ByteArrayOutputStream()
+        var addr = 0
+        var failed = 0
+        var consecutiveFail = 0
+        var aborted = false
+        while (addr < DUMP_END) {
+            val n = minOf(SuuntoD9Link.MAX_PAGE, DUMP_END - addr)
+            val page = readPage(addr, n, 60)
+            if (page != null) {
+                out.write(page)
+                consecutiveFail = 0
+            } else {
+                out.write(ByteArray(n) { 0xFF.toByte() })
+                failed++
+                consecutiveFail++
+            }
+            addr += n
+            if (addr % 0x600 == 0 || page == null) {
+                val pct = addr * 100 / DUMP_END
+                println("  0x${addr.toString(16)} ($pct%), $failed page(s) filled, ${(System.currentTimeMillis() - start) / 1000}s")
+            }
+            if (consecutiveFail >= 25) {
+                println("  25 pages in a row failed; device degraded, stopping at 0x${addr.toString(16)}.")
+                aborted = true
+                break
+            }
+        }
+
+        val dump = out.toByteArray()
+        val readable = dump.count { it != 0xFF.toByte() }
+        println("Captured ${dump.size} bytes (${readable} non-ff), $failed page(s) unreadable${if (aborted) ", aborted early" else ""}.")
+        if (readable == 0) { println("Nothing usable captured."); return }
+        val dir = File(System.getProperty("user.home"), ".synth-divelog").apply { mkdirs() }
+        val bin = File(dir, "suunto-d9-dump-${System.currentTimeMillis()}.bin")
+        runCatching { bin.writeBytes(dump) }
+            .onSuccess { println("Memory dump saved: ${bin.absolutePath}") }
     } finally {
         runCatching { port.closePort() }
     }
