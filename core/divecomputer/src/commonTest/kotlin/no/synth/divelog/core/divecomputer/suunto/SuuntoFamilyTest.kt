@@ -1,0 +1,37 @@
+package no.synth.divelog.core.divecomputer.suunto
+
+import no.synth.divelog.core.divecomputer.transport.Parity
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/** The family selector hands out the right line settings, protocol and parser. */
+class SuuntoFamilyTest {
+    @Test
+    fun vyperFamilyUsesHalfDuplex2400Odd() {
+        val p = SuuntoFamily.VYPER.serialParams
+        assertEquals(2400, p.baudRate)
+        assertEquals(Parity.ODD, p.parity)
+        assertTrue(p.halfDuplex)
+        assertTrue(p.dtr)
+    }
+
+    @Test
+    fun d9FamilyUsesFullDuplex9600None() {
+        val p = SuuntoFamily.D9.serialParams
+        assertEquals(9600, p.baudRate)
+        assertEquals(Parity.NONE, p.parity)
+        assertTrue(!p.halfDuplex)
+    }
+
+    @Test
+    fun protocolAndParserMatchTheFamily() {
+        val transport = FakeSuuntoVyperDevice(SyntheticVyper.squareDiveImage().memory)
+        assertTrue(SuuntoFamily.VYPER.protocol(transport) is SuuntoVyperProtocol)
+        assertNotNull(SuuntoFamily.VYPER.parser())
+        assertTrue(SuuntoFamily.D9.protocol(transport) is SuuntoD9Protocol)
+        assertNull(SuuntoFamily.D9.parser())
+    }
+}

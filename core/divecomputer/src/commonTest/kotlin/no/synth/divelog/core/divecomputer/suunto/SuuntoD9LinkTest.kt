@@ -1,0 +1,75 @@
+package no.synth.divelog.core.divecomputer.suunto
+
+import no.synth.divelog.core.divecomputer.transport.Direction
+import no.synth.divelog.core.divecomputer.transport.ReplayTransport
+import no.synth.divelog.core.divecomputer.transport.Transcript
+import no.synth.divelog.core.divecomputer.transport.TransportEvent
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+
+/**
+ * Checks the D9 (HelO2) packet framing and CRC on both directions with a fixed
+ * transcript: the request bytes must match exactly (strict writes) and the reply
+ * is decoded into the data payload.
+ */
+class SuuntoD9LinkTest {
+    @Test
+    fun readMemoryFramesTheRequestAndDecodesTheReply() {
+        // host -> 05 00 03 01 00 04 crc ; device -> 05 00 03 01 00 04 <4 bytes> crc
+        val request = SuuntoCrc.appended(byteArrayOf(0x05, 0x00, 0x03, 0x01, 0x00, 0x04))
+        val payload = byteArrayOf(0xDE.toByte(), 0xAD.toByte(), 0xBE.toByte(), 0xEF.toByte())
+        val reply = SuuntoCrc.appended(byteArrayOf(0x05, 0x00, 0x03, 0x01, 0x00, 0x04) + payload)
+        val transcript = Transcript(
+            listOf(
+                TransportEvent(Direction.WRITE, request),
+                TransportEvent(Direction.READ, reply),
+            ),
+        )
+        val link = SuuntoD9Link(ReplayTransport(transcript, strictWrites = true))
+        assertContentEquals(payload, link.readMemory(address = 0x0100, count = 4))
+    }
+
+    @Test
+    fun readVersionFramesAZeroParamRequest() {
+        // host -> 0F 00 00 crc ; device -> 0F 00 00 <id hi mid lo> crc
+        val request = SuuntoCrc.appended(byteArrayOf(0x0F, 0x00, 0x00))
+        val version = byteArrayOf(0x14, 0x01, 0x02, 0x03)
+        val reply = SuuntoCrc.appended(byteArrayOf(0x0F, 0x00, 0x00) + version)
+        val transcript = Transcript(
+            listOf(
+                TransportEvent(Direction.WRITE, request),
+                TransportEvent(Direction.READ, reply),
+            ),
+        )
+        val link = SuuntoD9Link(ReplayTransport(transcript, strictWrites = true))
+        assertContentEquals(version, link.readVersion())
+    }
+
+    @Test
+    fun pagedReadSplitsLargeRanges() {
+        // Two pages of the maximum size then a short final page.
+        val page = SuuntoD9Link.MAX_PAGE
+        val events = mutableListOf<TransportEvent>()
+        val expected = ByteArray(page + 5) { it.toByte() }
+        var addr = 0
+        var read = 0
+        while (read < expected.size) {
+            val count = minOf(page, expected.size - read)
+            val req = SuuntoCrc.appended(
+                byteArrayOf(0x05, 0x00, 0x03, ((addr ushr 8) and 0xFF).toByte(), (addr and 0xFF).toByte(), count.toByte()),
+            )
+            val data = expected.copyOfRange(read, read + count)
+            val rsp = SuuntoCrc.appended(
+                byteArrayOf(0x05, 0x00, 0x03, ((addr ushr 8) and 0xFF).toByte(), (addr and 0xFF).toByte(), count.toByte()) + data,
+            )
+            events += TransportEvent(Direction.WRITE, req)
+            events += TransportEvent(Direction.READ, rsp)
+            read += count
+            addr += count
+        }
+        val link = SuuntoD9Link(ReplayTransport(Transcript(events), strictWrites = true))
+        assertContentEquals(expected, link.readRange(address = 0, count = expected.size))
+        assertEquals(page + 5, expected.size)
+    }
+}
