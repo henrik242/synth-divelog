@@ -89,19 +89,40 @@ fun posixJnaTest(portName: String) {
         c.cfsetspeed(t, NativeLong(9600))
         t.c_cflag = NativeLong((t.c_cflag.toLong() or CS8 or CLOCAL or CREAD) and PARENB.inv() and CSTOPB.inv() and CRTSCTS.inv())
         t.c_cc[VMIN] = 0
-        t.c_cc[VTIME] = 5 // 0.5s read timeout
+        t.c_cc[VTIME] = 1 // 0.1s per blocking read; readN loops to the deadline
         c.tcsetattr(fd, TCSANOW, t)
         c.fcntl(fd, F_SETFL, 0) // clear O_NONBLOCK so reads honour VMIN/VTIME
 
-        val lat = Memory(8)
-        lat.setLong(0, 1L) // 1 microsecond: minimum latency
-        val latRc = c.ioctl(fd, NativeLong(IOSSDATALAT), lat)
-        println("IOSSDATALAT set rc=$latRc (0 = ok)")
-
-        setModem(c, fd, TIOCM_DTR, true) // power
-        setModem(c, fd, TIOCM_RTS, false) // start in receive
+        // libdc polarity: assert DTR, idle in receive with RTS asserted (set_rts 1).
+        setModem(c, fd, TIOCM_DTR, true)
+        setModem(c, fd, TIOCM_RTS, true)
         Thread.sleep(100)
         c.tcflush(fd, TCIOFLUSH)
+
+        fun readN(n: Int, deadlineMs: Long): ByteArray {
+            val buf = ByteArray(n)
+            var got = 0
+            val end = System.currentTimeMillis() + deadlineMs
+            while (got < n && System.currentTimeMillis() < end) {
+                val tmp = ByteArray(n - got)
+                val r = c.read(fd, tmp, NativeLong((n - got).toLong())).toInt()
+                if (r > 0) { tmp.copyInto(buf, got, 0, r); got += r } else if (r < 0) break
+            }
+            return buf.copyOf(got)
+        }
+
+        // Replicates suunto_d9_device_packet: deassert RTS to send, read the echo back
+        // (blocks until the command is on the wire = the turnaround sync), assert RTS to
+        // receive, read the answer.
+        fun exchange(cmd: ByteArray, replyLen: Int): Pair<ByteArray, ByteArray> {
+            c.tcflush(fd, TCIOFLUSH)
+            setModem(c, fd, TIOCM_RTS, false) // set_rts(0): send
+            c.write(fd, cmd, NativeLong(cmd.size.toLong()))
+            val echo = readN(cmd.size, 300)
+            setModem(c, fd, TIOCM_RTS, true) // set_rts(1): receive
+            val reply = readN(replyLen, 400)
+            return echo to reply
+        }
 
         val cmd0190 = run {
             val b = byteArrayOf(0x05, 0x00, 0x03, 0x01, 0x90.toByte(), 0x08)
@@ -111,28 +132,25 @@ fun posixJnaTest(portName: String) {
         }
         val getVersion = byteArrayOf(0x0F, 0x00, 0x00, 0x0F)
 
-        fun exchange(cmd: ByteArray): ByteArray {
-            c.tcflush(fd, TCIOFLUSH)
-            setModem(c, fd, TIOCM_RTS, true) // transmit
-            c.write(fd, cmd, NativeLong(cmd.size.toLong()))
-            c.tcdrain(fd) // block until the command has physically drained
-            setModem(c, fd, TIOCM_RTS, false) // receive
-            val buf = ByteArray(32)
-            val n = c.read(fd, buf, NativeLong(32)).toInt()
-            return if (n > 0) buf.copyOf(n) else ByteArray(0)
-        }
-
-        val v = exchange(getVersion)
-        println("Version check: ${if (v.isEmpty()) "(no reply)" else hex(v)}")
+        val (ve, vr) = exchange(getVersion, 8)
+        println("Version: echo=${hex(ve)} reply=${hex(vr)}")
         Thread.sleep(150)
 
-        var ok = 0
+        var echoOk = 0
+        var replyOk = 0
+        var sample = ByteArray(0)
         repeat(30) {
-            val r = exchange(cmd0190)
-            if (r.isNotEmpty() && r[0] == 0x05.toByte()) ok++
+            val (echo, reply) = exchange(cmd0190, 15)
+            if (echo.contentEquals(cmd0190)) echoOk++
+            if (reply.size >= 15 && reply[0] == 0x05.toByte()) {
+                var crc = 0
+                for (i in 0 until 14) crc = crc xor (reply[i].toInt() and 0xFF)
+                if (reply[14] == crc.toByte()) { replyOk++; if (sample.isEmpty()) sample = reply.copyOf(15) }
+            }
             Thread.sleep(40)
         }
-        println("tcdrain turnaround on 0x0190: $ok/30")
+        println("libdc-style turnaround 0x0190: echoMatched=$echoOk/30 replyValid=$replyOk/30")
+        println("  sample=${hex(sample)}")
     } finally {
         runCatching { c.close(fd) }
     }
