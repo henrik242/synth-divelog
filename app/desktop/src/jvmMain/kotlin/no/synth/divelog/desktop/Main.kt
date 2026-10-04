@@ -24,9 +24,9 @@ import java.io.File
 
 /**
  * Desktop (JVM) entry point. Reuses the shared Compose UI and core repositories
- * over a file-backed SQLite database in the user's home. Wired-serial download is
- * Android-only for now; file import/export, re-parse and cloud sync go through the
- * shared logbook and sync code.
+ * over a file-backed SQLite database in the user's home. The Download button opens a
+ * picker for the Suunto family and serial port, then runs the wired download; file
+ * import/export, re-parse and cloud sync go through the shared logbook and sync code.
  */
 fun main() = application {
     val settings = remember { AppSettings(SettingsStore()) }
@@ -38,6 +38,7 @@ fun main() = application {
     var dataVersion by remember { mutableStateOf(0) }
     var status by remember { mutableStateOf<String?>(null) }
     var downloadState by remember { mutableStateOf<DesktopDownloadState>(DesktopDownloadState.Idle) }
+    var showDownloadPicker by remember { mutableStateOf(false) }
     val cancelDownload = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     Window(onCloseRequest = ::exitApplication, title = "Synth Divelog") {
@@ -50,22 +51,8 @@ fun main() = application {
                     settings.unitSystem = it
                 },
                 onDownloadClick = {
-                    if (downloadState is DesktopDownloadState.Idle) {
-                        cancelDownload.set(false)
-                        downloadState = DesktopDownloadState.Running(0f, "Looking for the dive computer")
-                        scope.launch(Dispatchers.IO) {
-                            val result = try {
-                                downloadD9ToLogbook(container, isCancelled = { cancelDownload.get() }) { f, label ->
-                                    downloadState = DesktopDownloadState.Running(f, label)
-                                }
-                            } catch (e: Exception) {
-                                "Download failed: ${e.message ?: e::class.simpleName}"
-                            } finally {
-                                downloadState = DesktopDownloadState.Idle
-                            }
-                            status = result
-                            dataVersion++
-                        }
+                    if (downloadState is DesktopDownloadState.Idle && !showDownloadPicker) {
+                        showDownloadPicker = true
                     }
                 },
                 onImport = {
@@ -109,6 +96,29 @@ fun main() = application {
                 onStatusShown = { status = null },
                 dataVersion = dataVersion,
             )
+            if (showDownloadPicker) {
+                DesktopDownloadPickerDialog(
+                    onStart = { family, port ->
+                        showDownloadPicker = false
+                        cancelDownload.set(false)
+                        downloadState = DesktopDownloadState.Running(0f, "Connecting to the dive computer")
+                        scope.launch(Dispatchers.IO) {
+                            val result = try {
+                                downloadToLogbook(container, family, port, isCancelled = { cancelDownload.get() }) { f, label ->
+                                    downloadState = DesktopDownloadState.Running(f, label)
+                                }
+                            } catch (e: Exception) {
+                                "Download failed: ${e.message ?: e::class.simpleName}"
+                            } finally {
+                                downloadState = DesktopDownloadState.Idle
+                            }
+                            status = result
+                            dataVersion++
+                        }
+                    },
+                    onCancel = { showDownloadPicker = false },
+                )
+            }
             (downloadState as? DesktopDownloadState.Running)?.let {
                 DesktopDownloadDialog(it, onCancel = { cancelDownload.set(true) })
             }
