@@ -66,6 +66,9 @@ class SuuntoD9Link(
         // The half-duplex turnaround on this cable is timing-sensitive and has no echo
         // to sync on, so a reply can be missed or clipped. Resend and reread, letting the
         // transport's write jitter vary the turnaround phase, until a reply validates.
+        // The transport flushes its input at the start of each write, so a late or partial
+        // reply from a missed attempt is cleared before the next one; no separate drain
+        // (which could swallow a reply that arrives just after the window).
         var lastError = "no reply"
         repeat(MAX_TURNAROUND_RETRIES) {
             transport.write(request)
@@ -76,21 +79,21 @@ class SuuntoD9Link(
                 reply[reply.size - 1] != SuuntoCrc.xor(reply, 0, reply.size - 1) -> lastError = "CRC mismatch"
                 else -> return reply.copyOfRange(0, reply.size - 1)
             }
-            drainInput()
         }
         throw ProtocolException("D9: no valid reply to 0x${hex(command)} after $MAX_TURNAROUND_RETRIES tries ($lastError)")
     }
 
-    /** Read a full [n]-byte reply, or null if it times out or stalls part way. */
+    /**
+     * Read a full [n]-byte reply, or null if it times out. One generous window for the whole
+     * reply (matching the raw capture path): the device can take a few hundred ms to answer,
+     * and a short first-byte timeout here was missing those replies.
+     */
     private fun readReply(n: Int): ByteArray? {
         val buffer = ByteArray(n)
         var got = 0
         while (got < n) {
-            // A missed turnaround shows up as silence on the first byte; fail fast there
-            // so a retry can try a new phase, but allow longer for the rest of the reply.
-            val t = if (got == 0) FIRST_BYTE_TIMEOUT_MS else CHUNK_TIMEOUT_MS
             val r = try {
-                transport.read(buffer, got, n - got, t)
+                transport.read(buffer, got, n - got, REPLY_TIMEOUT_MS)
             } catch (e: TransportTimeoutException) {
                 return null
             }
@@ -98,19 +101,6 @@ class SuuntoD9Link(
             got += r
         }
         return buffer
-    }
-
-    /** Drop any leftover bytes so a partial or stale reply does not corrupt the next read. */
-    private fun drainInput() {
-        val scratch = ByteArray(64)
-        while (true) {
-            val r = try {
-                transport.read(scratch, 0, scratch.size, DRAIN_TIMEOUT_MS)
-            } catch (e: TransportTimeoutException) {
-                return
-            }
-            if (r <= 0) return
-        }
     }
 
     private fun hex(b: Byte): String = (b.toInt() and 0xFF).toString(16).padStart(2, '0')
@@ -121,8 +111,6 @@ class SuuntoD9Link(
         private const val CMD_READ = 0x05.toByte()
         private const val CMD_VERSION = 0x0F.toByte()
         private const val MAX_TURNAROUND_RETRIES = 60
-        private const val FIRST_BYTE_TIMEOUT_MS = 200L
-        private const val CHUNK_TIMEOUT_MS = 400L
-        private const val DRAIN_TIMEOUT_MS = 50L
+        private const val REPLY_TIMEOUT_MS = 500L
     }
 }
