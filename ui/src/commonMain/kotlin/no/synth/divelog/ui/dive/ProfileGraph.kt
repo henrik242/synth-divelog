@@ -90,8 +90,12 @@ fun ProfileGraph(
             Canvas(Modifier.fillMaxWidth().height(240.dp)) {
                 val w = size.width
                 val h = size.height
+                // Reserve a gutter at the bottom for the time axis so labels never
+                // collide with the profile or the temperature trace.
+                val axisInset = 16f
+                val plotH = h - axisInset
                 fun x(t: Int) = t.toFloat() / maxTime * w
-                fun yDepth(mm: Int) = mm.toFloat() / maxDepth * h
+                fun yDepth(mm: Int) = mm.toFloat() / maxDepth * plotH
 
                 // Horizontal depth gridlines at round depths, labelled.
                 val stepMm = niceDepthStepMm(maxDepth)
@@ -104,11 +108,36 @@ fun ProfileGraph(
                     lineDepth += stepMm
                 }
 
-                // Depth trace.
+                // Vertical time gridlines at round intervals, labelled in the gutter.
+                val timeStep = niceTimeStepSeconds(maxTime)
+                var lineTime = timeStep
+                while (lineTime < maxTime) {
+                    val tx = x(lineTime)
+                    drawLine(gridColor, Offset(tx, 0f), Offset(tx, plotH), strokeWidth = 1f)
+                    val label = textMeasurer.measure(Format.duration(lineTime), labelStyle)
+                    drawText(label, topLeft = Offset(tx - label.size.width / 2f, plotH + 1f))
+                    lineTime += timeStep
+                }
+
+                // Depth trace, with a translucent fill below it so it reads as water.
                 val depthPath = Path().apply {
                     moveTo(x(points[0].timeOffsetSeconds), yDepth(points[0].depthMm!!))
                     for (p in points.drop(1)) lineTo(x(p.timeOffsetSeconds), yDepth(p.depthMm!!))
                 }
+                val fillPath = Path().apply {
+                    addPath(depthPath)
+                    lineTo(x(points.last().timeOffsetSeconds), 0f)
+                    lineTo(x(points[0].timeOffsetSeconds), 0f)
+                    close()
+                }
+                drawPath(
+                    fillPath,
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        0f to depthColor.copy(alpha = 0.28f),
+                        1f to depthColor.copy(alpha = 0.04f),
+                        endY = plotH,
+                    ),
+                )
                 drawPath(depthPath, depthColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
 
                 // Deco ceiling: the shallowest allowed depth while a stop was owed.
@@ -143,7 +172,7 @@ fun ProfileGraph(
                     var started = false
                     for (p in points) {
                         val mk = p.temperatureMk ?: continue
-                        val ty = h - (mk - minTemp) / span * (h * 0.3f) - 2f
+                        val ty = plotH - (mk - minTemp) / span * (plotH * 0.3f) - 2f
                         val tx = x(p.timeOffsetSeconds)
                         if (!started) { tempPath.moveTo(tx, ty); started = true } else tempPath.lineTo(tx, ty)
                     }
@@ -157,14 +186,14 @@ fun ProfileGraph(
                         EventType.WARNING, EventType.ASCENT_RATE -> warnColor
                         else -> gasColor
                     }
-                    drawLine(color, Offset(ex, 0f), Offset(ex, h), strokeWidth = 1.5f)
+                    drawLine(color, Offset(ex, 0f), Offset(ex, plotH), strokeWidth = 1.5f)
                 }
 
                 // Scrub cursor.
                 cursor?.let { idx ->
                     val p = points[idx]
                     val cx = x(p.timeOffsetSeconds)
-                    drawLine(cursorColor, Offset(cx, 0f), Offset(cx, h), strokeWidth = 1.5f)
+                    drawLine(cursorColor, Offset(cx, 0f), Offset(cx, plotH), strokeWidth = 1.5f)
                     drawCircle(depthColor, radius = 5f, center = Offset(cx, yDepth(p.depthMm!!)))
                 }
             }
@@ -192,6 +221,12 @@ private fun niceDepthStepMm(maxDepthMm: Int): Int {
     val stepsM = listOf(2, 5, 10, 20, 25, 50, 100)
     val stepM = stepsM.firstOrNull { maxM / it <= 6 } ?: 100
     return stepM * 1000
+}
+
+/** A round time-gridline spacing (in seconds) giving roughly 3-6 lines for the dive. */
+private fun niceTimeStepSeconds(maxTimeSeconds: Int): Int {
+    val steps = listOf(60, 120, 300, 600, 900, 1_800, 3_600)
+    return steps.firstOrNull { maxTimeSeconds / it <= 6 } ?: 3_600
 }
 
 private fun nearestIndex(x: Float, width: Int, points: List<Sample>, maxTime: Int): Int {

@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,6 +25,7 @@ import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.dive.DiveListWithDetail
 
 @Composable
@@ -43,7 +46,7 @@ fun SitesSection(container: AppContainer, unitSystem: UnitSystem, dataVersion: I
 private fun Countries(container: AppContainer, onOpen: (Country) -> Unit) {
     val countries = remember { container.sites.countries() }
     if (countries.isEmpty()) {
-        Text("No dive sites yet. Add one when editing a dive.", Modifier.padding(16.dp))
+        EmptyState("No dive sites yet. Add one when editing a dive.", Icons.Outlined.Place)
         return
     }
     LazyColumn(Modifier.fillMaxSize()) {

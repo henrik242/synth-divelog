@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,15 +24,14 @@ import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.core.model.units.Units
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.format.Format
 
 @Composable
 fun StatisticsSection(container: AppContainer, unitSystem: UnitSystem, dataVersion: Int) {
     val dives = remember(dataVersion) { container.dives.allDives() }
     if (dives.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-            Text("No dives yet.", style = MaterialTheme.typography.bodyLarge)
-        }
+        EmptyState("No dives yet. Statistics appear once you have logged some.", Icons.Outlined.BarChart)
         return
     }
 
