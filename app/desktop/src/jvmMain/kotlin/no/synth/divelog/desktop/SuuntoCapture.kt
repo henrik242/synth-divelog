@@ -38,7 +38,7 @@ fun main(args: Array<String>) {
     // An arg that names a family is the family; "probe" selects probe mode; anything
     // else is the port name. This way "D9" or "D9 probe" leaves the port to auto-detect.
     val familyArg = args.firstNotNullOfOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.getOrNull() }
-    val keywords = setOf("probe", "readprobe", "difftest", "jnatest", "rawdump", "suite")
+    val keywords = setOf("probe", "readprobe", "difftest", "jnatest", "rawdump", "suite", "proto")
     val portArg = args.firstOrNull {
         !keywords.contains(it.lowercase()) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
     }
@@ -95,6 +95,14 @@ fun main(args: Array<String>) {
     // fixed-settle turnaround in both polarities), for the third-party echoing cable.
     if (args.any { it.equals("suite", ignoreCase = true) }) {
         cableTestSuite(portName)
+        return
+    }
+
+    // "proto" runs the SHARED SuuntoD9Protocol.download over a bare transport (no
+    // RecordingTransport wrapper) - exactly the code path Android would use - to check
+    // whether the shared Transport read is reliable enough to replace the desktop raw path.
+    if (args.any { it.equals("proto", ignoreCase = true) }) {
+        protoDownload(portName, family)
         return
     }
 
@@ -572,6 +580,41 @@ private fun decodeDump(dump: ByteArray) {
                 println("  #${i + 1}  ${Instant.ofEpochSecond(d.startEpochSeconds)}  ${d.durationSeconds / 60}min  max=${(d.maxDepthMm ?: 0) / 1000.0}m  ${d.samples.size} samples")
             }
             .onFailure { println("  #${i + 1}  parse failed: ${it.message}") }
+    }
+}
+
+/**
+ * Run the shared [no.synth.divelog.core.divecomputer.DiveComputerProtocol.download] over a
+ * bare transport (no recording wrapper) and decode, to test whether the shared Transport
+ * read path is reliable enough to be the single cross-platform download.
+ */
+private fun protoDownload(portName: String, family: SuuntoFamily) {
+    val start = System.currentTimeMillis()
+    val transport = JSerialCommTransport.byName(portName, family.serialParams)
+    try {
+        transport.open()
+        val protocol = family.protocol(transport)
+        val listener = object : DownloadListener {
+            override fun onDeviceInfo(info: DeviceInfo) = println("Device: ${info.vendor} ${info.model} serial ${info.serial} fw ${info.firmware}")
+            override fun onProgress(current: Int, total: Int) {
+                if (current % 0x600 == 0) println("  ${current} / $total (${current * 100 / total}%), ${(System.currentTimeMillis() - start) / 1000}s")
+            }
+            override fun onDiveDownloaded(index: Int) {}
+        }
+        val raw = protocol.download(null, listener, CancellationSignal.NONE)
+        println("Downloaded ${raw.size} raw dive(s) in ${(System.currentTimeMillis() - start) / 1000}s")
+        val parser = family.parser()
+        if (parser != null) {
+            raw.forEachIndexed { i, r ->
+                runCatching { parser.parse(r) }
+                    .onSuccess { d -> println("  #${i + 1}  ${Instant.ofEpochSecond(d.startEpochSeconds)}  ${d.durationSeconds / 60}min  max=${(d.maxDepthMm ?: 0) / 1000.0}m  ${d.samples.size} samples") }
+                    .onFailure { println("  #${i + 1}  parse failed: ${it.message}") }
+            }
+        }
+    } catch (e: Exception) {
+        println("proto download failed: ${e.message}")
+    } finally {
+        runCatching { transport.close() }
     }
 }
 

@@ -120,7 +120,7 @@ class SuuntoD9Link(
         private const val VERSION_LEN = 4
         private const val CMD_READ = 0x05.toByte()
         private const val CMD_VERSION = 0x0F.toByte()
-        private const val MAX_TURNAROUND_RETRIES = 24
+        private const val MAX_TURNAROUND_RETRIES = 60
         private const val FIRST_BYTE_TIMEOUT_MS = 200L
         private const val CHUNK_TIMEOUT_MS = 400L
         private const val DRAIN_TIMEOUT_MS = 50L
