@@ -53,9 +53,10 @@ class PredatorParserTest {
                 units = 0, // metric
                 o2 = 21,
                 samples = listOf(
-                    Triple(100, 6, 21), // 10.0 m, 6 C, air
-                    Triple(359, 5, 21), // 35.9 m, 5 C, air
-                    Triple(0, 5, 50), // surfacing, switch to EAN50
+                    Triple(100, 6, 21), // t=0,  10.0 m, 6 C, air
+                    Triple(359, 5, 21), // t=10, 35.9 m, 5 C, air (deepest)
+                    Triple(60, 5, 50), // t=20,  6.0 m, switch to EAN50 (deco stop)
+                    Triple(0, 5, 50), // t=30,  surfaced - trimmed off
                 ),
                 durationMinutes = 2,
             ),
@@ -68,12 +69,12 @@ class PredatorParserTest {
         assertEquals(35_900, dive.maxDepthMm)
         assertEquals(278_150, dive.waterTempMk) // min temp 5 C
         assertEquals(120, dive.durationSeconds) // from closing block, minutes -> seconds
-        assertEquals(3, dive.samples.size)
+        assertEquals(3, dive.samples.size) // the trailing surfaced sample is trimmed
         assertEquals(0, dive.samples[0].timeOffsetSeconds)
         assertEquals(20, dive.samples[2].timeOffsetSeconds)
-        assertEquals(15_300, dive.meanDepthMm)
+        assertEquals(17_300, dive.meanDepthMm) // (10.0 + 35.9 + 6.0)/3
 
-        // Initial gas at t=0, then a switch at t=20.
+        // Initial gas at t=0, then a switch at t=20 (both within the trimmed dive).
         assertEquals(2, dive.events.size)
         assertEquals(EventType.GAS_SWITCH, dive.events[0].type)
         assertEquals(0, dive.events[0].timeOffsetSeconds)

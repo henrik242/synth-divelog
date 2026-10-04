@@ -42,9 +42,9 @@ class PetrelDiveRegressionTest {
         assertEquals(1_441_468_156L, dive.startEpochSeconds)
         assertEquals(31 * 60, dive.durationSeconds)
         assertEquals(5_200, dive.maxDepthMm)
-        assertEquals(2_746, dive.meanDepthMm)
+        assertEquals(3_138, dive.meanDepthMm) // mean over the dive, surface tail trimmed
         assertEquals(279_150, dive.waterTempMk) // 6 C
-        assertEquals(208, dive.samples.size)
+        assertEquals(182, dive.samples.size) // trailing surface samples dropped
         assertEquals("petrel-584", dive.fingerprint)
     }
 

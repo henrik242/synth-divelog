@@ -45,9 +45,6 @@ class PredatorParser(
         val sampleRegionEnd = closingBlockStart
         val samples = ArrayList<Sample>()
         val events = ArrayList<Event>()
-        var maxDepthMm = 0
-        var depthSumMm = 0L
-        var minTempMk: Int? = null
         var previousGas: Pair<Int, Int>? = null
 
         var offset = BLOCK
@@ -85,25 +82,40 @@ class PredatorParser(
                 previousGas = gas
             }
 
-            if (depthMm > maxDepthMm) maxDepthMm = depthMm
-            depthSumMm += depthMm
-            // Water temperature from submerged samples only; surface samples
-            // often report 0 and would otherwise skew the minimum.
-            if (depthMm > 0) {
-                minTempMk = minTempMk?.let { minOf(it, tempMk) } ?: tempMk
-            }
             offset += sampleStride
             index++
         }
 
-        val meanDepthMm = if (index > 0) (depthSumMm / index).toInt() else null
+        // Drop the surface tail the computer keeps recording after surfacing, so the
+        // profile span and mean depth reflect the actual dive (to final ascent). The
+        // closing-block duration already ends at surfacing.
+        while (samples.size > 1 && (samples.last().depthMm ?: 0) == 0) {
+            samples.removeAt(samples.lastIndex)
+        }
+        val lastSampleTime = samples.lastOrNull()?.timeOffsetSeconds ?: 0
+        events.retainAll { it.timeOffsetSeconds <= lastSampleTime }
+
+        var maxDepthMm = 0
+        var depthSumMm = 0L
+        var minTempMk: Int? = null
+        for (s in samples) {
+            val sampleDepthMm = s.depthMm ?: 0
+            if (sampleDepthMm > maxDepthMm) maxDepthMm = sampleDepthMm
+            depthSumMm += sampleDepthMm
+            // Water temperature from submerged samples only.
+            if (sampleDepthMm > 0) {
+                val t = s.temperatureMk
+                if (t != null) minTempMk = minTempMk?.let { minOf(it, t) } ?: t
+            }
+        }
+        val meanDepthMm = if (samples.isNotEmpty()) (depthSumMm / samples.size).toInt() else null
 
         return IncomingDive(
             number = number,
             startEpochSeconds = startEpoch,
             utcOffsetSeconds = 0, // device stores local time; offset refined later
-            durationSeconds = if (durationSeconds > 0) durationSeconds else index * sampleIntervalSeconds,
-            maxDepthMm = if (index > 0) maxDepthMm else null,
+            durationSeconds = if (durationSeconds > 0) durationSeconds else samples.size * sampleIntervalSeconds,
+            maxDepthMm = if (samples.isNotEmpty()) maxDepthMm else null,
             meanDepthMm = meanDepthMm,
             waterTempMk = minTempMk,
             rawData = raw.data,
