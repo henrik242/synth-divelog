@@ -34,7 +34,7 @@ fun main(args: Array<String>) {
     // An arg that names a family is the family; "probe" selects probe mode; anything
     // else is the port name. This way "D9" or "D9 probe" leaves the port to auto-detect.
     val familyArg = args.firstNotNullOfOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.getOrNull() }
-    val keywords = setOf("probe", "readprobe", "difftest", "jnatest", "rawdump")
+    val keywords = setOf("probe", "readprobe", "difftest", "jnatest", "rawdump", "suite")
     val portArg = args.firstOrNull {
         !keywords.contains(it.lowercase()) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
     }
@@ -84,6 +84,13 @@ fun main(args: Array<String>) {
     // run right after replugging so the HelO2 is freshly in Data transfer.
     if (args.any { it.equals("rawdump", ignoreCase = true) }) {
         rawDump(portName)
+        return
+    }
+
+    // "suite" characterizes a cable end to end (baud, line config, echo, echo-read vs
+    // fixed-settle turnaround in both polarities), for the third-party echoing cable.
+    if (args.any { it.equals("suite", ignoreCase = true) }) {
+        cableTestSuite(portName)
         return
     }
 
