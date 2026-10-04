@@ -47,11 +47,18 @@ class UsbSerialTransport(
             if (params.halfDuplex) {
                 port.rts = params.rtsTransmitHigh // drive the line to transmit
                 port.write(data, WRITE_TIMEOUT_MS)
-                val settle = params.txSettleMs + if (params.txJitterMs > 0) (0..params.txJitterMs).random() else 0
-                if (settle > 0) sleep(settle)
-                port.rts = !params.rtsTransmitHigh // switch the line to receive
-                if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
-                if (params.discardsEcho) discardEcho(data.size)
+                if (params.echoSync) {
+                    // Read the sent bytes back as the turnaround sync: this blocks until the
+                    // command is physically on the wire, so the switch to receive is deterministic.
+                    readEcho(data.size)
+                    port.rts = !params.rtsTransmitHigh // switch the line to receive
+                } else {
+                    val settle = params.txSettleMs + if (params.txJitterMs > 0) (0..params.txJitterMs).random() else 0
+                    if (settle > 0) sleep(settle)
+                    port.rts = !params.rtsTransmitHigh // switch the line to receive
+                    if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
+                    if (params.discardsEcho) discardEcho(data.size)
+                }
             } else {
                 port.write(data, WRITE_TIMEOUT_MS)
             }
@@ -90,6 +97,23 @@ class UsbSerialTransport(
             val n = runCatching { port.read(scratch, ECHO_TIMEOUT_MS) }.getOrDefault(0)
             if (n <= 0) break
             dropped += n
+        }
+    }
+
+    /**
+     * Read [count] echoed bytes back as the transmit-to-receive turnaround sync. Bounded by
+     * a deadline so a missing or short echo cannot hang: if the cable does not reflect the
+     * bytes under this transport, this returns after the timeout and we fall back to reading
+     * the reply directly.
+     */
+    private fun readEcho(count: Int) {
+        val scratch = ByteArray(count)
+        var got = 0
+        val deadline = System.currentTimeMillis() + ECHO_TIMEOUT_MS
+        while (got < count && System.currentTimeMillis() < deadline) {
+            val n = runCatching { port.read(scratch, ECHO_TIMEOUT_MS) }.getOrDefault(0)
+            if (n <= 0) break
+            got += n
         }
     }
 

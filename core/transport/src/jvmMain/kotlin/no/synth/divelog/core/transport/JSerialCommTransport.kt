@@ -45,11 +45,18 @@ class JSerialCommTransport(
             runCatching { port.flushIOBuffers() } // drop stale/spurious bytes before this command
             setRts(params.rtsTransmitHigh) // drive the line to transmit
             writeAll(data)
-            val settle = params.txSettleMs + if (params.txJitterMs > 0) (0..params.txJitterMs).random() else 0
-            if (settle > 0) sleep(settle)
-            setRts(!params.rtsTransmitHigh) // switch the line to receive
-            if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
-            if (params.discardsEcho) discardEcho(data.size)
+            if (params.echoSync) {
+                // Read the sent bytes back as the turnaround sync: this blocks until the
+                // command is physically on the wire, so the switch to receive is deterministic.
+                readEcho(data.size)
+                setRts(!params.rtsTransmitHigh) // switch the line to receive
+            } else {
+                val settle = params.txSettleMs + if (params.txJitterMs > 0) (0..params.txJitterMs).random() else 0
+                if (settle > 0) sleep(settle)
+                setRts(!params.rtsTransmitHigh) // switch the line to receive
+                if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
+                if (params.discardsEcho) discardEcho(data.size)
+            }
         } else {
             writeAll(data)
         }
@@ -91,6 +98,24 @@ class JSerialCommTransport(
             val n = port.readBytes(scratch, count - dropped)
             if (n <= 0) break
             dropped += n
+        }
+    }
+
+    /**
+     * Read [count] echoed bytes back as the transmit-to-receive turnaround sync. Bounded by
+     * a deadline so a missing or short echo cannot hang: if the cable does not reflect the
+     * bytes under this transport, this returns after the timeout and we fall back to reading
+     * the reply directly. Unlike [discardEcho] it keeps waiting across empty reads until the
+     * deadline, because the echo is the signal we are blocking on, not noise to drop.
+     */
+    private fun readEcho(count: Int) {
+        val scratch = ByteArray(count)
+        var got = 0
+        val deadline = nowMs() + ECHO_TIMEOUT_MS
+        while (got < count && nowMs() < deadline) {
+            val n = port.readBytes(scratch, count - got)
+            if (n < 0) break
+            got += n
         }
     }
 

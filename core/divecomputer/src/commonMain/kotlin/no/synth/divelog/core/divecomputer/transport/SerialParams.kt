@@ -34,6 +34,15 @@ data class SerialParams(
      * false for the D9 family, whose RTS direction control leaves no echo.
      */
     val discardsEcho: Boolean = true,
+    /**
+     * On a [halfDuplex] line, sync the transmit-to-receive turnaround by reading the sent
+     * bytes back off the wire instead of waiting a fixed settle: the read blocks until the
+     * command is physically out, so the RTS switch to receive lands deterministically and
+     * the reply read succeeds first try. Off by default and only worth enabling when the
+     * cable actually reflects the sent bytes under this transport; when off the fixed
+     * settle path ([txSettleMs]/[txJitterMs]) is used unchanged.
+     */
+    val echoSync: Boolean = false,
     /** Milliseconds to let the interface power up after setting the lines, before use. */
     val powerUpMs: Long = 0,
     /** Milliseconds to let the UART drain before switching RTS to receive. */
