@@ -44,7 +44,11 @@ class SuuntoD9Protocol(
     companion object {
         private const val VENDOR = "Suunto"
 
-        /** 9600 8N1, full-duplex: a plain request/response packet line, no RTS/DTR dance. */
+        /**
+         * 9600 8N1, full-duplex. The cable is powered off both DTR and RTS, so both
+         * are held high and the interface is given time to power up before the first
+         * command; without RTS high the device never replies.
+         */
         val SERIAL_PARAMS = SerialParams(
             baudRate = 9600,
             dataBits = 8,
@@ -52,6 +56,8 @@ class SuuntoD9Protocol(
             stopBits = 1,
             halfDuplex = false,
             dtr = true,
+            rts = true,
+            powerUpMs = 100,
         )
     }
 }

@@ -25,7 +25,13 @@ class JSerialCommTransport(
         applyReadTimeout(DEFAULT_READ_TIMEOUT_MS)
         if (!port.openPort()) throw TransportException("Could not open serial port ${port.systemPortName}")
         setDtr(params.dtr)
-        if (params.halfDuplex) setRts(false) // start in receive direction
+        if (params.halfDuplex) {
+            setRts(false) // start in receive direction; flipped per write
+        } else {
+            setRts(params.rts) // the D9 cable draws power from RTS, so hold it high
+        }
+        if (params.powerUpMs > 0) sleep(params.powerUpMs) // let the interface power up
+        runCatching { port.flushIOBuffers() } // drop anything stale before the first command
         open = true
     }
 

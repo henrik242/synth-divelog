@@ -1,5 +1,6 @@
 package no.synth.divelog.desktop
 
+import com.fazecast.jSerialComm.SerialPort
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DeviceInfo
 import no.synth.divelog.core.divecomputer.DownloadListener
@@ -43,6 +44,15 @@ fun main(args: Array<String>) {
         println("Usage: ./gradlew :app:desktop:suuntoCapture --args=\"[VYPER|D9] [portName]\"")
         return
     }
+
+    // "probe" sweeps the DTR/RTS/duplex line settings and reports which one gets a
+    // reply, for when the device stays silent and we do not yet know how the cable
+    // drives the line. It bypasses the normal transport.
+    if (args.any { it.equals("probe", ignoreCase = true) }) {
+        probeLines(portName)
+        return
+    }
+
     println("Opening $portName as ${family.displayName}")
     println("Line settings: ${family.serialParams}")
 
@@ -128,3 +138,67 @@ private fun saveTranscript(recording: RecordingTransport) {
 
 /** Upper bound for the D9 memory dump; reads stop earlier if the device errors first. */
 private const val DUMP_END = 0x8000
+
+/**
+ * Sweep the serial line settings at 9600 8N1 and send a D9 GetVersion to each,
+ * printing whatever comes back. Used when the device stays silent: it shows which
+ * DTR/RTS/duplex combination the cable actually needs. GetVersion is 0F 00 00 with
+ * an XOR checksum (0F), so the packet is 0F 00 00 0F; the reply echoes 0F and is 8
+ * bytes.
+ */
+private fun probeLines(portName: String) {
+    val request = byteArrayOf(0x0F, 0x00, 0x00, 0x0F)
+    data class Combo(val label: String, val dtr: Boolean, val rts: Boolean, val halfDuplex: Boolean)
+    val combos = listOf(
+        Combo("full-duplex  DTR=1 RTS=1", dtr = true, rts = true, halfDuplex = false),
+        Combo("full-duplex  DTR=1 RTS=0", dtr = true, rts = false, halfDuplex = false),
+        Combo("full-duplex  DTR=0 RTS=1", dtr = false, rts = true, halfDuplex = false),
+        Combo("full-duplex  DTR=0 RTS=0", dtr = false, rts = false, halfDuplex = false),
+        Combo("half-duplex  DTR=1 RTS-flip", dtr = true, rts = false, halfDuplex = true),
+    )
+    println("Probing $portName with GetVersion (${hex(request)}); reply should start with 0f and be 8 bytes.")
+    for (c in combos) {
+        val port = SerialPort.getCommPort(portName)
+        port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
+        port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 1500, 0)
+        if (!port.openPort()) {
+            println("  ${c.label}: could not open port")
+            continue
+        }
+        try {
+            if (c.dtr) port.setDTR() else port.clearDTR()
+            if (c.rts) port.setRTS() else port.clearRTS()
+            if (c.halfDuplex) port.clearRTS() // start in receive
+            Thread.sleep(100)
+            runCatching { port.flushIOBuffers() }
+
+            if (c.halfDuplex) {
+                port.setRTS()
+                port.writeBytes(request, request.size)
+                Thread.sleep(200)
+                port.clearRTS()
+                Thread.sleep(400)
+            } else {
+                port.writeBytes(request, request.size)
+            }
+
+            val buf = ByteArray(16)
+            val n = port.readBytes(buf, buf.size)
+            val got = if (n > 0) buf.copyOf(n) else ByteArray(0)
+            val verdict = when {
+                got.isEmpty() -> "nothing"
+                got.size >= 4 && got[0] == 0x0F.toByte() && !got.contentEquals(request.copyOf(got.size)) -> "REPLY -> this is the config"
+                got.contentEquals(request.copyOf(got.size)) -> "echo of our own bytes (single-wire cable)"
+                else -> "unexpected"
+            }
+            println("  ${c.label}: ${if (got.isEmpty()) "(no bytes)" else hex(got)}  [$verdict]")
+        } finally {
+            runCatching { port.closePort() }
+        }
+        Thread.sleep(300)
+    }
+    println("If every combo says nothing: the cable likely is not this Suunto's interface,")
+    println("the device is asleep, or the contacts are not seated. If one says REPLY, tell me which.")
+}
+
+private fun hex(data: ByteArray): String = data.joinToString(" ") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }

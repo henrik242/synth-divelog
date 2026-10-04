@@ -22,6 +22,14 @@ data class SerialParams(
     val halfDuplex: Boolean = false,
     /** DTR held high for the whole session (powers the old Suunto interface). */
     val dtr: Boolean = true,
+    /**
+     * RTS held high for the whole session. The newer Suunto (D9) cable draws its
+     * power from RTS as well as DTR, and stays silent if RTS is left low. Ignored on
+     * a [halfDuplex] line, where the transport flips RTS per write to set direction.
+     */
+    val rts: Boolean = false,
+    /** Milliseconds to let the interface power up after setting the lines, before use. */
+    val powerUpMs: Long = 0,
     /** Milliseconds to let the UART drain before clearing RTS to receive. */
     val txSettleMs: Long = 0,
     /** Milliseconds to wait after clearing RTS before the reply is expected. */

@@ -9,6 +9,11 @@ family split.
 
 - **9600 baud, 8N1, full-duplex.** No `RTS`/`DTR` direction toggling - a
   straightforward request/response packet exchange.
+- The cable draws power from **both `DTR` and `RTS`**: hold both high, then give the
+  interface ~100 ms to power up and flush the buffers before the first command. With
+  `RTS` left low the device stays completely silent (no reply to GetVersion). This
+  bit out on the first hardware test, where every read timed out until `RTS` was
+  asserted.
 
 ## Packet framing
 
