@@ -108,30 +108,41 @@ private fun downloadDives(family: SuuntoFamily, protocol: no.synth.divelog.core.
 /**
  * The D9 download is not written yet, so instead read the whole memory over
  * ReadMemory and save it. The dive directory and profile layout are reversed from
- * this dump against what the device screen shows. Reads page by page until an error
- * (which marks the end of readable memory) or [DUMP_END].
+ * this dump against what the device screen shows. Low addresses (below the serial at
+ * 0x0023) are unmapped and never answer, so a failed page is filled with 0xFF and the
+ * dump keeps going rather than aborting; the saved .bin stays address-aligned.
  */
 private fun dumpD9Memory(protocol: SuuntoD9Protocol) {
     val info = runCatching { protocol.readDeviceInfo() }.getOrNull()
     if (info != null) println("Device: ${info.vendor} ${info.model} firmware ${info.firmware}")
 
+    // Canary: a known-mapped address (the header at 0x0190) should answer. If this
+    // fails too, the problem is the read path, not the address.
+    runCatching { protocol.link.readMemory(0x0190, 8) }
+        .onSuccess { println("Canary 0x0190: ${hex(it)}") }
+        .onFailure { println("Canary 0x0190 failed: ${it.message}") }
+
     val out = ByteArrayOutputStream()
     var addr = 0
-    try {
-        while (addr < DUMP_END) {
-            val n = minOf(SuuntoD9Link.MAX_PAGE, DUMP_END - addr)
-            out.write(protocol.link.readMemory(addr, n))
-            addr += n
-            if (addr % 0xC00 == 0) println("  read ${addr} / $DUMP_END bytes (0x${addr.toString(16)})")
+    var failed = 0
+    while (addr < DUMP_END) {
+        val n = minOf(SuuntoD9Link.MAX_PAGE, DUMP_END - addr)
+        val page = runCatching { protocol.link.readMemory(addr, n) }.getOrNull()
+        if (page != null) {
+            out.write(page)
+        } else {
+            out.write(ByteArray(n) { 0xFF.toByte() }) // placeholder, keep the .bin address-aligned
+            failed++
+            if (failed <= 24) println("  page 0x${addr.toString(16)} did not answer, filled with ff")
         }
-        println("  read all $DUMP_END bytes")
-    } catch (e: Exception) {
-        println("  stopped at 0x${addr.toString(16)} (${addr} bytes): ${e.message}")
+        addr += n
+        if (addr % 0xC00 == 0) println("  ${addr} / $DUMP_END bytes (0x${addr.toString(16)})")
     }
+    println("Done: $addr bytes, $failed page(s) unreadable")
 
     val dump = out.toByteArray()
-    if (dump.isEmpty()) {
-        println("No memory read.")
+    if (dump.all { it == 0xFF.toByte() }) {
+        println("Every page was unreadable; not saving.")
         return
     }
     val dir = File(System.getProperty("user.home"), ".synth-divelog").apply { mkdirs() }
