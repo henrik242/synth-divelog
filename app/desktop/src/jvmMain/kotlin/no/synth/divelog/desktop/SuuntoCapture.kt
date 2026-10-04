@@ -38,7 +38,7 @@ fun main(args: Array<String>) {
     // An arg that names a family is the family; "probe" selects probe mode; anything
     // else is the port name. This way "D9" or "D9 probe" leaves the port to auto-detect.
     val familyArg = args.firstNotNullOfOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.getOrNull() }
-    val keywords = setOf("probe", "readprobe", "difftest", "jnatest", "rawdump", "suite", "proto")
+    val keywords = setOf("probe", "readprobe", "difftest", "jnatest", "rawdump", "suite", "proto", "echotest")
     val portArg = args.firstOrNull {
         !keywords.contains(it.lowercase()) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
     }
@@ -103,6 +103,15 @@ fun main(args: Array<String>) {
     // whether the shared Transport read is reliable enough to replace the desktop raw path.
     if (args.any { it.equals("proto", ignoreCase = true) }) {
         protoDownload(portName, family)
+        return
+    }
+
+    // "echotest" measures the echo-read turnaround: after each write it reads the sent bytes
+    // back (which only works if the cable reflects them under jSerialComm) and uses that as
+    // the turnaround sync, then compares first-try success against the raw+retries baseline.
+    // This decides whether SerialParams.echoSync is worth enabling on this hardware.
+    if (args.any { it.equals("echotest", ignoreCase = true) }) {
+        echoTest(portName)
         return
     }
 
@@ -615,6 +624,130 @@ private fun protoDownload(portName: String, family: SuuntoFamily) {
         println("proto download failed: ${e.message}")
     } finally {
         runCatching { transport.close() }
+    }
+}
+
+/**
+ * Measure the echo-read turnaround against the raw+retries baseline, both over jSerialComm.
+ *
+ * The reference driver syncs the half-duplex turnaround by reading the command bytes back off
+ * the wire after each write (the read blocks until the bytes are physically out) instead of
+ * waiting a fixed settle, so every reply read lands first try. An earlier probe suggested the
+ * sent bytes may NOT be reflected under jSerialComm's config, so this quantifies it: it runs
+ * GetVersion then ~30 ReadMemory(0x0190) exchanges reading the echo back each time, counting
+ * how often the echo matched the command and how often the reply validated, with timing, then
+ * runs the same count through the existing raw+retries path for comparison. If echoMatched is
+ * high and echo-read validates first try as fast as or faster than raw+retries, enabling
+ * SerialParams.echoSync is worth it; if echoMatched stays near zero, keep raw+retries.
+ */
+private fun echoTest(portName: String) {
+    val rounds = 30
+    val addr = 0x0190
+    val count = 8
+    fun crc(b: ByteArray, n: Int): Byte {
+        var c = 0
+        for (i in 0 until n) c = c xor (b[i].toInt() and 0xFF)
+        return c.toByte()
+    }
+    fun readMemoryCmd(address: Int, n: Int): ByteArray {
+        val c = byteArrayOf(0x05, 0x00, 0x03, ((address ushr 8) and 0xFF).toByte(), (address and 0xFF).toByte(), (n and 0xFF).toByte())
+        return c + crc(c, c.size)
+    }
+    val cmd = readMemoryCmd(addr, count)
+    val replyLen = 7 + count // 05 00 03 addrHi addrLo count <count data> crc
+
+    val port = SerialPort.getCommPort(portName)
+    port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
+    port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING, 150, 2000)
+    if (!port.openPort()) { println("Could not open $portName"); return }
+    try {
+        port.setDTR(); port.clearRTS(); Thread.sleep(100); runCatching { port.flushIOBuffers() }
+
+        fun readBlocking(n: Int, timeoutMs: Long): ByteArray {
+            val buf = ByteArray(n)
+            var got = 0
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (got < n && System.currentTimeMillis() < deadline) {
+                val tmp = ByteArray(n - got)
+                val r = port.readBytes(tmp, tmp.size)
+                if (r > 0) { tmp.copyInto(buf, got, 0, r); got += r }
+            }
+            return buf.copyOf(got)
+        }
+
+        // Echo-read turnaround: transmit, read the sent bytes back as the sync, receive, read reply.
+        fun echoExchange(command: ByteArray, expectReply: Int): Triple<Boolean, Boolean, ByteArray> {
+            runCatching { port.flushIOBuffers() }
+            port.setRTS() // transmit
+            port.writeBytes(command, command.size)
+            val echo = readBlocking(command.size, 500)
+            port.clearRTS() // receive
+            val echoMatched = echo.contentEquals(command)
+            val reply = readBlocking(expectReply, 500)
+            val replyValid = reply.size == expectReply && reply[0] == command[0] && reply[expectReply - 1] == crc(reply, expectReply - 1)
+            return Triple(echoMatched, replyValid, reply)
+        }
+
+        // Raw+retries baseline: fixed+jittered settle, no echo read, resend until a reply validates.
+        val rnd = java.util.Random()
+        fun rawExchange(command: ByteArray, expectReply: Int, maxTries: Int): Pair<Boolean, Int> {
+            repeat(maxTries) { attempt ->
+                runCatching { port.flushIOBuffers() }
+                port.setRTS()
+                port.writeBytes(command, command.size)
+                Thread.sleep(4L + rnd.nextInt(13)) // settle 4..16ms, as the working path does
+                port.clearRTS()
+                val reply = readBlocking(expectReply, 500)
+                if (reply.size == expectReply && reply[0] == command[0] && reply[expectReply - 1] == crc(reply, expectReply - 1)) {
+                    return true to (attempt + 1)
+                }
+                Thread.sleep(rnd.nextInt(26).toLong())
+            }
+            return false to maxTries
+        }
+
+        val version = echoExchange(byteArrayOf(0x0F, 0x00, 0x00, 0x0F), 8)
+        println("GetVersion (echo-read): echoMatched=${version.first} replyValid=${version.second} ${if (version.third.isEmpty()) "(no bytes)" else hex(version.third)}")
+        if (!version.second) {
+            println("Device did not answer GetVersion; is it awake and seated? Aborting echotest.")
+            return
+        }
+        Thread.sleep(150)
+
+        println("Echo-read turnaround on 0x$addr (x$rounds):")
+        var echoMatched = 0
+        var echoReplyValid = 0
+        val echoStart = System.currentTimeMillis()
+        repeat(rounds) {
+            val (m, v, _) = echoExchange(cmd, replyLen)
+            if (m) echoMatched++
+            if (v) echoReplyValid++
+            Thread.sleep(50)
+        }
+        val echoMs = System.currentTimeMillis() - echoStart
+        println("  echoMatched=$echoMatched/$rounds  replyValid(first try)=$echoReplyValid/$rounds  ${echoMs}ms (${echoMs / rounds}ms/read)")
+
+        Thread.sleep(200)
+
+        println("Raw+retries baseline on 0x$addr (x$rounds, up to 60 tries each):")
+        var rawValid = 0
+        var rawTries = 0
+        val rawStart = System.currentTimeMillis()
+        repeat(rounds) {
+            val (ok, tries) = rawExchange(cmd, replyLen, 60)
+            if (ok) rawValid++
+            rawTries += tries
+            Thread.sleep(50)
+        }
+        val rawMs = System.currentTimeMillis() - rawStart
+        println("  replyValid=$rawValid/$rounds  avgTries=${"%.1f".format(rawTries.toDouble() / rounds)}  ${rawMs}ms (${rawMs / rounds}ms/read)")
+
+        println()
+        println("Read: if echoMatched is high and echo-read replyValid(first try) ~= raw replyValid")
+        println("while being faster per read, enable SerialParams.echoSync. If echoMatched ~= 0,")
+        println("the echo is not reflected under jSerialComm; keep the raw+retries path.")
+    } finally {
+        runCatching { port.closePort() }
     }
 }
 
