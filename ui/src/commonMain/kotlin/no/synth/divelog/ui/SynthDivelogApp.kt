@@ -55,6 +55,7 @@ import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import no.synth.divelog.core.model.Buddy
@@ -67,10 +68,10 @@ import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.download.DiveComputerType
-import no.synth.divelog.ui.download.DownloadChooserDialog
 import no.synth.divelog.ui.download.DownloadController
 import no.synth.divelog.ui.download.DownloadPickerDialog
 import no.synth.divelog.ui.download.DownloadProgressDialog
+import no.synth.divelog.ui.download.DownloadReviewDialog
 import no.synth.divelog.ui.download.DownloadUiState
 import no.synth.divelog.ui.download.NoSerialPorts
 import no.synth.divelog.ui.download.SerialPortInfo
@@ -89,12 +90,13 @@ private enum class Section(val label: String, val icon: ImageVector, val selecte
 }
 
 /**
- * Root of the shared app. Reads from [container]. The Download button drives the shared
- * wired-serial download over [serialPorts] (desktop jSerialComm, Android USB-serial);
- * where a platform has another download path too (Android Bluetooth Shearwater),
- * [onExtraDownload] exposes it under [extraDownloadLabel] and the button offers a choice.
- * [onDownloaded] lets the host refresh after a shared download; [dataVersion] is bumped
- * by the host to trigger a reload after an import.
+ * Root of the shared app. Reads from [container]. The Download button opens the shared
+ * picker and runs the download over [serialPorts] (desktop jSerialComm, Android USB-serial
+ * and paired Bluetooth Classic). [onPrepareDownload], if set, runs before the picker opens
+ * so a platform can request its runtime permissions (Android: Bluetooth and notifications).
+ * [onDownloadActive] brackets a running download so a platform can hold the process awake
+ * (Android: a foreground service). [onDownloaded] lets the host refresh after a download;
+ * [dataVersion] is bumped by the host to trigger a reload after an import.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -104,8 +106,8 @@ fun SynthDivelogApp(
     onUnitSystemChange: (UnitSystem) -> Unit,
     serialPorts: SerialPorts = NoSerialPorts(),
     downloadTypes: List<DiveComputerType> = DiveComputerType.entries,
-    extraDownloadLabel: String? = null,
-    onExtraDownload: (() -> Unit)? = null,
+    onPrepareDownload: (suspend () -> Unit)? = null,
+    onDownloadActive: (Boolean) -> Unit = {},
     onDownloaded: () -> Unit = {},
     onImport: () -> Unit = {},
     onExport: (formatId: String) -> Unit = {},
@@ -142,11 +144,24 @@ fun SynthDivelogApp(
         cancelDownload.value = false
         downloadUi = DownloadUiState.Running(0f, "Connecting to the dive computer")
         scope.launch {
-            val result = runCatching {
-                controller.download(type, portId, cancel = { cancelDownload.value }) { fraction, label ->
-                    downloadUi = DownloadUiState.Running(fraction, label)
-                }
-            }.getOrElse { "Download failed: ${it.message ?: it::class.simpleName}" }
+            onDownloadActive(true)
+            val result = try {
+                runCatching {
+                    controller.download(
+                        type = type,
+                        portId = portId,
+                        cancel = { cancelDownload.value },
+                        onProgress = { fraction, label -> downloadUi = DownloadUiState.Running(fraction, label) },
+                        confirmMerge = { review ->
+                            val answer = CompletableDeferred<Boolean>()
+                            downloadUi = DownloadUiState.Reviewing(review) { answer.complete(it) }
+                            answer.await().also { downloadUi = DownloadUiState.Running(1f, "Importing dives") }
+                        },
+                    )
+                }.getOrElse { "Download failed: ${it.message ?: it::class.simpleName}" }
+            } finally {
+                onDownloadActive(false)
+            }
             downloadUi = DownloadUiState.Hidden
             onDownloaded()
             snackbarHostState.showSnackbar(result)
@@ -154,11 +169,14 @@ fun SynthDivelogApp(
     }
 
     val onDownloadClick: () -> Unit = {
-        when {
-            serialPorts.downloadSupported && onExtraDownload != null -> downloadUi = DownloadUiState.Chooser
-            serialPorts.downloadSupported -> { pickerPorts = serialPorts.list(); downloadUi = DownloadUiState.Picker }
-            onExtraDownload != null -> onExtraDownload()
-            else -> scope.launch { snackbarHostState.showSnackbar("Download is not available on this device.") }
+        if (serialPorts.downloadSupported) {
+            scope.launch {
+                onPrepareDownload?.invoke()
+                pickerPorts = serialPorts.list()
+                downloadUi = DownloadUiState.Picker
+            }
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("Download is not available on this device.") }
         }
     }
 
@@ -250,13 +268,6 @@ fun SynthDivelogApp(
 
             when (val ui = downloadUi) {
                 DownloadUiState.Hidden -> {}
-                DownloadUiState.Chooser -> DownloadChooserDialog(
-                    serialLabel = "USB cable",
-                    extraLabel = extraDownloadLabel ?: "Other",
-                    onSerial = { pickerPorts = serialPorts.list(); downloadUi = DownloadUiState.Picker },
-                    onExtra = { downloadUi = DownloadUiState.Hidden; onExtraDownload?.invoke() },
-                    onCancel = { downloadUi = DownloadUiState.Hidden },
-                )
                 DownloadUiState.Picker -> DownloadPickerDialog(
                     types = downloadTypes,
                     ports = pickerPorts,
@@ -268,6 +279,7 @@ fun SynthDivelogApp(
                     state = ui,
                     onCancel = { cancelDownload.value = true },
                 )
+                is DownloadUiState.Reviewing -> DownloadReviewDialog(ui)
             }
         }
     }

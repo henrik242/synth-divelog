@@ -3,14 +3,25 @@ package no.synth.divelog.ui.download
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
 
-/** A serial/USB port offered to the download picker: a stable [id] and a human [label]. */
-data class SerialPortInfo(val id: String, val label: String)
+/** Which physical link a port rides, so the caller knows which transport [open] will use. */
+enum class SerialPortKind { USB_SERIAL, BLUETOOTH_SPP }
+
+/**
+ * A port offered to the download picker: a stable [id], a human [label] and the [kind]
+ * of link it rides. The [id] is opaque to the picker; the platform [SerialPorts] encodes
+ * whatever it needs to reopen the port in it.
+ */
+data class SerialPortInfo(
+    val id: String,
+    val label: String,
+    val kind: SerialPortKind = SerialPortKind.USB_SERIAL,
+)
 
 /**
  * The platform serial layer the shared download runs over. Desktop lists jSerialComm
- * ports, Android lists USB-serial adapters (and requests the USB permission in
- * [open]), iOS has none. [open] returns an already-opened [Transport] ready for a
- * protocol to drive; the caller closes it.
+ * ports, Android lists USB-serial adapters and paired Bluetooth Classic SPP devices
+ * (and requests the matching permission in [open]), iOS has none. [open] returns an
+ * already-opened [Transport] ready for a protocol to drive; the caller closes it.
  *
  * Kept as an interface rather than an expect/actual class because the Android
  * implementation needs a Context at construction while the others take nothing;

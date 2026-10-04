@@ -28,47 +28,21 @@ import androidx.compose.ui.unit.dp
 sealed interface DownloadUiState {
     data object Hidden : DownloadUiState
 
-    /** More than one download method is available; let the user pick one. */
-    data object Chooser : DownloadUiState
-
     /** The serial picker: choose the dive-computer type and the port. */
     data object Picker : DownloadUiState
 
     /** A serial download is running. */
     data class Running(val fraction: Float, val label: String) : DownloadUiState
-}
 
-/**
- * Shown when a platform offers more than one download method (Android: a USB cable and
- * Bluetooth). Desktop has only the cable, so it skips straight to the picker.
- */
-@Composable
-fun DownloadChooserDialog(
-    serialLabel: String,
-    extraLabel: String,
-    onSerial: () -> Unit,
-    onExtra: () -> Unit,
-    onCancel: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text("Download dives") },
-        text = {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("How is the dive computer connected?")
-                OutlinedButton(onClick = onSerial, modifier = Modifier.fillMaxWidth()) { Text(serialLabel) }
-                OutlinedButton(onClick = onExtra, modifier = Modifier.fillMaxWidth()) { Text(extraLabel) }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
-    )
+    /** A downloaded dive overlaps an existing one; [onResolve] attaches it (true) or keeps it separate. */
+    data class Reviewing(val review: MergeReview, val onResolve: (Boolean) -> Unit) : DownloadUiState
 }
 
 /**
  * Pick the dive-computer type and the port, then start the download. Shared across
  * desktop (jSerialComm ports, including a paired Shearwater SPP port) and Android
- * (USB-serial adapters). [types] is what the platform can read over a serial port.
+ * (USB-serial adapters and paired Bluetooth Classic devices). [types] is what the
+ * platform can read over a serial port.
  */
 @Composable
 fun DownloadPickerDialog(
@@ -150,5 +124,27 @@ fun DownloadProgressDialog(state: DownloadUiState.Running, onCancel: () -> Unit)
         },
         confirmButton = {},
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Asks whether a downloaded dive that overlaps an existing one is the same dive from
+ * another computer (attach it) or a separate dive (keep it). Shown mid-download, so it
+ * has no dismiss: the user must choose before the import continues.
+ */
+@Composable
+fun DownloadReviewDialog(state: DownloadUiState.Reviewing) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Merge dive?") },
+        text = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("This download overlaps an existing dive, likely the same dive from another computer.")
+                Text("Incoming:  ${state.review.incomingLabel}", style = MaterialTheme.typography.bodyMedium)
+                Text("Existing:  ${state.review.existingLabel}", style = MaterialTheme.typography.bodyMedium)
+            }
+        },
+        confirmButton = { TextButton(onClick = { state.onResolve(true) }) { Text("Merge into existing dive") } },
+        dismissButton = { TextButton(onClick = { state.onResolve(false) }) { Text("Keep as separate dive") } },
     )
 }

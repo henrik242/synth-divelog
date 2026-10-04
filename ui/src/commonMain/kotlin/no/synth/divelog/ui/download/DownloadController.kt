@@ -2,7 +2,7 @@ package no.synth.divelog.ui.download
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import no.synth.divelog.core.db.ImportResult
+import no.synth.divelog.core.db.ImportDecision
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DeviceInfo
 import no.synth.divelog.core.divecomputer.DiveComputerProtocol
@@ -21,7 +21,10 @@ import no.synth.divelog.core.divecomputer.transport.Parity
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.model.Device
+import no.synth.divelog.core.model.IncomingDive
+import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.format.Format
 
 /**
  * A dive-computer the shared download can read over a byte [Transport], bundling the
@@ -81,11 +84,6 @@ enum class DiveComputerType(
         serial = info?.serial,
         bluetoothAddress = identityKey + (info?.serial?.let { ":$it" } ?: ""),
     )
-
-    companion object {
-        /** The wired serial Suunto families; the only types a USB-serial cable carries. */
-        val SUUNTO: List<DiveComputerType> = listOf(SUUNTO_VYPER, SUUNTO_D9)
-    }
 }
 
 /**
@@ -101,6 +99,9 @@ private val SHEARWATER_SPP_PARAMS = SerialParams(
     dtr = true,
 )
 
+/** A download that overlaps an existing dive, shown for an attach-or-keep-separate choice. */
+data class MergeReview(val incomingLabel: String, val existingLabel: String)
+
 /**
  * Platform-agnostic orchestration of a wired download: open a [Transport] for the
  * chosen [DiveComputerType] and port, run that type's protocol over it, parse each raw
@@ -115,12 +116,16 @@ class DownloadController(
     /**
      * Run the download end to end. Blocking work runs off the main thread. [cancel] is
      * polled during the memory read; [onProgress] reports a 0..1 fraction and a label.
+     * [confirmMerge] is asked for each dive that overlaps an existing one: true attaches
+     * it as another computer on that dive, false keeps it separate. The default keeps
+     * everything separate, so a caller that wants the interactive review passes its own.
      */
     suspend fun download(
         type: DiveComputerType,
         portId: String,
         cancel: () -> Boolean,
         onProgress: (fraction: Float, label: String) -> Unit,
+        confirmMerge: suspend (MergeReview) -> Boolean = { false },
     ): String = withContext(Dispatchers.Default) {
         onProgress(0f, "Connecting to the dive computer")
         val transport = serialPorts.open(portId, type.serialParams)
@@ -146,29 +151,74 @@ class DownloadController(
             )
             onProgress(1f, "Parsing dives")
             val deviceId = container.devices.getOrCreate(type.device(deviceInfo))
-            importRaws(raws, type.parser(), deviceId)
+            importRaws(raws, type.parser(), deviceId, confirmMerge)
         } finally {
             runCatching { transport.close() }
         }
     }
 
-    /** Parse and import raw dives for a device, counting new vs already-stored. */
-    private fun importRaws(raws: List<RawDive>, parser: DiveLogParser, deviceId: Long): String {
+    /**
+     * Parse and import raw dives for a device, counting new, merged and already-stored.
+     * A dive that overlaps an existing one is held for [confirmMerge] before it is
+     * attached to that dive or kept as a separate one.
+     */
+    private suspend fun importRaws(
+        raws: List<RawDive>,
+        parser: DiveLogParser,
+        deviceId: Long,
+        confirmMerge: suspend (MergeReview) -> Boolean,
+    ): String {
         var imported = 0
+        var merged = 0
         var skipped = 0
         for (raw in raws) {
             val incoming = runCatching { parser.parse(raw) }.getOrNull()?.copy(deviceId = deviceId) ?: continue
-            when (container.dives.import(incoming) { false }) {
-                is ImportResult.SkippedDuplicate -> skipped++
-                else -> imported++
+            when (val decision = container.dives.classify(incoming)) {
+                is ImportDecision.Duplicate -> skipped++
+                is ImportDecision.MergeCandidate ->
+                    if (confirmMerge(reviewFor(incoming, decision.diveId))) {
+                        container.dives.attachToDive(incoming, decision.diveId)
+                        merged++
+                    } else {
+                        container.dives.importAsNewDive(incoming)
+                        imported++
+                    }
+                ImportDecision.NewDive -> {
+                    container.dives.importAsNewDive(incoming)
+                    imported++
+                }
             }
         }
+        return summary(imported, merged, skipped, raws.isEmpty())
+    }
+
+    /** Human labels for the overlap review: the incoming dive against the one it overlaps. */
+    private fun reviewFor(incoming: IncomingDive, existingDiveId: Long): MergeReview {
+        val existing = container.dives.getDive(existingDiveId)
+        return MergeReview(
+            incomingLabel = diveLabel(
+                incoming.number, incoming.startEpochSeconds, incoming.utcOffsetSeconds, incoming.maxDepthMm,
+            ),
+            existingLabel = existing?.let {
+                diveLabel(it.number, it.startEpochSeconds, it.utcOffsetSeconds, it.maxDepthMm)
+            } ?: "existing dive",
+        )
+    }
+
+    private fun diveLabel(number: Int?, startEpochSeconds: Long, utcOffsetSeconds: Int, maxDepthMm: Int?): String =
+        (number?.let { "#$it " } ?: "") +
+            Format.date(startEpochSeconds, utcOffsetSeconds) + " " +
+            Format.depth(maxDepthMm, UnitSystem.METRIC)
+
+    private fun summary(imported: Int, merged: Int, skipped: Int, noRaws: Boolean): String {
+        val parts = buildList {
+            if (imported > 0) add("imported $imported new dive${plural(imported)}")
+            if (merged > 0) add("merged $merged into an existing dive")
+            if (skipped > 0) add("skipped $skipped already in the logbook")
+        }
         return when {
-            imported > 0 ->
-                "Imported $imported new dive${plural(imported)}" +
-                    if (skipped > 0) ", skipped $skipped already in the logbook" else ""
-            skipped > 0 -> "No new dives ($skipped already in the logbook)"
-            raws.isEmpty() -> "No dives found on the device"
+            parts.isNotEmpty() -> parts.joinToString(", ").replaceFirstChar { it.uppercase() }
+            noRaws -> "No dives found on the device"
             else -> "No new dives"
         }
     }
