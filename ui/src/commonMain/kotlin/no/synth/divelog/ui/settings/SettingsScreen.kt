@@ -216,7 +216,12 @@ private fun DeviceRow(device: Device, onRename: (String) -> Unit, onForget: () -
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onRename(nickname) }) { Text("Save") }
-            OutlinedButton(onClick = onForget) { Text("Forget") }
+            OutlinedButton(
+                onClick = onForget,
+                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) { Text("Forget") }
         }
         HorizontalDivider(Modifier.padding(top = 8.dp))
     }

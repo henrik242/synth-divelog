@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,11 +19,13 @@ import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Waves
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -220,13 +223,8 @@ private fun DivesSection(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            TextButton(onClick = onDownloadClick) { Text("Download") }
-        }
+    Box(Modifier.fillMaxSize()) {
+      Column(Modifier.fillMaxSize()) {
         if (dives.isEmpty()) {
             EmptyState("No dives yet. Tap Download to pull dives from your computer.")
         } else {
@@ -266,7 +264,7 @@ private fun DivesSection(
                     }
                 }
             }
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
                 if (grouped != null) {
                     grouped.forEach { (month, monthDives) ->
                         item {
@@ -292,6 +290,13 @@ private fun DivesSection(
                 }
             }
         }
+      }
+      ExtendedFloatingActionButton(
+          onClick = onDownloadClick,
+          icon = { Icon(Icons.Outlined.FileDownload, contentDescription = null) },
+          text = { Text("Download") },
+          modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+      )
     }
 }
 

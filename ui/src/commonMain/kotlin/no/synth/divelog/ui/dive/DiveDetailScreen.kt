@@ -67,9 +67,12 @@ fun DiveDetailScreen(
             title = { Text("Delete dive?") },
             text = { Text("This removes the dive and its computer records.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
-                    container.dives.deleteDive(diveId); showDelete = false; onDeleted()
-                }) { Text("Delete") }
+                androidx.compose.material3.TextButton(
+                    onClick = { container.dives.deleteDive(diveId); showDelete = false; onDeleted() },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) { Text("Delete") }
             },
             dismissButton = { androidx.compose.material3.TextButton(onClick = { showDelete = false }) { Text("Cancel") } },
         )
@@ -122,7 +125,12 @@ fun DiveDetailScreen(
 
         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             androidx.compose.material3.TextButton(onClick = { showMerge = true }) { Text("Merge in") }
-            androidx.compose.material3.TextButton(onClick = { showDelete = true }) { Text("Delete") }
+            androidx.compose.material3.TextButton(
+                onClick = { showDelete = true },
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) { Text("Delete") }
         }
 
         if (records.size > 1) {
@@ -139,6 +147,9 @@ fun DiveDetailScreen(
                     )
                     androidx.compose.material3.TextButton(
                         onClick = { container.dives.splitRecordIntoNewDive(rec.id); onChanged() },
+                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
                     ) { Text("Split out") }
                 }
             }
