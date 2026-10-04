@@ -323,9 +323,10 @@ private fun readProbe(portName: String) {
 }
 
 /**
- * Read 0x0190 three ways in one session to isolate why the raw probe reads it but the
- * real transport path does not: raw inline (A), through JSerialCommTransport + link (B),
- * and with RecordingTransport in front (C).
+ * The raw read of 0x0190 works ~20% of attempts but the transport ~0%. This runs raw
+ * reads under several settle/cadence regimes (same port session) to find what drives the
+ * hit rate: the settle value, settle randomness, or the gap between attempts (phase of the
+ * FTDI frame clock). Each regime does 16 attempts and reports the hit count.
  */
 private fun diffTest(portName: String) {
     val cmd0190 = run {
@@ -334,65 +335,39 @@ private fun diffTest(portName: String) {
         for (b in c) crc = crc xor (b.toInt() and 0xFF)
         c + crc.toByte()
     }
-    val getVersion = byteArrayOf(0x0F, 0x00, 0x00, 0x0F)
+    val rnd = java.util.Random()
+    val port = SerialPort.getCommPort(portName)
+    port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
+    port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING, 300, 2000)
+    if (!port.openPort()) { println("Could not open $portName"); return }
+    try {
+        port.setDTR(); port.clearRTS(); Thread.sleep(100); runCatching { port.flushIOBuffers() }
 
-    println("Phase A: raw inline read of 0x0190 (probe-style, settle 6/10):")
-    run {
-        val port = SerialPort.getCommPort(portName)
-        port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
-        port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING, 300, 2000)
-        if (!port.openPort()) { println("  could not open"); return@run }
-        try {
-            port.setDTR(); port.clearRTS(); Thread.sleep(100); runCatching { port.flushIOBuffers() }
-            fun rawExchange(cmd: ByteArray, settle: Long): ByteArray {
-                runCatching { port.flushIOBuffers() }
-                port.setRTS(); port.writeBytes(cmd, cmd.size); Thread.sleep(settle); port.clearRTS()
-                val buf = ByteArray(24); val n = port.readBytes(buf, buf.size)
-                return if (n > 0) buf.copyOf(n) else ByteArray(0)
-            }
-            rawExchange(getVersion, 10)
-            Thread.sleep(120); runCatching { port.flushIOBuffers() }
-            var ok = 0
-            repeat(10) { i ->
-                val r = rawExchange(cmd0190, if (i % 2 == 0) 6 else 10)
-                if (r.isNotEmpty() && r[0] == 0x05.toByte()) ok++
-                val d = ByteArray(64); port.readBytes(d, d.size)
-                Thread.sleep(120)
-            }
-            println("  raw: $ok/10 got a 0x05 reply")
-        } finally { runCatching { port.closePort() } }
-    }
-    Thread.sleep(300)
+        // flush clears any leftover from a prior hit, so no separate drain is needed.
+        fun attempt(settle: Long): Boolean {
+            runCatching { port.flushIOBuffers() }
+            port.setRTS(); port.writeBytes(cmd0190, cmd0190.size); Thread.sleep(settle); port.clearRTS()
+            val buf = ByteArray(32)
+            val n = port.readBytes(buf, buf.size)
+            return n > 0 && buf[0] == 0x05.toByte()
+        }
 
-    println("Phase B: JSerialCommTransport + SuuntoD9Link.readMemory(0x0190, 8):")
-    run {
-        val t = JSerialCommTransport.byName(portName, SuuntoFamily.D9.serialParams)
-        try {
-            t.open()
-            val link = SuuntoD9Link(t)
-            runCatching { link.readVersion() }.onFailure { println("  version failed: ${it.message}") }
+        fun regime(label: String, settle: () -> Long, inter: () -> Long) {
             var ok = 0
-            repeat(3) {
-                runCatching { link.readMemory(0x0190, 8) }
-                    .onSuccess { ok++; println("  ok: ${hex(it)}") }
-                    .onFailure { println("  fail: ${it.message}") }
-            }
-            println("  transport: $ok/3")
-        } finally { runCatching { t.close() } }
-    }
-    Thread.sleep(300)
+            repeat(16) { if (attempt(settle())) ok++; Thread.sleep(inter()) }
+            println("  $label -> $ok/16")
+        }
 
-    println("Phase C: RecordingTransport + link:")
-    run {
-        val t = RecordingTransport(JSerialCommTransport.byName(portName, SuuntoFamily.D9.serialParams))
-        try {
-            t.open()
-            val link = SuuntoD9Link(t)
-            runCatching { link.readVersion() }
-            var ok = 0
-            repeat(3) { if (runCatching { link.readMemory(0x0190, 8) }.isSuccess) ok++ }
-            println("  recording transport: $ok/3")
-        } finally { runCatching { t.close() } }
+        // warm up comms with a GetVersion-ish exchange.
+        attempt(8)
+        println("Regimes (hit = reply starting 0x05):")
+        regime("settle 6/10, inter 120ms", { if (rnd.nextBoolean()) 6 else 10 }, { 120 })
+        regime("settle 4..16, inter 120ms", { 4L + rnd.nextInt(13) }, { 120 })
+        regime("settle 6/10, inter 0ms   ", { if (rnd.nextBoolean()) 6 else 10 }, { 0 })
+        regime("settle 6/10, inter 0..40 ", { if (rnd.nextBoolean()) 6 else 10 }, { rnd.nextInt(41).toLong() })
+        regime("settle 0..30, inter 0..40", { rnd.nextInt(31).toLong() }, { rnd.nextInt(41).toLong() })
+    } finally {
+        runCatching { port.closePort() }
     }
 }
 
