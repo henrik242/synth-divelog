@@ -111,15 +111,15 @@ fun posixJnaTest(portName: String) {
             return buf.copyOf(got)
         }
 
-        // Replicates suunto_d9_device_packet: deassert RTS to send, read the echo back
-        // (blocks until the command is on the wire = the turnaround sync), assert RTS to
+        // Half-duplex exchange: drive RTS to [sendAssert] to send, read the echo back
+        // (blocks until the command is on the wire = the turnaround sync), flip RTS to
         // receive, read the answer.
-        fun exchange(cmd: ByteArray, replyLen: Int): Pair<ByteArray, ByteArray> {
+        fun exchange(cmd: ByteArray, replyLen: Int, sendAssert: Boolean): Pair<ByteArray, ByteArray> {
             c.tcflush(fd, TCIOFLUSH)
-            setModem(c, fd, TIOCM_RTS, false) // set_rts(0): send
+            setModem(c, fd, TIOCM_RTS, sendAssert) // send
             c.write(fd, cmd, NativeLong(cmd.size.toLong()))
             val echo = readN(cmd.size, 300)
-            setModem(c, fd, TIOCM_RTS, true) // set_rts(1): receive
+            setModem(c, fd, TIOCM_RTS, !sendAssert) // receive
             val reply = readN(replyLen, 400)
             return echo to reply
         }
@@ -132,25 +132,29 @@ fun posixJnaTest(portName: String) {
         }
         val getVersion = byteArrayOf(0x0F, 0x00, 0x00, 0x0F)
 
-        val (ve, vr) = exchange(getVersion, 8)
-        println("Version: echo=${hex(ve)} reply=${hex(vr)}")
-        Thread.sleep(150)
-
-        var echoOk = 0
-        var replyOk = 0
-        var sample = ByteArray(0)
-        repeat(30) {
-            val (echo, reply) = exchange(cmd0190, 15)
-            if (echo.contentEquals(cmd0190)) echoOk++
-            if (reply.size >= 15 && reply[0] == 0x05.toByte()) {
-                var crc = 0
-                for (i in 0 until 14) crc = crc xor (reply[i].toInt() and 0xFF)
-                if (reply[14] == crc.toByte()) { replyOk++; if (sample.isEmpty()) sample = reply.copyOf(15) }
+        // Try both RTS polarities: the reference deasserts to send, but our earlier
+        // jSerialComm evidence said the opposite, so measure both.
+        for (sendAssert in listOf(false, true)) {
+            val pol = if (sendAssert) "RTS asserted=send" else "RTS deasserted=send (reference)"
+            setModem(c, fd, TIOCM_RTS, !sendAssert) // idle in receive
+            Thread.sleep(100); c.tcflush(fd, TCIOFLUSH)
+            val (ve, vr) = exchange(getVersion, 8, sendAssert)
+            var echoOk = 0
+            var replyOk = 0
+            var sample = ByteArray(0)
+            repeat(30) {
+                val (echo, reply) = exchange(cmd0190, 15, sendAssert)
+                if (echo.contentEquals(cmd0190)) echoOk++
+                if (reply.size >= 15 && reply[0] == 0x05.toByte()) {
+                    var crc = 0
+                    for (i in 0 until 14) crc = crc xor (reply[i].toInt() and 0xFF)
+                    if (reply[14] == crc.toByte()) { replyOk++; if (sample.isEmpty()) sample = reply.copyOf(15) }
+                }
+                Thread.sleep(40)
             }
-            Thread.sleep(40)
+            println("[$pol] version: echo=${hex(ve)} reply=${hex(vr)}")
+            println("  0x0190: echoMatched=$echoOk/30 replyValid=$replyOk/30 sample=${hex(sample)}")
         }
-        println("libdc-style turnaround 0x0190: echoMatched=$echoOk/30 replyValid=$replyOk/30")
-        println("  sample=${hex(sample)}")
     } finally {
         runCatching { c.close(fd) }
     }
