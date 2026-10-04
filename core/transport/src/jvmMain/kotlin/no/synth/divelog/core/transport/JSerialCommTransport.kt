@@ -22,11 +22,15 @@ class JSerialCommTransport(
 
     override fun open() {
         port.setComPortParameters(params.baudRate, params.dataBits, stopBitsConst(params.stopBits), parityConst(params.parity))
-        // Non-blocking reads with blocking writes, set once. Read timeouts are done in
-        // software (see read): reconfiguring the port per read runs tcsetattr, which on a
-        // half-duplex line delays and flushes the port in the narrow window right after the
-        // RTS turnaround, losing the device's fast reply.
-        port.setComPortTimeouts(SerialPort.TIMEOUT_NONBLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING, 0, WRITE_TIMEOUT_MS)
+        // Semi-blocking reads with blocking writes, set once and never changed. read()
+        // honours the caller's deadline by looping these short blocking reads, so nothing
+        // reconfigures the port per read: tcsetattr on a half-duplex line delays and flushes
+        // the port in the narrow window right after the RTS turnaround, losing the fast reply.
+        port.setComPortTimeouts(
+            SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING,
+            PORT_READ_TIMEOUT_MS,
+            WRITE_TIMEOUT_MS,
+        )
         if (!port.openPort()) throw TransportException("Could not open serial port ${port.systemPortName}")
         setDtr(params.dtr)
         if (params.halfDuplex) setRts(!params.rtsTransmitHigh) // start in receive direction
@@ -38,6 +42,7 @@ class JSerialCommTransport(
     override fun write(data: ByteArray) {
         if (!open) throw TransportClosedException()
         if (params.halfDuplex) {
+            runCatching { port.flushIOBuffers() } // drop stale/spurious bytes before this command
             setRts(params.rtsTransmitHigh) // drive the line to transmit
             writeAll(data)
             val settle = params.txSettleMs + if (params.txJitterMs > 0) (0..params.txJitterMs).random() else 0
@@ -53,9 +58,9 @@ class JSerialCommTransport(
     override fun read(buffer: ByteArray, offset: Int, length: Int, timeoutMs: Long): Int {
         if (!open) throw TransportClosedException()
         val tmp = ByteArray(length)
-        // Software timeout: the port is non-blocking, so poll until bytes arrive or the
-        // deadline passes. Nothing reconfigures the port here, so a read right after the
-        // RTS turnaround starts listening immediately.
+        // The port is semi-blocking with a short fixed timeout; loop it until the caller's
+        // deadline so a byte returns immediately but no tcsetattr runs between the RTS
+        // turnaround and the read (which would lose the device's fast reply).
         val deadline = nowMs() + timeoutMs.coerceAtLeast(1)
         while (true) {
             val n = port.readBytes(tmp, length)
@@ -65,7 +70,6 @@ class JSerialCommTransport(
                 return n
             }
             if (nowMs() >= deadline) throw TransportTimeoutException()
-            sleep(POLL_INTERVAL_MS)
         }
     }
 
@@ -83,14 +87,9 @@ class JSerialCommTransport(
         val scratch = ByteArray(count)
         var dropped = 0
         val deadline = nowMs() + ECHO_TIMEOUT_MS
-        while (dropped < count) {
+        while (dropped < count && nowMs() < deadline) {
             val n = port.readBytes(scratch, count - dropped)
-            if (n < 0) break
-            if (n == 0) {
-                if (nowMs() >= deadline) break
-                sleep(POLL_INTERVAL_MS)
-                continue
-            }
+            if (n <= 0) break
             dropped += n
         }
     }
@@ -126,7 +125,7 @@ class JSerialCommTransport(
     companion object {
         private const val ECHO_TIMEOUT_MS = 500L
         private const val WRITE_TIMEOUT_MS = 2_000
-        private const val POLL_INTERVAL_MS = 1L
+        private const val PORT_READ_TIMEOUT_MS = 100
 
         /** System serial port names available to the desktop app, for a picker. */
         fun availablePortNames(): List<String> = SerialPort.getCommPorts().map { it.systemPortName }

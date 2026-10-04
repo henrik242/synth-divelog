@@ -116,11 +116,16 @@ private fun dumpD9Memory(protocol: SuuntoD9Protocol) {
     val info = runCatching { protocol.readDeviceInfo() }.getOrNull()
     if (info != null) println("Device: ${info.vendor} ${info.model} firmware ${info.firmware}")
 
-    // Canary: a known-mapped address (the header at 0x0190) should answer. If this
-    // fails too, the problem is the read path, not the address.
-    runCatching { protocol.link.readMemory(0x0190, 8) }
-        .onSuccess { println("Canary 0x0190: ${hex(it)}") }
-        .onFailure { println("Canary 0x0190 failed: ${it.message}") }
+    // Canary: a known-mapped address (the header at 0x0190) must answer. If it does not,
+    // the read path is broken (not just unmapped low addresses), so abort fast rather than
+    // grinding through the whole address space retrying every page.
+    val canary = runCatching { protocol.link.readMemory(0x0190, 8) }
+    canary.onSuccess { println("Canary 0x0190: ${hex(it)}") }
+    if (canary.isFailure) {
+        println("Canary 0x0190 failed: ${canary.exceptionOrNull()?.message}")
+        println("Read path not working; aborting before the full dump.")
+        return
+    }
 
     val out = ByteArrayOutputStream()
     var addr = 0
