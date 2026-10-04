@@ -57,10 +57,21 @@ fun SettingsSection(
         HorizontalDivider()
 
         Text("Import / export", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onImport) { Text("Import Subsurface XML / UDDF") }
-            OutlinedButton(onClick = { onExport("subsurface-xml") }) { Text("Export Subsurface XML") }
-            OutlinedButton(onClick = { onExport("uddf") }) { Text("Export UDDF") }
+        Text(
+            "Subsurface XML and UDDF files are supported.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+                Text("Import file")
+            }
+            OutlinedButton(onClick = { onExport("subsurface-xml") }, modifier = Modifier.fillMaxWidth()) {
+                Text("Export Subsurface XML")
+            }
+            OutlinedButton(onClick = { onExport("uddf") }, modifier = Modifier.fillMaxWidth()) {
+                Text("Export UDDF")
+            }
         }
 
         HorizontalDivider()
