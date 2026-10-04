@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -226,7 +227,7 @@ private fun DivesSection(
     Box(Modifier.fillMaxSize()) {
       Column(Modifier.fillMaxSize()) {
         if (dives.isEmpty()) {
-            EmptyState("No dives yet. Tap Download to pull dives from your computer.")
+            EmptyState("No dives yet. Tap Download to pull dives from your computer.", Icons.Outlined.Waves)
         } else {
             OutlinedTextField(
                 value = query,
@@ -303,8 +304,26 @@ private fun DivesSection(
 private enum class DiveSort(val label: String) { DATE("Date"), NUMBER("Number"), DEPTH("Depth"), DURATION("Duration") }
 
 @Composable
-private fun EmptyState(message: String) {
-    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Text(message, style = androidx.compose.material3.MaterialTheme.typography.bodyLarge)
+private fun EmptyState(message: String, icon: ImageVector? = null) {
+    Column(
+        Modifier.fillMaxSize().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        if (icon != null) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
+        }
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
     }
 }
