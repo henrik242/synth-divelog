@@ -4,7 +4,6 @@ import no.synth.divelog.core.divecomputer.transport.Parity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The family selector hands out the right line settings, protocol and parser. */
@@ -35,6 +34,6 @@ class SuuntoFamilyTest {
         assertTrue(SuuntoFamily.VYPER.protocol(transport) is SuuntoVyperProtocol)
         assertNotNull(SuuntoFamily.VYPER.parser())
         assertTrue(SuuntoFamily.D9.protocol(transport) is SuuntoD9Protocol)
-        assertNull(SuuntoFamily.D9.parser())
+        assertNotNull(SuuntoFamily.D9.parser())
     }
 }
