@@ -7,6 +7,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import no.synth.divelog.core.db.DriverFactory
 import no.synth.divelog.core.db.createDatabase
@@ -36,6 +37,8 @@ fun main() = application {
     var unitSystem by remember { mutableStateOf(settings.unitSystem) }
     var dataVersion by remember { mutableStateOf(0) }
     var status by remember { mutableStateOf<String?>(null) }
+    var downloadState by remember { mutableStateOf<DesktopDownloadState>(DesktopDownloadState.Idle) }
+    val cancelDownload = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     Window(onCloseRequest = ::exitApplication, title = "Synth Divelog") {
         SynthTheme {
@@ -46,7 +49,25 @@ fun main() = application {
                     unitSystem = it
                     settings.unitSystem = it
                 },
-                onDownloadClick = {}, // Wired-serial download is Android-only for now.
+                onDownloadClick = {
+                    if (downloadState is DesktopDownloadState.Idle) {
+                        cancelDownload.set(false)
+                        downloadState = DesktopDownloadState.Running(0f, "Looking for the dive computer")
+                        scope.launch(Dispatchers.IO) {
+                            val result = try {
+                                downloadD9ToLogbook(container, isCancelled = { cancelDownload.get() }) { f, label ->
+                                    downloadState = DesktopDownloadState.Running(f, label)
+                                }
+                            } catch (e: Exception) {
+                                "Download failed: ${e.message ?: e::class.simpleName}"
+                            } finally {
+                                downloadState = DesktopDownloadState.Idle
+                            }
+                            status = result
+                            dataVersion++
+                        }
+                    }
+                },
                 onImport = {
                     val path = pickFile(FileDialog.LOAD)
                     if (path != null) {
@@ -88,6 +109,9 @@ fun main() = application {
                 onStatusShown = { status = null },
                 dataVersion = dataVersion,
             )
+            (downloadState as? DesktopDownloadState.Running)?.let {
+                DesktopDownloadDialog(it, onCancel = { cancelDownload.set(true) })
+            }
         }
     }
 }
