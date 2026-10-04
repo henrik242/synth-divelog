@@ -17,8 +17,11 @@ kotlin {
             implementation(project(":core:model"))
             implementation(project(":core:db"))
             implementation(project(":core:formats"))
+            implementation(project(":core:divecomputer"))
+            implementation(project(":core:transport"))
             implementation(project(":ui"))
             implementation(libs.sqldelight.driver.sqlite)
+            implementation(libs.jserialcomm)
             implementation(libs.kotlinx.coroutines.core)
         }
     }
@@ -47,4 +50,16 @@ compose.desktop {
             }
         }
     }
+}
+
+// Command-line Suunto capture tool, for bringing up the USB dongle before there is
+// a desktop download UI. Run: ./gradlew :app:desktop:suuntoCapture --args="<port> [VYPER|D9]"
+tasks.register<JavaExec>("suuntoCapture") {
+    group = "application"
+    description = "Capture a Suunto dive download over the USB serial dongle"
+    val jvmMain = kotlin.jvm().compilations.getByName("main")
+    dependsOn(jvmMain.compileTaskProvider)
+    classpath = jvmMain.runtimeDependencyFiles + jvmMain.output.allOutputs
+    mainClass.set("no.synth.divelog.desktop.SuuntoCaptureKt")
+    standardInput = System.`in`
 }

@@ -131,10 +131,32 @@ regression fixture once the decoded dives match the device's own log screens
 6. Capture the per-dive date/time bytes so `SuuntoVyperParser` can set a real
    `startEpochSeconds`.
 
-## Desktop
+## Desktop (easiest first capture)
 
-`JSerialCommTransport` is the desktop equivalent. List ports with
-`JSerialCommTransport.availablePortNames()` and open one with
-`JSerialCommTransport.byName(name, SuuntoFamily.VYPER.serialParams)`, then use the
-same protocol/parser calls. Useful for capturing from a laptop with a known-good
-serial stack.
+The Suunto cable plugs straight into a Mac/PC USB port (no OTG adapter), and
+jSerialComm has a mature serial stack, so the desktop is the least flaky place to
+get the first real capture. There is a ready-made command-line tool for it:
+
+```sh
+# List the ports (run with no dongle to see what names look like):
+./gradlew :app:desktop:suuntoCapture
+
+# Capture, letting it auto-pick a usbserial-* port, Zoop/old-Vyper family:
+./gradlew :app:desktop:suuntoCapture --args="VYPER"
+
+# Or name the port explicitly (from the list above):
+./gradlew :app:desktop:suuntoCapture --args="cu.usbserial-XXXX VYPER"
+```
+
+It opens the port with the family's serial params through a `RecordingTransport`,
+runs the download, prints the decoded dives (number, max depth, duration, sample
+count) and always saves the raw transcript to
+`~/.synth-divelog/suunto-capture-<ts>.transcript.txt` - even on failure, so a
+flaky attempt still leaves something to debug. Feed that transcript back the same
+way as the Bluetooth captures: replay it offline with `ReplayTransport`
+(strictWrites = false) and promote it to a committed regression fixture once the
+decoded dives match the device's own log screens.
+
+`SuuntoCapture.kt` (in `app/desktop`) is also the reference for the raw API:
+`JSerialCommTransport.availablePortNames()` / `.byName(name, params)`, then the
+same `SuuntoFamily.protocol(...)` / `.parser()` calls the Android path uses.
