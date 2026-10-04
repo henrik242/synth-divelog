@@ -43,6 +43,6 @@ enum class SuuntoFamily(
     /** Parser for the raw dives this family's protocol produces, or null if none yet. */
     fun parser(): DiveLogParser? = when (this) {
         VYPER -> SuuntoVyperParser()
-        D9 -> null // HelO2 profile parser not implemented yet
+        D9 -> SuuntoD9Parser()
     }
 }

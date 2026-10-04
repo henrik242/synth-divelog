@@ -3,8 +3,8 @@ package no.synth.divelog.core.divecomputer.suunto
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DeviceInfo
 import no.synth.divelog.core.divecomputer.DiveComputerProtocol
+import no.synth.divelog.core.divecomputer.DownloadCancelledException
 import no.synth.divelog.core.divecomputer.DownloadListener
-import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.divecomputer.transport.Parity
 import no.synth.divelog.core.divecomputer.transport.SerialParams
@@ -12,10 +12,10 @@ import no.synth.divelog.core.divecomputer.transport.Transport
 
 /**
  * Suunto D9 family (HelO2 and relatives). The transport, packet framing and
- * ReadMemory are implemented and tested ([SuuntoD9Link]); the dive directory and
- * the richer trimix/deco profile parser are not written yet, so [download] reads
- * nothing and reports as much. This is the scaffolding the HelO2 support will grow
- * from. See docs/protocol/suunto-helo2.md.
+ * ReadMemory live in [SuuntoD9Link]; this class reads the device identity, walks
+ * the profile ring ([SuuntoD9Dump]) and returns one [RawDive] per dive, newest
+ * first. [SuuntoD9Parser] turns those blobs into dives. See
+ * docs/protocol/suunto-helo2.md.
  */
 class SuuntoD9Protocol(
     transport: Transport,
@@ -25,8 +25,8 @@ class SuuntoD9Protocol(
 
     override fun readDeviceInfo(): DeviceInfo {
         val version = link.readVersion()
-        val firmware = "${version[1].toInt() and 0xFF}.${version[2].toInt() and 0xFF}.${version[3].toInt() and 0xFF}"
-        return DeviceInfo(vendor = VENDOR, model = "HelO2", firmware = firmware)
+        val serial = SuuntoD9Dump.decodeSerial(link.readMemory(SuuntoD9Dump.SERIAL_OFFSET, SuuntoD9Dump.SERIAL_SIZE))
+        return deviceInfo(version, serial)
     }
 
     override fun download(
@@ -35,9 +35,40 @@ class SuuntoD9Protocol(
         cancel: CancellationSignal,
         limit: Int?,
     ): List<RawDive> {
-        throw ProtocolException(
-            "Suunto D9/HelO2 download is not implemented yet; the ReadMemory command " +
-                "is in place but the dive directory and profile parser are pending hardware.",
+        val version = link.readVersion()
+        val serial = SuuntoD9Dump.decodeSerial(link.readMemory(SuuntoD9Dump.SERIAL_OFFSET, SuuntoD9Dump.SERIAL_SIZE))
+        listener.onDeviceInfo(deviceInfo(version, serial))
+
+        val header = link.readMemory(SuuntoD9Dump.HEADER_OFFSET, SuuntoD9Dump.HEADER_SIZE)
+
+        // Read the whole profile ring, paging in MAX_PAGE chunks with progress.
+        val ringLength = SuuntoD9Dump.RB_PROFILE_END - SuuntoD9Dump.RB_PROFILE_BEGIN
+        val ring = ByteArray(ringLength)
+        var read = 0
+        while (read < ringLength) {
+            if (cancel.isCancelled()) throw DownloadCancelledException()
+            val n = minOf(SuuntoD9Link.MAX_PAGE, ringLength - read)
+            link.readMemory(SuuntoD9Dump.RB_PROFILE_BEGIN + read, n).copyInto(ring, read)
+            read += n
+            listener.onProgress(read, ringLength)
+        }
+
+        val all = SuuntoD9Dump.extract(ring, header)
+        // Dives are newest-first; stop at the one already stored for this device.
+        val new = if (knownFingerprint == null) all else all.takeWhile { it.fingerprint != knownFingerprint }
+        val fresh = if (limit != null && limit > 0) new.take(limit) else new
+        listener.onDiveCount(fresh.size)
+        fresh.forEachIndexed { index, _ -> listener.onDiveDownloaded(index) }
+        return fresh
+    }
+
+    private fun deviceInfo(version: ByteArray, serial: String): DeviceInfo {
+        val firmware = "${version[1].toInt() and 0xFF}.${version[2].toInt() and 0xFF}.${version[3].toInt() and 0xFF}"
+        return DeviceInfo(
+            vendor = VENDOR,
+            model = SuuntoD9Dump.modelName(version[0].toInt() and 0xFF),
+            serial = serial,
+            firmware = firmware,
         )
     }
 
