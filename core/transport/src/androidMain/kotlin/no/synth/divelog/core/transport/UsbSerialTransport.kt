@@ -36,11 +36,7 @@ class UsbSerialTransport(
         port.setParameters(params.baudRate, params.dataBits, stopBitsConst(params.stopBits), parityConst(params.parity))
         // DTR powers the Suunto interface and stays set for the whole session.
         port.dtr = params.dtr
-        if (params.halfDuplex) {
-            port.rts = false // start in receive direction; flipped per write
-        } else {
-            port.rts = params.rts // the D9 cable draws power from RTS, so hold it high
-        }
+        if (params.halfDuplex) port.rts = !params.rtsTransmitHigh // start in receive direction
         if (params.powerUpMs > 0) sleep(params.powerUpMs) // let the interface power up
         open = true
     }
@@ -49,12 +45,12 @@ class UsbSerialTransport(
         if (!open) throw TransportClosedException()
         try {
             if (params.halfDuplex) {
-                port.rts = true // drive the line to transmit
+                port.rts = params.rtsTransmitHigh // drive the line to transmit
                 port.write(data, WRITE_TIMEOUT_MS)
                 if (params.txSettleMs > 0) sleep(params.txSettleMs)
-                port.rts = false // release the line to receive
+                port.rts = !params.rtsTransmitHigh // switch the line to receive
                 if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
-                discardEcho(data.size)
+                if (params.discardsEcho) discardEcho(data.size)
             } else {
                 port.write(data, WRITE_TIMEOUT_MS)
             }

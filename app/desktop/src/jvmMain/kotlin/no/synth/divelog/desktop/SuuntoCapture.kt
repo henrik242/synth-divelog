@@ -150,13 +150,19 @@ private const val DUMP_END = 0x8000
  */
 private fun probeLines(portName: String) {
     val request = byteArrayOf(0x0F, 0x00, 0x00, 0x0F)
-    data class Combo(val label: String, val dtr: Boolean, val rts: Boolean, val halfDuplex: Boolean)
+    data class Combo(
+        val label: String,
+        val dtr: Boolean,
+        val rts: Boolean,
+        val halfDuplex: Boolean,
+        val rtsTxHigh: Boolean = true,
+    )
     val combos = listOf(
+        Combo("half-duplex  D9 polarity (RTS low=TX, high=RX)", dtr = true, rts = false, halfDuplex = true, rtsTxHigh = false),
+        Combo("half-duplex  Vyper polarity (RTS high=TX, low=RX)", dtr = true, rts = false, halfDuplex = true, rtsTxHigh = true),
         Combo("full-duplex  DTR=1 RTS=1", dtr = true, rts = true, halfDuplex = false),
         Combo("full-duplex  DTR=1 RTS=0", dtr = true, rts = false, halfDuplex = false),
-        Combo("full-duplex  DTR=0 RTS=1", dtr = false, rts = true, halfDuplex = false),
         Combo("full-duplex  DTR=0 RTS=0", dtr = false, rts = false, halfDuplex = false),
-        Combo("half-duplex  DTR=1 RTS-flip", dtr = true, rts = false, halfDuplex = true),
     )
     println("Probing $portName with GetVersion (${hex(request)}); reply should start with 0f and be 8 bytes.")
     for (c in combos) {
@@ -169,17 +175,21 @@ private fun probeLines(portName: String) {
         }
         try {
             if (c.dtr) port.setDTR() else port.clearDTR()
-            if (c.rts) port.setRTS() else port.clearRTS()
-            if (c.halfDuplex) port.clearRTS() // start in receive
+            if (c.halfDuplex) {
+                if (c.rtsTxHigh) port.clearRTS() else port.setRTS() // start in receive
+            } else if (c.rts) {
+                port.setRTS()
+            } else {
+                port.clearRTS()
+            }
             Thread.sleep(100)
             runCatching { port.flushIOBuffers() }
 
             if (c.halfDuplex) {
-                port.setRTS()
+                if (c.rtsTxHigh) port.setRTS() else port.clearRTS() // transmit
                 port.writeBytes(request, request.size)
-                Thread.sleep(200)
-                port.clearRTS()
-                Thread.sleep(400)
+                Thread.sleep(50)
+                if (c.rtsTxHigh) port.clearRTS() else port.setRTS() // receive
             } else {
                 port.writeBytes(request, request.size)
             }

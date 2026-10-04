@@ -45,19 +45,22 @@ class SuuntoD9Protocol(
         private const val VENDOR = "Suunto"
 
         /**
-         * 9600 8N1, full-duplex. The cable is powered off both DTR and RTS, so both
-         * are held high and the interface is given time to power up before the first
-         * command; without RTS high the device never replies.
+         * 9600 8N1, half-duplex with inverted RTS: the line drives RTS low to transmit
+         * and high to receive (the opposite of the old Vyper family), and its RTS
+         * direction control leaves no echo to discard. DTR powers the interface; give
+         * it time to settle after each write before the reply.
          */
         val SERIAL_PARAMS = SerialParams(
             baudRate = 9600,
             dataBits = 8,
             parity = Parity.NONE,
             stopBits = 1,
-            halfDuplex = false,
+            halfDuplex = true,
             dtr = true,
-            rts = true,
+            rtsTransmitHigh = false,
+            discardsEcho = false,
             powerUpMs = 100,
+            txSettleMs = 50,
         )
     }
 }

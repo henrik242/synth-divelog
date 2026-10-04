@@ -10,9 +10,9 @@ enum class Parity { NONE, ODD, EVEN }
  * time. The [Transport] interface stays byte-oriented and ignorant of baud rate.
  *
  * [halfDuplex] marks a line where transmit and receive share one pair, so the
- * transport must flip direction with RTS and discard the bytes the line echoes
- * back while sending (the old Suunto Vyper family). A full-duplex line (the D9
- * family) leaves it false.
+ * transport flips direction with RTS around each write. Both Suunto families are
+ * half-duplex but with opposite RTS polarity (see [rtsTransmitHigh]) and only the
+ * old Vyper family echoes the sent bytes back (see [discardsEcho]).
  */
 data class SerialParams(
     val baudRate: Int,
@@ -20,18 +20,24 @@ data class SerialParams(
     val parity: Parity = Parity.NONE,
     val stopBits: Int = 1,
     val halfDuplex: Boolean = false,
-    /** DTR held high for the whole session (powers the old Suunto interface). */
+    /** DTR held high for the whole session (powers the Suunto interface). */
     val dtr: Boolean = true,
     /**
-     * RTS held high for the whole session. The newer Suunto (D9) cable draws its
-     * power from RTS as well as DTR, and stays silent if RTS is left low. Ignored on
-     * a [halfDuplex] line, where the transport flips RTS per write to set direction.
+     * On a [halfDuplex] line, the RTS level that selects the transmit direction;
+     * receive is the opposite level. The old Vyper family drives RTS high to transmit
+     * (true); the newer D9 family is inverted and drives RTS low to transmit (false).
      */
-    val rts: Boolean = false,
+    val rtsTransmitHigh: Boolean = true,
+    /**
+     * On a [halfDuplex] line, whether the cable echoes the bytes we send so the
+     * transport must read and drop them. True for the old single-wire Vyper cable;
+     * false for the D9 family, whose RTS direction control leaves no echo.
+     */
+    val discardsEcho: Boolean = true,
     /** Milliseconds to let the interface power up after setting the lines, before use. */
     val powerUpMs: Long = 0,
-    /** Milliseconds to let the UART drain before clearing RTS to receive. */
+    /** Milliseconds to let the UART drain before switching RTS to receive. */
     val txSettleMs: Long = 0,
-    /** Milliseconds to wait after clearing RTS before the reply is expected. */
+    /** Milliseconds to wait after switching RTS to receive before the reply is expected. */
     val rxSettleMs: Long = 0,
 )

@@ -7,13 +7,17 @@ family split.
 
 ## Line
 
-- **9600 baud, 8N1, full-duplex.** No `RTS`/`DTR` direction toggling - a
-  straightforward request/response packet exchange.
-- The cable draws power from **both `DTR` and `RTS`**: hold both high, then give the
-  interface ~100 ms to power up and flush the buffers before the first command. With
-  `RTS` left low the device stays completely silent (no reply to GetVersion). This
-  bit out on the first hardware test, where every read timed out until `RTS` was
-  asserted.
+- **9600 baud, 8N1.** `DTR` held high powers the interface; give it ~100 ms to settle
+  and flush the buffers before the first command.
+- **Half-duplex with inverted `RTS`**, the opposite polarity of the old Vyper family:
+  drive `RTS` **low to transmit** and **high to receive**, flipping it around each
+  write. Unlike the old single-wire cable there is **no echo** of the sent bytes to
+  discard (the `RTS` direction control handles it). Let the UART drain (~50 ms) after
+  a write before switching to receive so the last byte is not cut off.
+- Verified against hardware only after fixing this: the first tests held `RTS` high
+  (receive state) during writes, so the command never went out and the device stayed
+  completely silent to GetVersion on two different cables, in every full-duplex and
+  old-polarity combination. Driving `RTS` low to transmit was the fix.
 
 ## Packet framing
 

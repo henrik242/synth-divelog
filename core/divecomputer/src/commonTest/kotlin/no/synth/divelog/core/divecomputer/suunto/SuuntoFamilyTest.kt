@@ -19,11 +19,14 @@ class SuuntoFamilyTest {
     }
 
     @Test
-    fun d9FamilyUsesFullDuplex9600None() {
+    fun d9FamilyUsesHalfDuplex9600NoneInvertedRts() {
         val p = SuuntoFamily.D9.serialParams
         assertEquals(9600, p.baudRate)
         assertEquals(Parity.NONE, p.parity)
-        assertTrue(!p.halfDuplex)
+        assertTrue(p.halfDuplex)
+        // Inverted RTS vs the Vyper family, and no echo on the line.
+        assertTrue(!p.rtsTransmitHigh)
+        assertTrue(!p.discardsEcho)
     }
 
     @Test
