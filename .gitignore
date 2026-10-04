@@ -25,3 +25,7 @@ local.properties
 
 # Local Predator screenshots (personal dive data)
 /scratch-shots/
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate

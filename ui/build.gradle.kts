@@ -11,7 +11,9 @@ kotlin {
     listOf(iosArm64(), iosSimulatorArm64()).forEach { iosTarget ->
         iosTarget.binaries.framework {
             baseName = "SynthDivelogUI"
-            isStatic = true
+            isStatic = false
+            // The native SQLite driver links against the system library.
+            linkerOpts("-lsqlite3")
         }
     }
 
