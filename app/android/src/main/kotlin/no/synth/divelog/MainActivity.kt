@@ -134,6 +134,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
+                        onExit = { this@MainActivity.finish() },
                         dataVersion = dataVersion,
                     )
                 }

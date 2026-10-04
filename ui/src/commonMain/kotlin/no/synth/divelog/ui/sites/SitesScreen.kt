@@ -17,7 +17,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.Country
 import no.synth.divelog.core.model.Place
@@ -28,11 +30,21 @@ import no.synth.divelog.ui.components.BackHeader
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.dive.DiveListWithDetail
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun SitesSection(container: AppContainer, unitSystem: UnitSystem, dataVersion: Int) {
     var country by remember(dataVersion) { mutableStateOf<Country?>(null) }
     var place by remember(dataVersion) { mutableStateOf<Place?>(null) }
     var site by remember(dataVersion) { mutableStateOf<Site?>(null) }
+
+    // Hardware back pops one drill level before the root handler switches sections.
+    BackHandler(enabled = site != null || place != null || country != null) {
+        when {
+            site != null -> site = null
+            place != null -> place = null
+            else -> country = null
+        }
+    }
 
     when {
         site != null -> SiteDetail(container, site!!, unitSystem, onBack = { site = null })

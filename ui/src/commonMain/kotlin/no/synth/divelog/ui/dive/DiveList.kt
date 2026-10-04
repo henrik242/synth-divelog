@@ -19,7 +19,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.Dive
@@ -71,9 +73,11 @@ fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit, siteName: S
 }
 
 /** A list of dives that opens a read-only detail inline when one is tapped. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun DiveListWithDetail(container: AppContainer, dives: List<Dive>, unitSystem: UnitSystem) {
     var openId by remember(dives) { mutableStateOf<Long?>(null) }
+    BackHandler(enabled = openId != null) { openId = null }
     val current = openId
     if (current != null) {
         Column(Modifier.fillMaxSize()) {

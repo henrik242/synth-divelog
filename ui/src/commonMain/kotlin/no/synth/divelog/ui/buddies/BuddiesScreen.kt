@@ -17,7 +17,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.units.UnitSystem
@@ -26,9 +28,11 @@ import no.synth.divelog.ui.components.BackHeader
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.dive.DiveListWithDetail
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun BuddiesSection(container: AppContainer, unitSystem: UnitSystem, dataVersion: Int) {
     var openBuddy by remember(dataVersion) { mutableStateOf<Buddy?>(null) }
+    BackHandler(enabled = openBuddy != null) { openBuddy = null }
     val current = openBuddy
     if (current != null) {
         val dives = remember(current.id) { container.buddies.divesForBuddy(current.id) }

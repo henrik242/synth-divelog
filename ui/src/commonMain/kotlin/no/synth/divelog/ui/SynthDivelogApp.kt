@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Place
@@ -35,20 +36,26 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.Site
@@ -76,7 +83,7 @@ private enum class Section(val label: String, val icon: ImageVector, val selecte
  * platform download flow, and [dataVersion] is bumped by the host to trigger a
  * reload after an import.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun SynthDivelogApp(
     container: AppContainer,
@@ -93,12 +100,39 @@ fun SynthDivelogApp(
     onCloudConfigChange: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
     onCloudPull: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
     onCloudPush: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
+    onExit: () -> Unit = {},
     dataVersion: Int = 0,
 ) {
     var section by remember { mutableStateOf(Section.DIVES) }
+    // Dive drill-in state lives here so the top bar can act as a back affordance
+    // and the root back handler can clear it.
+    var openDiveId by remember(dataVersion) { mutableStateOf<Long?>(null) }
+    var editing by remember(dataVersion) { mutableStateOf(false) }
+    val diveDrilledIn = section == Section.DIVES && openDiveId != null
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var backArmed by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(section.label) }) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    if (diveDrilledIn) {
+                        Row(
+                            Modifier.clickable { editing = false; openDiveId = null },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to dive list")
+                            Text(section.label, Modifier.padding(start = 8.dp))
+                        }
+                    } else {
+                        Text(section.label)
+                    }
+                },
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             NavigationBar {
                 Section.entries.forEach { s ->
@@ -118,8 +152,28 @@ fun SynthDivelogApp(
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
+            // Root-level back. Section drill-in handlers compose deeper and take
+            // priority, so this only fires at a section root or a drilled-in dive.
+            BackHandler {
+                when {
+                    diveDrilledIn -> { editing = false; openDiveId = null }
+                    section != Section.DIVES -> section = Section.DIVES
+                    backArmed -> onExit()
+                    else -> {
+                        backArmed = true
+                        scope.launch { snackbarHostState.showSnackbar("Press back again to exit") }
+                        scope.launch { delay(2000); backArmed = false }
+                    }
+                }
+            }
             when (section) {
-                Section.DIVES -> DivesSection(container, unitSystem, onDownloadClick, dataVersion)
+                Section.DIVES -> DivesSection(
+                    container, unitSystem, onDownloadClick, dataVersion,
+                    openDiveId = openDiveId,
+                    onOpenDiveChange = { openDiveId = it },
+                    editing = editing,
+                    onEditingChange = { editing = it },
+                )
                 Section.SITES -> SitesSection(container, unitSystem, dataVersion)
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
                 Section.STATS -> StatisticsSection(container, unitSystem, dataVersion)
@@ -149,9 +203,11 @@ private fun DivesSection(
     unitSystem: UnitSystem,
     onDownloadClick: () -> Unit,
     dataVersion: Int,
+    openDiveId: Long?,
+    onOpenDiveChange: (Long?) -> Unit,
+    editing: Boolean,
+    onEditingChange: (Boolean) -> Unit,
 ) {
-    var openDiveId by remember(dataVersion) { mutableStateOf<Long?>(null) }
-    var editing by remember(dataVersion) { mutableStateOf(false) }
     var reloadKey by remember(dataVersion) { mutableStateOf(0) }
 
     val currentDive = openDiveId
@@ -161,24 +217,19 @@ private fun DivesSection(
                 container = container,
                 diveId = currentDive,
                 unitSystem = unitSystem,
-                onDone = { editing = false; reloadKey++ },
-                onCancel = { editing = false },
+                onDone = { onEditingChange(false); reloadKey++ },
+                onCancel = { onEditingChange(false) },
             )
         } else {
-            Column(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                    TextButton(onClick = { openDiveId = null }) { Text("< Dives") }
-                }
-                DiveDetailScreen(
-                    container = container,
-                    diveId = currentDive,
-                    unitSystem = unitSystem,
-                    reloadKey = reloadKey,
-                    onEdit = { editing = true },
-                    onChanged = { reloadKey++ },
-                    onDeleted = { openDiveId = null; reloadKey++ },
-                )
-            }
+            DiveDetailScreen(
+                container = container,
+                diveId = currentDive,
+                unitSystem = unitSystem,
+                reloadKey = reloadKey,
+                onEdit = { onEditingChange(true) },
+                onChanged = { reloadKey++ },
+                onDeleted = { onOpenDiveChange(null); reloadKey++ },
+            )
         }
         return
     }
@@ -280,13 +331,13 @@ private fun DivesSection(
                             }
                         }
                         items(monthDives) { dive ->
-                            DiveRow(dive, unitSystem, onClick = { openDiveId = dive.id }, siteName = dive.siteId?.let { siteNames[it] })
+                            DiveRow(dive, unitSystem, onClick = { onOpenDiveChange(dive.id) }, siteName = dive.siteId?.let { siteNames[it] })
                             HorizontalDivider()
                         }
                     }
                 } else {
                     items(shown) { dive ->
-                        DiveRow(dive, unitSystem, onClick = { openDiveId = dive.id }, siteName = dive.siteId?.let { siteNames[it] })
+                        DiveRow(dive, unitSystem, onClick = { onOpenDiveChange(dive.id) }, siteName = dive.siteId?.let { siteNames[it] })
                         HorizontalDivider()
                     }
                 }
