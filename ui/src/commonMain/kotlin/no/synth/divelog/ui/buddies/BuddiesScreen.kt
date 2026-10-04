@@ -12,7 +12,6 @@ import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.components.BackHeader
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.dive.DiveListWithDetail
 
@@ -33,8 +33,7 @@ fun BuddiesSection(container: AppContainer, unitSystem: UnitSystem, dataVersion:
     if (current != null) {
         val dives = remember(current.id) { container.buddies.divesForBuddy(current.id) }
         Column(Modifier.fillMaxSize()) {
-            TextButton(onClick = { openBuddy = null }) { Text("< Buddies") }
-            Text(current.name, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.titleLarge)
+            BackHeader(current.name, onBack = { openBuddy = null })
             Text("${dives.size} shared dive(s)", Modifier.padding(16.dp), style = MaterialTheme.typography.titleSmall)
             DiveListWithDetail(container, dives, unitSystem)
         }

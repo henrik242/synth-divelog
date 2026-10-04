@@ -12,7 +12,6 @@ import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +24,7 @@ import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.components.BackHeader
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.dive.DiveListWithDetail
 
@@ -100,8 +100,3 @@ private fun RowItem(text: String, onClick: () -> Unit) {
     HorizontalDivider()
 }
 
-@Composable
-private fun BackHeader(title: String, onBack: () -> Unit) {
-    TextButton(onClick = onBack) { Text("< Back") }
-    Text(title, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.titleLarge)
-}
