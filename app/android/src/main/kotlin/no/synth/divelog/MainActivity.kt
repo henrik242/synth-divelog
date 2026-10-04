@@ -50,12 +50,19 @@ class MainActivity : ComponentActivity() {
                 ) { uri ->
                     if (uri != null) {
                         scope.launch {
-                            withContext(Dispatchers.IO) {
-                                val text = context.contentResolver.openInputStream(uri)
-                                    ?.bufferedReader()?.use { it.readText() } ?: return@withContext
-                                LogbookIo.detect(text)?.let { logbook.import(it, text) }
+                            val message = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    val text = context.contentResolver.openInputStream(uri)
+                                        ?.bufferedReader()?.use { it.readText() }
+                                        ?: return@runCatching "Could not read the file"
+                                    val format = LogbookIo.detect(text)
+                                        ?: return@runCatching "Unrecognized file (expected Subsurface XML or UDDF)"
+                                    val counts = logbook.import(format, text)
+                                    "Imported ${counts.imported}, skipped ${counts.skipped} (${format.displayName})"
+                                }.getOrElse { "Import failed: ${it.message ?: it::class.simpleName}" }
                             }
                             dataVersion++
+                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
                         }
                     }
                 }
