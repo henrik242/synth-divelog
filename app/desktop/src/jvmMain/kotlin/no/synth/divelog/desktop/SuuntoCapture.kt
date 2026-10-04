@@ -34,7 +34,7 @@ fun main(args: Array<String>) {
     // An arg that names a family is the family; "probe" selects probe mode; anything
     // else is the port name. This way "D9" or "D9 probe" leaves the port to auto-detect.
     val familyArg = args.firstNotNullOfOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.getOrNull() }
-    val keywords = setOf("probe", "readprobe")
+    val keywords = setOf("probe", "readprobe", "difftest")
     val portArg = args.firstOrNull {
         !keywords.contains(it.lowercase()) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
     }
@@ -61,6 +61,14 @@ fun main(args: Array<String>) {
     // find why the device answers GetVersion but not ReadMemory.
     if (args.any { it.equals("readprobe", ignoreCase = true) }) {
         readProbe(portName)
+        return
+    }
+
+    // "difftest" reads 0x0190 three ways in one session (raw probe-style, through
+    // JSerialCommTransport+link, and +RecordingTransport) to isolate why the raw read
+    // works but the real transport path does not.
+    if (args.any { it.equals("difftest", ignoreCase = true) }) {
+        diffTest(portName)
         return
     }
 
@@ -311,6 +319,80 @@ private fun readProbe(portName: String) {
         }
     } finally {
         runCatching { port.closePort() }
+    }
+}
+
+/**
+ * Read 0x0190 three ways in one session to isolate why the raw probe reads it but the
+ * real transport path does not: raw inline (A), through JSerialCommTransport + link (B),
+ * and with RecordingTransport in front (C).
+ */
+private fun diffTest(portName: String) {
+    val cmd0190 = run {
+        val c = byteArrayOf(0x05, 0x00, 0x03, 0x01, 0x90.toByte(), 0x08)
+        var crc = 0
+        for (b in c) crc = crc xor (b.toInt() and 0xFF)
+        c + crc.toByte()
+    }
+    val getVersion = byteArrayOf(0x0F, 0x00, 0x00, 0x0F)
+
+    println("Phase A: raw inline read of 0x0190 (probe-style, settle 6/10):")
+    run {
+        val port = SerialPort.getCommPort(portName)
+        port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
+        port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING, 300, 2000)
+        if (!port.openPort()) { println("  could not open"); return@run }
+        try {
+            port.setDTR(); port.clearRTS(); Thread.sleep(100); runCatching { port.flushIOBuffers() }
+            fun rawExchange(cmd: ByteArray, settle: Long): ByteArray {
+                runCatching { port.flushIOBuffers() }
+                port.setRTS(); port.writeBytes(cmd, cmd.size); Thread.sleep(settle); port.clearRTS()
+                val buf = ByteArray(24); val n = port.readBytes(buf, buf.size)
+                return if (n > 0) buf.copyOf(n) else ByteArray(0)
+            }
+            rawExchange(getVersion, 10)
+            Thread.sleep(120); runCatching { port.flushIOBuffers() }
+            var ok = 0
+            repeat(10) { i ->
+                val r = rawExchange(cmd0190, if (i % 2 == 0) 6 else 10)
+                if (r.isNotEmpty() && r[0] == 0x05.toByte()) ok++
+                val d = ByteArray(64); port.readBytes(d, d.size)
+                Thread.sleep(120)
+            }
+            println("  raw: $ok/10 got a 0x05 reply")
+        } finally { runCatching { port.closePort() } }
+    }
+    Thread.sleep(300)
+
+    println("Phase B: JSerialCommTransport + SuuntoD9Link.readMemory(0x0190, 8):")
+    run {
+        val t = JSerialCommTransport.byName(portName, SuuntoFamily.D9.serialParams)
+        try {
+            t.open()
+            val link = SuuntoD9Link(t)
+            runCatching { link.readVersion() }.onFailure { println("  version failed: ${it.message}") }
+            var ok = 0
+            repeat(3) {
+                runCatching { link.readMemory(0x0190, 8) }
+                    .onSuccess { ok++; println("  ok: ${hex(it)}") }
+                    .onFailure { println("  fail: ${it.message}") }
+            }
+            println("  transport: $ok/3")
+        } finally { runCatching { t.close() } }
+    }
+    Thread.sleep(300)
+
+    println("Phase C: RecordingTransport + link:")
+    run {
+        val t = RecordingTransport(JSerialCommTransport.byName(portName, SuuntoFamily.D9.serialParams))
+        try {
+            t.open()
+            val link = SuuntoD9Link(t)
+            runCatching { link.readVersion() }
+            var ok = 0
+            repeat(3) { if (runCatching { link.readMemory(0x0190, 8) }.isSuccess) ok++ }
+            println("  recording transport: $ok/3")
+        } finally { runCatching { t.close() } }
     }
 }
 
