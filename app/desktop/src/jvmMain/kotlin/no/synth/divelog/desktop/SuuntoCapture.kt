@@ -4,13 +4,16 @@ import com.fazecast.jSerialComm.SerialPort
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DeviceInfo
 import no.synth.divelog.core.divecomputer.DownloadListener
+import no.synth.divelog.core.divecomputer.suunto.SuuntoD9Dump
 import no.synth.divelog.core.divecomputer.suunto.SuuntoD9Link
+import no.synth.divelog.core.divecomputer.suunto.SuuntoD9Parser
 import no.synth.divelog.core.divecomputer.suunto.SuuntoD9Protocol
 import no.synth.divelog.core.divecomputer.suunto.SuuntoFamily
 import no.synth.divelog.core.divecomputer.transport.RecordingTransport
 import no.synth.divelog.core.transport.JSerialCommTransport
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.time.Instant
 
 /**
  * Command-line capture tool for a Suunto over the USB cable, for bring-up and
@@ -500,8 +503,28 @@ private fun rawDump(portName: String) {
         val bin = File(dir, "suunto-d9-dump-${System.currentTimeMillis()}.bin")
         runCatching { bin.writeBytes(dump) }
             .onSuccess { println("Memory dump saved: ${bin.absolutePath}") }
+        decodeDump(dump)
     } finally {
         runCatching { port.closePort() }
+    }
+}
+
+/** Decode a captured 0x8000 memory image into dives using the real parser. */
+private fun decodeDump(dump: ByteArray) {
+    if (dump.size < SuuntoD9Dump.RB_PROFILE_END) { println("Image too small to decode."); return }
+    val header = dump.copyOfRange(SuuntoD9Dump.HEADER_OFFSET, SuuntoD9Dump.HEADER_OFFSET + SuuntoD9Dump.HEADER_SIZE)
+    val ring = dump.copyOfRange(SuuntoD9Dump.RB_PROFILE_BEGIN, SuuntoD9Dump.RB_PROFILE_END)
+    val raw = runCatching { SuuntoD9Dump.extract(ring, header) }.getOrElse {
+        println("Could not walk the ring: ${it.message}"); return
+    }
+    println("Decoded ${raw.size} dive(s):")
+    val parser = SuuntoD9Parser()
+    raw.forEachIndexed { i, r ->
+        runCatching { parser.parse(r) }
+            .onSuccess { d ->
+                println("  #${i + 1}  ${Instant.ofEpochSecond(d.startEpochSeconds)}  ${d.durationSeconds / 60}min  max=${(d.maxDepthMm ?: 0) / 1000.0}m  ${d.samples.size} samples")
+            }
+            .onFailure { println("  #${i + 1}  parse failed: ${it.message}") }
     }
 }
 
