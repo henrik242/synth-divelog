@@ -26,6 +26,11 @@ kotlin {
 compose.desktop {
     application {
         mainClass = "no.synth.divelog.desktop.MainKt"
+        // Native packaging (jpackage) needs a full JDK, which the JBR used by the
+        // Android tooling lacks. Use a provisioned JDK 21 toolchain for it.
+        javaHome = javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(21))
+        }.get().metadata.installationPath.asFile.absolutePath
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
             packageName = "SynthDivelog"
