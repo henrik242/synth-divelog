@@ -79,7 +79,10 @@ private fun setModem(c: PosixC, fd: Int, bit: Int, on: Boolean) {
  */
 fun posixJnaTest(portName: String) {
     val c = PosixC.INSTANCE
-    val path = if (portName.startsWith("/")) portName else "/dev/$portName"
+    // The reference tools open the tty.* node, not cu.*; map it so this matches.
+    val node = if (portName.startsWith("cu.")) "tty." + portName.substring(3) else portName
+    val path = if (node.startsWith("/")) node else "/dev/$node"
+    println("Opening $path")
     val fd = c.open(path, O_RDWR or O_NOCTTY or O_NONBLOCK)
     if (fd < 0) { println("open($path) failed"); return }
     try {
