@@ -34,7 +34,7 @@ fun main(args: Array<String>) {
     // An arg that names a family is the family; "probe" selects probe mode; anything
     // else is the port name. This way "D9" or "D9 probe" leaves the port to auto-detect.
     val familyArg = args.firstNotNullOfOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.getOrNull() }
-    val keywords = setOf("probe", "readprobe", "difftest")
+    val keywords = setOf("probe", "readprobe", "difftest", "jnatest")
     val portArg = args.firstOrNull {
         !keywords.contains(it.lowercase()) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
     }
@@ -69,6 +69,13 @@ fun main(args: Array<String>) {
     // works but the real transport path does not.
     if (args.any { it.equals("difftest", ignoreCase = true) }) {
         diffTest(portName)
+        return
+    }
+
+    // "jnatest" opens the port directly via JNA and tests the tcdrain turnaround, which
+    // jSerialComm cannot do. If this reads 0x0190 reliably, the transport moves to JNA.
+    if (args.any { it.equals("jnatest", ignoreCase = true) }) {
+        posixJnaTest(portName)
         return
     }
 

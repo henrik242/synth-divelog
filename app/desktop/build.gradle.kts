@@ -22,6 +22,7 @@ kotlin {
             implementation(project(":ui"))
             implementation(libs.sqldelight.driver.sqlite)
             implementation(libs.jserialcomm)
+            implementation(libs.jna)
             implementation(libs.kotlinx.coroutines.core)
         }
     }
