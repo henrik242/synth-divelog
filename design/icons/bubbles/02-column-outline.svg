@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#00505E"/>
+      <stop offset="1" stop-color="#00323B"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- centered vertical column, outlined rings -->
+  <g fill="none" stroke="#54D7F3" stroke-width="44">
+    <circle cx="512" cy="356" r="62"/>
+    <circle cx="512" cy="506" r="96"/>
+    <circle cx="512" cy="672" r="60"/>
+    <circle cx="512" cy="776" r="32"/>
+  </g>
+  <g fill="#EAF9FD">
+    <circle cx="468" cy="312" r="14"/>
+    <circle cx="444" cy="438" r="20"/>
+    <circle cx="470" cy="630" r="12"/>
+  </g>
+</svg>

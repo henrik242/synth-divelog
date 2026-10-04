@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5A5B9E"/>
+      <stop offset="1" stop-color="#3C3D77"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- scattered overlapping cluster, solid fill, mixed sizes -->
+  <g fill="#54D7F3" stroke="#2FA9CC" stroke-width="12">
+    <circle cx="462" cy="470" r="140"/>
+    <circle cx="628" cy="420" r="82"/>
+    <circle cx="588" cy="602" r="74"/>
+    <circle cx="410" cy="628" r="54"/>
+    <circle cx="676" cy="566" r="38"/>
+  </g>
+  <g fill="#EAF9FD">
+    <circle cx="414" cy="420" r="30"/>
+    <circle cx="602" cy="392" r="17"/>
+    <circle cx="562" cy="576" r="15"/>
+  </g>
+</svg>

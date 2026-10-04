@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00788F"/>
+      <stop offset="1" stop-color="#3C3D77"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- three bold separate bubbles, filled with glint, teal-to-indigo blend -->
+  <g fill="#54D7F3">
+    <circle cx="456" cy="432" r="150"/>
+    <circle cx="624" cy="596" r="92"/>
+    <circle cx="492" cy="730" r="52"/>
+  </g>
+  <g fill="none" stroke="#2BB7D8" stroke-width="18">
+    <circle cx="456" cy="432" r="132"/>
+    <circle cx="624" cy="596" r="80"/>
+    <circle cx="492" cy="730" r="43"/>
+  </g>
+  <g fill="#EAF9FD">
+    <circle cx="398" cy="376" r="34"/>
+    <circle cx="586" cy="558" r="20"/>
+    <circle cx="470" cy="710" r="12"/>
+  </g>
+</svg>
