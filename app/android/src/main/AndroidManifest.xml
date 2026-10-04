@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <!-- Cloud sync of a single dive-log file over HTTPS. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Keep a slow download alive while backgrounded or with the screen off. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />

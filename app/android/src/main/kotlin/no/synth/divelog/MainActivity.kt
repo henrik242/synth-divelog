@@ -98,6 +98,42 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
+                        cloudEnabled = true,
+                        initialCloudUrl = settings.cloudUrl,
+                        initialCloudUsername = settings.cloudUsername,
+                        initialCloudPassword = settings.cloudPassword,
+                        onCloudConfigChange = { url, user, pass ->
+                            settings.cloudUrl = url
+                            settings.cloudUsername = user
+                            settings.cloudPassword = pass
+                        },
+                        onCloudPull = { url, user, pass ->
+                            scope.launch(Dispatchers.IO) {
+                                val message = runCatching {
+                                    val text = CloudSync.pull(url, user, pass)
+                                    val format = LogbookIo.detect(text)
+                                        ?: return@runCatching "Downloaded, but not a recognized dive-log file"
+                                    val counts = logbook.import(format, text)
+                                    "Pulled: imported ${counts.imported}, skipped ${counts.skipped}"
+                                }.getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
+                                dataVersion++
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        onCloudPush = { url, user, pass ->
+                            scope.launch(Dispatchers.IO) {
+                                val message = runCatching {
+                                    val format = LogbookIo.formats().first { it.id == "subsurface-xml" }
+                                    CloudSync.push(url, user, pass, logbook.exportAll(format))
+                                    "Pushed to the cloud"
+                                }.getOrElse { "Push failed: ${it.message ?: it::class.simpleName}" }
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
                         dataVersion = dataVersion,
                     )
                 }

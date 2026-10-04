@@ -61,6 +61,13 @@ fun SynthDivelogApp(
     onImport: () -> Unit = {},
     onExport: (formatId: String) -> Unit = {},
     onReparse: () -> Unit = {},
+    cloudEnabled: Boolean = false,
+    initialCloudUrl: String = "",
+    initialCloudUsername: String = "",
+    initialCloudPassword: String = "",
+    onCloudConfigChange: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
+    onCloudPull: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
+    onCloudPush: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
     dataVersion: Int = 0,
 ) {
     var section by remember { mutableStateOf(Section.DIVES) }
@@ -86,7 +93,21 @@ fun SynthDivelogApp(
                 Section.SITES -> SitesSection(container, unitSystem, dataVersion)
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
                 Section.STATS -> StatisticsSection(container, unitSystem, dataVersion)
-                Section.SETTINGS -> SettingsSection(container, unitSystem, onUnitSystemChange, onImport, onExport, onReparse)
+                Section.SETTINGS -> SettingsSection(
+                    container = container,
+                    unitSystem = unitSystem,
+                    onUnitSystemChange = onUnitSystemChange,
+                    onImport = onImport,
+                    onExport = onExport,
+                    onReparse = onReparse,
+                    cloudEnabled = cloudEnabled,
+                    initialCloudUrl = initialCloudUrl,
+                    initialCloudUsername = initialCloudUsername,
+                    initialCloudPassword = initialCloudPassword,
+                    onCloudConfigChange = onCloudConfigChange,
+                    onCloudPull = onCloudPull,
+                    onCloudPush = onCloudPush,
+                )
             }
         }
     }
