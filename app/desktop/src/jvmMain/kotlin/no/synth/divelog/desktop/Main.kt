@@ -1,6 +1,5 @@
 package no.synth.divelog.desktop
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -12,6 +11,7 @@ import no.synth.divelog.core.db.createDatabase
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.SynthDivelogApp
+import no.synth.divelog.ui.SynthTheme
 import no.synth.divelog.ui.io.LogbookIo
 import java.awt.FileDialog
 import java.awt.Frame
@@ -37,7 +37,7 @@ fun main() = application {
     var dataVersion by remember { mutableStateOf(0) }
 
     Window(onCloseRequest = ::exitApplication, title = "Synth Divelog") {
-        MaterialTheme {
+        SynthTheme {
             SynthDivelogApp(
                 container = container,
                 unitSystem = unitSystem,

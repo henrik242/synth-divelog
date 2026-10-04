@@ -1,6 +1,5 @@
 package no.synth.divelog.ui
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,7 +19,7 @@ import platform.UIKit.UIViewController
 fun MainViewController(): UIViewController = ComposeUIViewController {
     val container = remember { AppContainer(DriverFactory().createDatabase()) }
     var unitSystem by remember { mutableStateOf(UnitSystem.METRIC) }
-    MaterialTheme {
+    SynthTheme {
         SynthDivelogApp(
             container = container,
             unitSystem = unitSystem,

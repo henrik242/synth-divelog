@@ -10,6 +10,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Waves
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Waves
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -28,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.Buddy
@@ -42,8 +54,12 @@ import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
 import no.synth.divelog.ui.stats.StatisticsSection
 
-private enum class Section(val label: String) {
-    DIVES("Dives"), SITES("Sites"), BUDDIES("Buddies"), STATS("Stats"), SETTINGS("Settings")
+private enum class Section(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
+    DIVES("Dives", Icons.Outlined.Waves, Icons.Filled.Waves),
+    SITES("Sites", Icons.Outlined.Place, Icons.Filled.Place),
+    BUDDIES("Buddies", Icons.Outlined.Group, Icons.Filled.Group),
+    STATS("Stats", Icons.Outlined.BarChart, Icons.Filled.BarChart),
+    SETTINGS("Settings", Icons.Outlined.Settings, Icons.Filled.Settings),
 }
 
 /**
@@ -80,7 +96,12 @@ fun SynthDivelogApp(
                     NavigationBarItem(
                         selected = section == s,
                         onClick = { section = s },
-                        icon = {},
+                        icon = {
+                            Icon(
+                                imageVector = if (section == s) s.selectedIcon else s.icon,
+                                contentDescription = s.label,
+                            )
+                        },
                         label = { Text(s.label) },
                     )
                 }

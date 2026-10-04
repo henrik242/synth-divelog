@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
         val logbook = LogbookIo(container)
 
         setContent {
-            MaterialTheme {
+            no.synth.divelog.ui.SynthTheme {
                 val context = LocalContext.current
                 val scope = rememberCoroutineScope()
                 var showDownload by remember { mutableStateOf(false) }
