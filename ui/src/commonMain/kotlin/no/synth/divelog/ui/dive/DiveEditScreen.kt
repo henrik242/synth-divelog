@@ -90,7 +90,7 @@ fun DiveEditScreen(
         OutlinedTextField(
             notes,
             { notes = it },
-            label = { Text("Description") },
+            label = { Text("Notes") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
         )

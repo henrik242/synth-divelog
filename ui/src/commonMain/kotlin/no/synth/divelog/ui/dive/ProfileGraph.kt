@@ -20,7 +20,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Sample
@@ -56,7 +60,15 @@ fun ProfileGraph(
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val gasColor = MaterialTheme.colorScheme.secondary
     val warnColor = MaterialTheme.colorScheme.error
+    val decoColor = MaterialTheme.colorScheme.error
     val cursorColor = MaterialTheme.colorScheme.onSurface
+
+    // Whether this dive had any deco obligation (a stop/ceiling deeper than the surface).
+    val hasDeco = points.any { (it.stopDepthMm ?: 0) > 0 }
+
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = TextStyle(color = labelColor, fontSize = 10.sp)
 
     var cursor by remember(samples) { mutableStateOf<Int?>(null) }
 
@@ -81,10 +93,15 @@ fun ProfileGraph(
                 fun x(t: Int) = t.toFloat() / maxTime * w
                 fun yDepth(mm: Int) = mm.toFloat() / maxDepth * h
 
-                // Horizontal depth gridlines (quarters).
-                for (i in 1..3) {
-                    val y = h * i / 4f
+                // Horizontal depth gridlines at round depths, labelled.
+                val stepMm = niceDepthStepMm(maxDepth)
+                var lineDepth = stepMm
+                while (lineDepth < maxDepth) {
+                    val y = yDepth(lineDepth)
                     drawLine(gridColor, Offset(0f, y), Offset(w, y), strokeWidth = 1f)
+                    val label = textMeasurer.measure(Format.depth(lineDepth, unitSystem), labelStyle)
+                    drawText(label, topLeft = Offset(4f, y - label.size.height - 1f))
+                    lineDepth += stepMm
                 }
 
                 // Depth trace.
@@ -93,6 +110,31 @@ fun ProfileGraph(
                     for (p in points.drop(1)) lineTo(x(p.timeOffsetSeconds), yDepth(p.depthMm!!))
                 }
                 drawPath(depthPath, depthColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+
+                // Deco ceiling: the shallowest allowed depth while a stop was owed.
+                // Drawn only across the segments where a ceiling applied.
+                if (hasDeco) {
+                    val ceilingPath = Path()
+                    var started = false
+                    for (p in points) {
+                        val ceil = p.stopDepthMm ?: 0
+                        if (ceil > 0) {
+                            val cx = x(p.timeOffsetSeconds)
+                            val cy = yDepth(ceil)
+                            if (!started) { ceilingPath.moveTo(cx, cy); started = true } else ceilingPath.lineTo(cx, cy)
+                        } else {
+                            started = false
+                        }
+                    }
+                    drawPath(
+                        ceilingPath,
+                        decoColor,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 2.5f,
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
+                        ),
+                    )
+                }
 
                 // Temperature trace, scaled into the lower portion of its own range.
                 if (minTemp != null && maxTemp != null && maxTemp > minTemp) {
@@ -134,10 +176,22 @@ fun ProfileGraph(
                 append(Format.duration(p.timeOffsetSeconds)).append("  ")
                 append(Format.depth(p.depthMm, unitSystem))
                 p.temperatureMk?.let { append("  ").append(Format.temperature(it, unitSystem)) }
+                (p.stopDepthMm ?: 0).takeIf { it > 0 }?.let { append("  ceiling ").append(Format.depth(it, unitSystem)) }
             }
-        } ?: "Max ${Format.depth(maxDepth, unitSystem)} · ${Format.duration(maxTime)}"
+        } ?: buildString {
+            append("Max ${Format.depth(maxDepth, unitSystem)} · ${Format.duration(maxTime)}")
+            if (hasDeco) append(" · deco (dashed)")
+        }
         Text(readout, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
     }
+}
+
+/** A round depth-gridline spacing (in mm) giving roughly 3-6 lines for the dive. */
+private fun niceDepthStepMm(maxDepthMm: Int): Int {
+    val maxM = maxDepthMm / 1000.0
+    val stepsM = listOf(2, 5, 10, 20, 25, 50, 100)
+    val stepM = stepsM.firstOrNull { maxM / it <= 6 } ?: 100
+    return stepM * 1000
 }
 
 private fun nearestIndex(x: Float, width: Int, points: List<Sample>, maxTime: Int): Int {

@@ -154,7 +154,7 @@ fun DiveDetailScreen(
         SummaryRow("Site", site?.name ?: "-")
         SummaryRow("Buddies", if (buddies.isEmpty()) "-" else buddies.joinToString { it.name })
         if (!dive.notes.isNullOrBlank()) {
-            SummaryRow("Description", dive.notes!!)
+            SummaryRow("Notes", dive.notes!!)
         }
     }
 }
