@@ -4,6 +4,7 @@ import com.fazecast.jSerialComm.SerialPort
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DeviceInfo
 import no.synth.divelog.core.divecomputer.DownloadListener
+import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.divecomputer.suunto.SuuntoD9Dump
 import no.synth.divelog.core.divecomputer.suunto.SuuntoD9Link
 import no.synth.divelog.core.divecomputer.suunto.SuuntoD9Parser
@@ -400,19 +401,40 @@ private fun diffTest(portName: String) {
     }
 }
 
+/** Raised when a raw D9 capture cannot complete; the message is user-facing. */
+class SuuntoCaptureException(message: String) : Exception(message)
+
 /**
- * Brute-force the whole D9 memory using the raw read path (which lands the half-duplex
- * turnaround a fraction of the time) with heavy randomized retries per page. A warm-up
- * canary and a consecutive-failure circuit breaker keep it from grinding for an hour when
- * the device is asleep or degraded. Unreadable pages are filled 0xFF so the .bin stays
- * address-aligned and whatever was captured is always saved.
+ * Capture the D9/HelO2 memory over the raw half-duplex read path and return it as an
+ * address-aligned 0x8000 image. The turnaround lands only a fraction of the time, so
+ * each page is retried with randomized settle and back-off; this is the only read path
+ * that works reliably on this hardware.
+ *
+ * The region below 0x019A is mostly unmapped, and a large page that spans unmapped
+ * memory can fail outright - including the one covering the directory header at 0x0190,
+ * which would then read back 0xFF and make the decode walk find zero dives. So the
+ * serial (0x0023) and the header (0x0190) are read with small dedicated reads at those
+ * exact addresses (which answer reliably even when a big page over them does not), and
+ * only the profile ring (0x019A..0x7FFE) is dumped in 120-byte pages. This is both
+ * correct and much faster, since the dead low pages are skipped. A warm-up canary at
+ * 0x0190 and a consecutive-failure circuit breaker keep it from grinding when the
+ * device is asleep or degraded; unreadable pages stay 0xFF so the image is aligned.
+ *
+ * [onProgress] is called with (bytesDone, total) over the ring as pages complete, and
+ * [isCancelled] is polled between pages so a UI can stop a long read. Throws
+ * [SuuntoCaptureException] when the port cannot open, the canary never answers, the
+ * read is cancelled, or the ring comes back empty. Blocking; call off the UI thread.
  */
-private fun rawDump(portName: String) {
+fun captureD9Image(
+    portName: String,
+    isCancelled: () -> Boolean = { false },
+    onProgress: (bytesDone: Int, total: Int) -> Unit = { _, _ -> },
+): ByteArray {
     val rnd = java.util.Random()
     val port = SerialPort.getCommPort(portName)
     port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
     port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING or SerialPort.TIMEOUT_WRITE_BLOCKING, 150, 2000)
-    if (!port.openPort()) { println("Could not open $portName"); return }
+    if (!port.openPort()) throw SuuntoCaptureException("Could not open serial port $portName")
     try {
         port.setDTR(); port.clearRTS(); Thread.sleep(100); runCatching { port.flushIOBuffers() }
 
@@ -457,64 +479,89 @@ private fun rawDump(portName: String) {
             return null
         }
 
-        println("Warm-up canary at 0x0190 (up to 80 tries)...")
-        val canary = readPage(0x0190, 8, 80)
-        if (canary == null) {
-            println("Canary failed: the device is not responding well this session.")
-            println("Unplug and replug the HelO2 so it is freshly in Data transfer, then rerun.")
-            return
-        }
-        println("Canary ok: ${hex(canary)}")
+        val image = ByteArray(DUMP_END) { 0xFF.toByte() }
 
-        val start = System.currentTimeMillis()
-        val out = ByteArrayOutputStream()
-        var addr = 0
-        var failed = 0
+        // Warm-up canary and directory header in one small read at the exact address.
+        // A full page spanning the unmapped memory below it would not answer.
+        val header = readPage(SuuntoD9Dump.HEADER_OFFSET, SuuntoD9Dump.HEADER_SIZE, 80)
+            ?: throw SuuntoCaptureException(
+                "The dive computer is not responding. Unplug and replug it so it is freshly in Data transfer, then try again.",
+            )
+        header.copyInto(image, SuuntoD9Dump.HEADER_OFFSET)
+
+        // Serial for device identity; small dedicated read, best effort.
+        readPage(SuuntoD9Dump.SERIAL_OFFSET, SuuntoD9Dump.SERIAL_SIZE, 40)
+            ?.copyInto(image, SuuntoD9Dump.SERIAL_OFFSET)
+
+        // Profile ring only, in retryable pages.
+        val ringTotal = SuuntoD9Dump.RB_PROFILE_END - SuuntoD9Dump.RB_PROFILE_BEGIN
+        var addr = SuuntoD9Dump.RB_PROFILE_BEGIN
+        var done = 0
         var consecutiveFail = 0
-        var aborted = false
-        while (addr < DUMP_END) {
-            val n = minOf(SuuntoD9Link.MAX_PAGE, DUMP_END - addr)
+        while (addr < SuuntoD9Dump.RB_PROFILE_END) {
+            if (isCancelled()) throw SuuntoCaptureException("Download cancelled")
+            val n = minOf(SuuntoD9Link.MAX_PAGE, SuuntoD9Dump.RB_PROFILE_END - addr)
             val page = readPage(addr, n, 60)
             if (page != null) {
-                out.write(page)
+                page.copyInto(image, addr)
                 consecutiveFail = 0
             } else {
-                out.write(ByteArray(n) { 0xFF.toByte() })
-                failed++
-                consecutiveFail++
+                consecutiveFail++ // page stays 0xFF
             }
             addr += n
-            if (addr % 0x600 == 0 || page == null) {
-                val pct = addr * 100 / DUMP_END
-                println("  0x${addr.toString(16)} ($pct%), $failed page(s) filled, ${(System.currentTimeMillis() - start) / 1000}s")
-            }
-            if (consecutiveFail >= 25) {
-                println("  25 pages in a row failed; device degraded, stopping at 0x${addr.toString(16)}.")
-                aborted = true
-                break
-            }
+            done += n
+            onProgress(done, ringTotal)
+            if (consecutiveFail >= 25) break // device degraded; keep what we have
         }
 
-        val dump = out.toByteArray()
-        val readable = dump.count { it != 0xFF.toByte() }
-        println("Captured ${dump.size} bytes (${readable} non-ff), $failed page(s) unreadable${if (aborted) ", aborted early" else ""}.")
-        if (readable == 0) { println("Nothing usable captured."); return }
-        val dir = File(System.getProperty("user.home"), ".synth-divelog").apply { mkdirs() }
-        val bin = File(dir, "suunto-d9-dump-${System.currentTimeMillis()}.bin")
-        runCatching { bin.writeBytes(dump) }
-            .onSuccess { println("Memory dump saved: ${bin.absolutePath}") }
-        decodeDump(dump)
+        val ringReadable = (SuuntoD9Dump.RB_PROFILE_BEGIN until SuuntoD9Dump.RB_PROFILE_END)
+            .any { image[it] != 0xFF.toByte() }
+        if (!ringReadable) {
+            throw SuuntoCaptureException("Nothing usable was read from the dive computer.")
+        }
+        return image
     } finally {
         runCatching { port.closePort() }
     }
 }
 
-/** Decode a captured 0x8000 memory image into dives using the real parser. */
-private fun decodeDump(dump: ByteArray) {
-    if (dump.size < SuuntoD9Dump.RB_PROFILE_END) { println("Image too small to decode."); return }
+/** Walk a captured 0x8000 image into the raw dives its profile ring buffer holds. */
+fun extractD9Dives(dump: ByteArray): List<RawDive> {
+    require(dump.size >= SuuntoD9Dump.RB_PROFILE_END) { "image too small to decode" }
     val header = dump.copyOfRange(SuuntoD9Dump.HEADER_OFFSET, SuuntoD9Dump.HEADER_OFFSET + SuuntoD9Dump.HEADER_SIZE)
     val ring = dump.copyOfRange(SuuntoD9Dump.RB_PROFILE_BEGIN, SuuntoD9Dump.RB_PROFILE_END)
-    val raw = runCatching { SuuntoD9Dump.extract(ring, header) }.getOrElse {
+    return SuuntoD9Dump.extract(ring, header)
+}
+
+/**
+ * CLI rawdump mode: capture the whole memory using the proven raw read path, save the
+ * .bin for fixtures, and print the decoded dives. Shares [captureD9Image] with the
+ * desktop download so there is one capture implementation.
+ */
+private fun rawDump(portName: String) {
+    val start = System.currentTimeMillis()
+    val dump = try {
+        captureD9Image(portName) { done, total ->
+            if (done % 0x600 == 0 || done == total) {
+                println("  0x${done.toString(16)} (${done * 100 / total}%), ${(System.currentTimeMillis() - start) / 1000}s")
+            }
+        }
+    } catch (e: SuuntoCaptureException) {
+        println(e.message)
+        return
+    }
+    val readable = dump.count { it != 0xFF.toByte() }
+    println("Captured ${dump.size} bytes ($readable non-ff).")
+    val dir = File(System.getProperty("user.home"), ".synth-divelog").apply { mkdirs() }
+    val bin = File(dir, "suunto-d9-dump-${System.currentTimeMillis()}.bin")
+    runCatching { bin.writeBytes(dump) }
+        .onSuccess { println("Memory dump saved: ${bin.absolutePath}") }
+    decodeDump(dump)
+}
+
+/** Decode a captured 0x8000 memory image into dives using the real parser. */
+private fun decodeDump(dump: ByteArray) {
+    val raw = runCatching { extractD9Dives(dump) }.getOrElse {
         println("Could not walk the ring: ${it.message}"); return
     }
     println("Decoded ${raw.size} dive(s):")
