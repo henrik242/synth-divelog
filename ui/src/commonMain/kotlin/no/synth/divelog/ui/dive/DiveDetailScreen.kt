@@ -153,10 +153,8 @@ fun DiveDetailScreen(
         SummaryRow("Water temp", Format.temperature(dive.waterTempMk, unitSystem))
         SummaryRow("Site", site?.name ?: "-")
         SummaryRow("Buddies", if (buddies.isEmpty()) "-" else buddies.joinToString { it.name })
-        dive.rating?.let { SummaryRow("Rating", "$it/5") }
-        dive.visibility?.let { SummaryRow("Visibility", Format.depth(it, unitSystem)) }
         if (!dive.notes.isNullOrBlank()) {
-            SummaryRow("Notes", dive.notes!!)
+            SummaryRow("Description", dive.notes!!)
         }
     }
 }

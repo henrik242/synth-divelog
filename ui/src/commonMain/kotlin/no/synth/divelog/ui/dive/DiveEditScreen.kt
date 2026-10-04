@@ -45,8 +45,6 @@ fun DiveEditScreen(
 
     var number by remember { mutableStateOf(dive.number?.toString() ?: "") }
     var notes by remember { mutableStateOf(dive.notes ?: "") }
-    var rating by remember { mutableStateOf(dive.rating ?: 0) }
-    var visibility by remember { mutableStateOf(dive.visibility?.let { (it / 1000).toString() } ?: "") }
     var selectedSiteId by remember { mutableStateOf(dive.siteId) }
     var newCountry by remember { mutableStateOf("") }
     var newPlace by remember { mutableStateOf("") }
@@ -65,8 +63,6 @@ fun DiveEditScreen(
             dive.copy(
                 number = number.trim().toIntOrNull(),
                 notes = notes.ifBlank { null },
-                rating = rating.takeIf { it in 1..5 },
-                visibility = visibility.trim().toIntOrNull()?.let { it * 1000 },
                 siteId = siteId,
             ),
         )
@@ -91,23 +87,12 @@ fun DiveEditScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth())
-
-        Column {
-            Text("Rating", style = MaterialTheme.typography.titleSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                (1..5).forEach { r ->
-                    FilterChip(selected = rating == r, onClick = { rating = if (rating == r) 0 else r }, label = { Text("$r") })
-                }
-            }
-        }
-
         OutlinedTextField(
-            visibility,
-            { visibility = it.filter { c -> c.isDigit() } },
-            label = { Text("Visibility (m)") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            notes,
+            { notes = it },
+            label = { Text("Description") },
             modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
         )
 
         Column {
