@@ -21,7 +21,7 @@ class SuuntoD9Protocol(
     transport: Transport,
     timeoutMs: Long = 3_000,
 ) : DiveComputerProtocol {
-    val link = SuuntoD9Link(transport, timeoutMs)
+    val link = SuuntoD9Link(transport, timeoutMs, echoSync = SERIAL_PARAMS.echoSync)
 
     override fun readDeviceInfo(): DeviceInfo {
         val version = link.readVersion()

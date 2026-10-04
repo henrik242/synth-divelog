@@ -23,6 +23,13 @@ import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 class SuuntoD9Link(
     private val transport: Transport,
     private val timeoutMs: Long = 3_000,
+    /**
+     * Set when the transport syncs the half-duplex turnaround by reading the sent bytes
+     * back (see [SerialParams.echoSync]). The turnaround is then deterministic, so the
+     * resend loop drops to a few attempts instead of many. Off by default: the transport
+     * uses the fixed-settle turnaround and the full resend loop, exactly as before.
+     */
+    private val echoSync: Boolean = false,
 ) {
     /** Read [count] bytes (1..[MAX_PAGE]) from the 16-bit [address]. */
     fun readMemory(address: Int, count: Int): ByteArray {
@@ -69,8 +76,9 @@ class SuuntoD9Link(
         // The transport flushes its input at the start of each write, so a late or partial
         // reply from a missed attempt is cleared before the next one; no separate drain
         // (which could swallow a reply that arrives just after the window).
+        val tries = if (echoSync) ECHO_SYNC_RETRIES else MAX_TURNAROUND_RETRIES
         var lastError = "no reply"
-        repeat(MAX_TURNAROUND_RETRIES) {
+        repeat(tries) {
             transport.write(request)
             val reply = readReply(replyLen)
             when {
@@ -80,7 +88,7 @@ class SuuntoD9Link(
                 else -> return reply.copyOfRange(0, reply.size - 1)
             }
         }
-        throw ProtocolException("D9: no valid reply to 0x${hex(command)} after $MAX_TURNAROUND_RETRIES tries ($lastError)")
+        throw ProtocolException("D9: no valid reply to 0x${hex(command)} after $tries tries ($lastError)")
     }
 
     /**
@@ -111,6 +119,7 @@ class SuuntoD9Link(
         private const val CMD_READ = 0x05.toByte()
         private const val CMD_VERSION = 0x0F.toByte()
         private const val MAX_TURNAROUND_RETRIES = 60
+        private const val ECHO_SYNC_RETRIES = 4
         private const val REPLY_TIMEOUT_MS = 500L
     }
 }
