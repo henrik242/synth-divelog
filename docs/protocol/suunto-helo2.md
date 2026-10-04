@@ -27,6 +27,27 @@ family split.
 Richer than the old family (a trimix/CCR-capable device): multiple gas mixes with
 He/O2 fractions, and deco information per sample.
 
+## GetVersion
+
+- `0F 00 00 crc`; reply `0F 00 00 [id] [high] [mid] [low] crc`. Firmware is
+  `high.mid.low`.
+
+## Implementation status
+
+Partly implemented in `core/divecomputer` `suunto/`:
+
+- `SuuntoD9Link` - packet framing (`[cmd][lenHi][lenLo][params][crc]`), XOR CRC,
+  `ReadMemory` with paging up to `0x78` bytes, and `GetVersion`.
+- `SuuntoD9Protocol` - `DiveComputerProtocol` with the `SERIAL_PARAMS` and device
+  info from the version command. `download` throws for now: the dive directory and
+  the richer trimix/deco profile parser are **not written yet**.
+
+**Verified by unit tests** (`SuuntoD9LinkTest`): request framing and reply decode
+for `ReadMemory` (incl. paging) and `GetVersion`, via `ReplayTransport`.
+
+**Not yet done:** the dive directory walk, the profile/sample layout and the parser.
+This is scaffolding for the HelO2 work; it needs a capture to go further.
+
 ## Effort / risk
 
 Lower transport risk than the Zoop family (clean full-duplex packets, bigger

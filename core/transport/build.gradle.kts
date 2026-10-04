@@ -21,5 +21,13 @@ kotlin {
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
+        androidMain.dependencies {
+            // USB host serial (FTDI/PL2303/CP210x/CDC-ACM/CH34x) for wired downloads.
+            implementation(libs.usbserial.android)
+        }
+        jvmMain.dependencies {
+            // Desktop serial ports for the same wired transport behind Transport.
+            implementation(libs.jserialcomm)
+        }
     }
 }

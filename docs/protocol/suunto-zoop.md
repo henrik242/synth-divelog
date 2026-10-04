@@ -29,14 +29,55 @@ split.
 
 ## Memory and dive layout
 
-- Profiles live in a **ring buffer** spanning roughly `0x71`..`0x1FFF`; the write
-  pointer wraps from `0x2000` back to `0x71`.
-- A header area holds the current write position; dives are a continuous stream
-  delimited by per-dive headers, walked from the write pointer.
-- Each dive begins with format info (e.g. an OLF/OTU percentage with bit 7 as the
-  OLF/OTU selector, end-of-dive pressure in bar/2, temperature), then depth/time
-  samples at the device's sample interval. Zoop is depth + temperature only
-  (Cobra/Vyper Air add tank pressure).
+Header fields (absolute addresses, confirmed against the family protocol notes,
+not yet against a capture):
+
+| Address | Size | Field |
+|---|---|---|
+| `0x24` | u8 | Computer type (`0x16` Zoop, `0x0C` Vyper, `0x0D` Cobra, `0x0B` Gekko, `0x0A` Vytec, `0x03` Stinger, `0x04` Mosquito) |
+| `0x51` | BE16 | Profile write pointer: absolute address of the `0x82` end-of-dataset byte |
+
+- Profiles live in a **ring buffer** spanning `0x71`..`0x2000`; the write pointer
+  wraps from `0x2000` back to `0x71`. Unwritten bytes read as `0x00`.
+- Dives are a continuous stream. Each dive is terminated by a `0x80`
+  end-of-dive marker; a single `0x82` end-of-dataset marker sits after the most
+  recent dive, at the write pointer.
+- A dive record is a 3-byte head then one signed delta-depth byte per sample
+  interval, **stored end-of-dive first** (reverse time):
+
+  | Offset | Field |
+  |---|---|
+  | `+0` | `OLF`/mode byte (bit 7 selects OTU over CNS) |
+  | `+1` | tank pressure at end of dive, bar / 2 (0 on hoseless Zoop) |
+  | `+2` | water temperature at end of dive, signed Celsius |
+  | `+3..` | signed delta-depth bytes, feet: `delta = previousDepth - currentDepth` |
+
+  So a descent is negative (e.g. 30 ft down is `-30` = `0xE2`) and an ascent
+  positive. The parser reads the deltas back-to-front to rebuild the profile from
+  the surface. Zoop records depth + temperature only (Cobra/Vyper Air add tank
+  pressure). The sample interval lives in the device header (Zoop default 20 s).
+
+## Implementation status
+
+Implemented in `core/divecomputer` `suunto/`:
+
+- `SuuntoVyperMemory` - the `0x05` paged read with XOR CRC, over `Transport`.
+- `SuuntoVyperDump` - ring linearisation from the write pointer and split into
+  per-dive blobs on the `0x80`/`0x82` markers.
+- `SuuntoVyperParser` - delta-depth reconstruction, max/mean depth, duration,
+  temperature.
+- `SuuntoVyperProtocol` - `DiveComputerProtocol`; carries the `SERIAL_PARAMS`.
+
+**Verified by unit tests** (`SuuntoVyperTest`, `SuuntoVyperProtocolTest`): the CRC,
+the paged read framing in both directions (via a fake device and `ReplayTransport`),
+ring extraction incl. the wrap, and the depth/temperature parser against a
+hand-built memory image.
+
+**Not yet verified against hardware:** the exact head layout, the per-dive
+date/time (so `startEpochSeconds` is left 0 and identity uses a content
+fingerprint), and the sample interval. Known edge case: an oldest dive whose head
+begins with `0x00` can lose those leading bytes to the unwritten-gap trim; confirm
+and refine against a real capture. See `SUUNTO-TESTING.md`.
 
 ## Effort / risk
 

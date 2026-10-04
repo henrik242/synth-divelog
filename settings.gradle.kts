@@ -24,6 +24,11 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+        // usb-serial-for-android (com.github.mik3y) is published on JitPack.
+        maven {
+            setUrl("https://jitpack.io")
+            mavenContent { includeGroupAndSubgroups("com.github") }
+        }
     }
 }
 

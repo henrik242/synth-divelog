@@ -45,8 +45,26 @@ Proven approach: Android USB Host Mode (USB-OTG), no root, no kernel drivers.
 - Needs a USB-OTG adapter (USB-C host on the test phone), the `android.hardware.usb.host`
   feature, and a runtime USB device permission via `UsbManager` (system dialog, or
   an intent-filter + `device_filter.xml` on VID/PID to auto-grant).
-- A `UsbSerialTransport` implementing the existing `Transport` interface would slot
-  in next to `BluetoothRfcommTransport`, so the protocol code stays platform-neutral.
+- A `UsbSerialTransport` implementing the existing `Transport` interface slots in
+  next to `BluetoothRfcommTransport`, so the protocol code stays platform-neutral.
+
+## Implementation status
+
+- `UsbSerialTransport` (Android, `core/transport` androidMain) wraps
+  usb-serial-for-android: it applies baud/parity/stop bits from `SerialParams`,
+  holds DTR high, and for a half-duplex line flips RTS around each write and
+  discards the echoed bytes. `UsbSerialDevices` enumerates adapters and opens one
+  after the USB permission is granted.
+- `JSerialCommTransport` (desktop, `core/transport` jvmMain) is the JVM equivalent
+  over jSerialComm, same contract.
+- `SerialParams` (in `core/divecomputer` transport package) carries the line
+  settings so the protocol owns them; `SuuntoFamily` selects the protocol, its
+  `SerialParams` and its parser, the way the Bluetooth path picks Petrel vs
+  Predator.
+- iOS: not applicable (no USB host), skipped.
+
+All of the above compiles; none is exercised against the real dongle yet. See
+`SUUNTO-TESTING.md` at the repo root.
 
 ## Suggested milestone split
 
