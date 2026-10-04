@@ -275,21 +275,38 @@ private fun readProbe(portName: String) {
             println("No version reply, aborting read probe.")
             return
         }
+        // The version reply can arrive in chunks; drain the tail so it does not get
+        // mistaken for the next reply (flushIOBuffers is unreliable on this cable).
+        run {
+            port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 300, 0)
+            val drain = ByteArray(32)
+            val d = port.readBytes(drain, drain.size)
+            if (d > 0) println("  (drained version tail: ${hex(drain.copyOf(d))})")
+            port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 3000, 0)
+        }
 
+        // The reference download reads the serial and a header at 0x0190 before the
+        // dive ring buffer; low addresses may be unmapped. Try the real addresses.
         data class Case(val label: String, val addr: Int, val count: Int, val settle: Long, val echo: Boolean)
         val cases = listOf(
+            Case("addr 0x0190 count 8   settle 50", 0x0190, 8, 50, false),
+            Case("addr 0x0190 count 4   settle 50", 0x0190, 4, 50, false),
+            Case("addr 0x0190 count 8   settle 50  +echo", 0x0190, 8, 50, true),
+            Case("addr 0x0023 count 4   settle 50", 0x0023, 4, 50, false),
             Case("addr 0x0000 count 4   settle 50", 0x0000, 4, 50, false),
-            Case("addr 0x0000 count 4   settle 50  +echo", 0x0000, 4, 50, true),
-            Case("addr 0x0000 count 4   settle 250", 0x0000, 4, 250, false),
-            Case("addr 0x0000 count 120 settle 250", 0x0000, 120, 250, false),
-            Case("addr 0x0024 count 4   settle 50", 0x0024, 4, 50, false),
-            Case("addr 0x0200 count 4   settle 50", 0x0200, 4, 50, false),
+            Case("addr 0x0000 count 120 settle 50", 0x0000, 120, 50, false),
         )
         for (c in cases) {
             val cmd = readMemoryCmd(c.addr, c.count)
             println("ReadMemory ${c.label}  (sent ${hex(cmd)}):")
             val reply = exchange(cmd, c.count + 16, c.settle, c.echo)
             println("      reply: ${if (reply.isEmpty()) "(no bytes)" else hex(reply)}")
+            // Drain any trailing bytes so a chunked reply does not bleed into the next case.
+            port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 300, 0)
+            val tail = ByteArray(160)
+            val t = port.readBytes(tail, tail.size)
+            if (t > 0) println("      (drained tail: ${hex(tail.copyOf(t))})")
+            port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 3000, 0)
             Thread.sleep(200)
         }
     } finally {
