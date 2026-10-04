@@ -29,3 +29,6 @@ local.properties
 # Xcode user data
 xcuserdata/
 *.xcuserstate
+
+# Agent worktrees and local tooling state
+.claude/
