@@ -34,8 +34,9 @@ fun main(args: Array<String>) {
     // An arg that names a family is the family; "probe" selects probe mode; anything
     // else is the port name. This way "D9" or "D9 probe" leaves the port to auto-detect.
     val familyArg = args.firstNotNullOfOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.getOrNull() }
+    val keywords = setOf("probe", "readprobe")
     val portArg = args.firstOrNull {
-        !it.equals("probe", ignoreCase = true) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
+        !keywords.contains(it.lowercase()) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
     }
 
     val family = familyArg ?: SuuntoFamily.VYPER
@@ -52,6 +53,14 @@ fun main(args: Array<String>) {
     // drives the line. It bypasses the normal transport.
     if (args.any { it.equals("probe", ignoreCase = true) }) {
         probeLines(portName)
+        return
+    }
+
+    // "readprobe" establishes comms with GetVersion then tries a D9 ReadMemory several
+    // ways (read count, settle time, echo read, address) and prints the raw bytes, to
+    // find why the device answers GetVersion but not ReadMemory.
+    if (args.any { it.equals("readprobe", ignoreCase = true) }) {
+        readProbe(portName)
         return
     }
 
@@ -211,6 +220,81 @@ private fun probeLines(portName: String) {
     }
     println("If every combo says nothing: the cable likely is not this Suunto's interface,")
     println("the device is asleep, or the contacts are not seated. If one says REPLY, tell me which.")
+}
+
+/**
+ * Establish comms with GetVersion, then try a D9 ReadMemory several ways and print the
+ * raw reply for each. The device answers GetVersion but ignores our ReadMemory, so this
+ * varies the read count, the settle time, whether an echo is read back after the write
+ * (as the reference driver does), and the address, to find the combination it accepts.
+ */
+private fun readProbe(portName: String) {
+    val port = SerialPort.getCommPort(portName)
+    port.setComPortParameters(9600, 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY)
+    port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 3000, 0)
+    if (!port.openPort()) {
+        println("Could not open $portName")
+        return
+    }
+    try {
+        port.setDTR()
+        port.clearRTS() // RTS high = transmit, low = receive; start in receive
+        Thread.sleep(100)
+        runCatching { port.flushIOBuffers() }
+
+        // Half-duplex exchange: RTS high to transmit, drain, optionally read the echo
+        // back, then RTS low to receive and read the reply.
+        fun exchange(command: ByteArray, maxReply: Int, txSettleMs: Long, readEcho: Boolean): ByteArray {
+            runCatching { port.flushIOBuffers() }
+            port.setRTS() // transmit
+            port.writeBytes(command, command.size)
+            Thread.sleep(txSettleMs)
+            if (readEcho) {
+                val echo = ByteArray(command.size)
+                port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 600, 0)
+                val e = port.readBytes(echo, echo.size)
+                println("      echo read: ${if (e > 0) hex(echo.copyOf(e)) else "(none)"}")
+                port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 3000, 0)
+            }
+            port.clearRTS() // receive
+            val buf = ByteArray(maxReply)
+            val n = port.readBytes(buf, buf.size)
+            return if (n > 0) buf.copyOf(n) else ByteArray(0)
+        }
+
+        fun readMemoryCmd(address: Int, count: Int): ByteArray {
+            val c = byteArrayOf(0x05, 0x00, 0x03, ((address ushr 8) and 0xFF).toByte(), (address and 0xFF).toByte(), (count and 0xFF).toByte())
+            var crc = 0
+            for (b in c) crc = crc xor (b.toInt() and 0xFF)
+            return c + crc.toByte()
+        }
+
+        val version = exchange(byteArrayOf(0x0F, 0x00, 0x00, 0x0F), 16, 50, readEcho = false)
+        println("GetVersion: ${if (version.isEmpty()) "(no bytes)" else hex(version)}")
+        if (version.isEmpty()) {
+            println("No version reply, aborting read probe.")
+            return
+        }
+
+        data class Case(val label: String, val addr: Int, val count: Int, val settle: Long, val echo: Boolean)
+        val cases = listOf(
+            Case("addr 0x0000 count 4   settle 50", 0x0000, 4, 50, false),
+            Case("addr 0x0000 count 4   settle 50  +echo", 0x0000, 4, 50, true),
+            Case("addr 0x0000 count 4   settle 250", 0x0000, 4, 250, false),
+            Case("addr 0x0000 count 120 settle 250", 0x0000, 120, 250, false),
+            Case("addr 0x0024 count 4   settle 50", 0x0024, 4, 50, false),
+            Case("addr 0x0200 count 4   settle 50", 0x0200, 4, 50, false),
+        )
+        for (c in cases) {
+            val cmd = readMemoryCmd(c.addr, c.count)
+            println("ReadMemory ${c.label}  (sent ${hex(cmd)}):")
+            val reply = exchange(cmd, c.count + 16, c.settle, c.echo)
+            println("      reply: ${if (reply.isEmpty()) "(no bytes)" else hex(reply)}")
+            Thread.sleep(200)
+        }
+    } finally {
+        runCatching { port.closePort() }
+    }
 }
 
 private fun hex(data: ByteArray): String = data.joinToString(" ") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
