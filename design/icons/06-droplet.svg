@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5A5B9E"/>
+      <stop offset="1" stop-color="#3C3D77"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- droplet -->
+  <path fill="#54D7F3" d="M512 236
+    C512 236 712 486 712 614
+    a200 200 0 1 1 -400 0
+    C312 486 512 236 512 236 Z"/>
+  <!-- inner shadow to add volume -->
+  <path fill="#2BB7D8" d="M512 236 C512 236 712 486 712 614 a200 200 0 0 1 -330 152 C520 740 560 520 512 236 Z" opacity="0.5"/>
+  <!-- highlight -->
+  <path fill="#EAF9FD" opacity="0.9" d="M430 596 a70 70 0 0 1 20 -92 c-44 18 -70 62 -58 108 a44 44 0 0 1 38 -16 Z"/>
+</svg>
