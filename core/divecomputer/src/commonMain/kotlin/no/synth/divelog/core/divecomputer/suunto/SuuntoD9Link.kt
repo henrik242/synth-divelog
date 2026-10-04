@@ -5,9 +5,9 @@ import no.synth.divelog.core.divecomputer.transport.Transport
 
 /**
  * Command layer for the newer Suunto D9 family (HelO2, Vyper2, Cobra2/3, Vyper Air
- * and the D-series). A packet exchange at 9600 8N1; the line is half-duplex with
- * inverted RTS direction control (RTS low to transmit) handled by the transport, not
- * here (see SERIAL_PARAMS). Unlike the old family the line does not echo sent bytes.
+ * and the D-series). A packet exchange at 9600 8N1; the line is half-duplex with RTS
+ * direction control handled by the transport, not here (see SERIAL_PARAMS). Unlike
+ * the old family the proper cable does not echo sent bytes.
  *
  * A request is `[command] [lenHi] [lenLo] [params...] [crc]`, where the 16-bit
  * length counts the parameter bytes and the CRC is the XOR of every preceding

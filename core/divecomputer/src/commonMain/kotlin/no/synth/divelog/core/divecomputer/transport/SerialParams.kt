@@ -24,8 +24,8 @@ data class SerialParams(
     val dtr: Boolean = true,
     /**
      * On a [halfDuplex] line, the RTS level that selects the transmit direction;
-     * receive is the opposite level. The old Vyper family drives RTS high to transmit
-     * (true); the newer D9 family is inverted and drives RTS low to transmit (false).
+     * receive is the opposite level. Both Suunto families measured high-to-transmit on
+     * hardware (true); the flag stays in case a cable needs the inverted polarity.
      */
     val rtsTransmitHigh: Boolean = true,
     /**

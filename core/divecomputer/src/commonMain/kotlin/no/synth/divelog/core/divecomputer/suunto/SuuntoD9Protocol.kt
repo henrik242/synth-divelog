@@ -45,10 +45,10 @@ class SuuntoD9Protocol(
         private const val VENDOR = "Suunto"
 
         /**
-         * 9600 8N1, half-duplex with inverted RTS: the line drives RTS low to transmit
-         * and high to receive (the opposite of the old Vyper family), and its RTS
-         * direction control leaves no echo to discard. DTR powers the interface; give
-         * it time to settle after each write before the reply.
+         * 9600 8N1, half-duplex. Verified on hardware: the interface uses the same
+         * RTS-high-to-transmit polarity as the old Vyper family, but the proper cable
+         * does not echo the sent bytes, so there is nothing to discard. DTR powers the
+         * interface; let the UART drain after each write before the reply.
          */
         val SERIAL_PARAMS = SerialParams(
             baudRate = 9600,
@@ -57,7 +57,7 @@ class SuuntoD9Protocol(
             stopBits = 1,
             halfDuplex = true,
             dtr = true,
-            rtsTransmitHigh = false,
+            rtsTransmitHigh = true,
             discardsEcho = false,
             powerUpMs = 100,
             txSettleMs = 50,

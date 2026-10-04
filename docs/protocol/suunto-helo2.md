@@ -9,15 +9,18 @@ family split.
 
 - **9600 baud, 8N1.** `DTR` held high powers the interface; give it ~100 ms to settle
   and flush the buffers before the first command.
-- **Half-duplex with inverted `RTS`**, the opposite polarity of the old Vyper family:
-  drive `RTS` **low to transmit** and **high to receive**, flipping it around each
-  write. Unlike the old single-wire cable there is **no echo** of the sent bytes to
-  discard (the `RTS` direction control handles it). Let the UART drain (~50 ms) after
-  a write before switching to receive so the last byte is not cut off.
-- Verified against hardware only after fixing this: the first tests held `RTS` high
-  (receive state) during writes, so the command never went out and the device stayed
-  completely silent to GetVersion on two different cables, in every full-duplex and
-  old-polarity combination. Driving `RTS` low to transmit was the fix.
+- **Half-duplex**, the same `RTS` polarity as the old Vyper family: drive `RTS`
+  **high to transmit** and **low to receive**, flipping it around each write. Unlike
+  the old single-wire cable the proper interface does **not echo** the sent bytes, so
+  there is nothing to discard. Let the UART drain (~50 ms) after a write before
+  switching to receive so the last byte is not cut off.
+- Verified on hardware with a line-settings probe (GetVersion `0f 00 00 0f`). The
+  original Suunto cable replied `0f 00 04 ...` only under this half-duplex,
+  RTS-high-to-transmit config; full-duplex (RTS held either way) and the inverted
+  polarity all stayed silent. The reference driver describes the transmit state as
+  `set_rts(0)`, which maps to the opposite physical level through this FTDI cable, so
+  the measured polarity is what counts. A third-party single-wire cable echoed our
+  own bytes instead of relaying the reply, so it is not usable as-is.
 
 ## Packet framing
 
