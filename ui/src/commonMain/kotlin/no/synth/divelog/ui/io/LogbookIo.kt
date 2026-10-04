@@ -66,6 +66,20 @@ class LogbookIo(private val container: AppContainer) {
         return format.write(DiveLog(entries))
     }
 
+    /** Detect and import file [text], returning a user-facing summary. */
+    fun importMessage(text: String): String {
+        val format = detect(text) ?: return "Unrecognized file (expected Subsurface XML or UDDF)"
+        val counts = import(format, text)
+        return "Imported ${counts.imported}, skipped ${counts.skipped} (${format.displayName})"
+    }
+
+    /** Detect and import a file pulled from the cloud, returning a user-facing summary. */
+    fun cloudPullMessage(text: String): String {
+        val format = detect(text) ?: return "Downloaded, but not a recognized dive-log file"
+        val counts = import(format, text)
+        return "Pulled: imported ${counts.imported}, skipped ${counts.skipped}"
+    }
+
     fun import(format: DiveFormat, text: String): ImportCounts {
         val log = format.read(text)
         val deviceId = container.devices.getOrCreate(Device(vendor = "Imported", model = format.displayName))

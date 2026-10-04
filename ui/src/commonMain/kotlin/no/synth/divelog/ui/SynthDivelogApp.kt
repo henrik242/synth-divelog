@@ -42,6 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -101,6 +102,8 @@ fun SynthDivelogApp(
     onCloudPull: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
     onCloudPush: (url: String, user: String, pass: String) -> Unit = { _, _, _ -> },
     onExit: () -> Unit = {},
+    statusMessage: String? = null,
+    onStatusShown: () -> Unit = {},
     dataVersion: Int = 0,
 ) {
     var section by remember { mutableStateOf(Section.DIVES) }
@@ -113,6 +116,13 @@ fun SynthDivelogApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var backArmed by remember { mutableStateOf(false) }
+
+    // Hosts that lack a native toast (desktop, iOS) surface import/cloud results here.
+    LaunchedEffect(statusMessage) {
+        val message = statusMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        onStatusShown()
+    }
 
     Scaffold(
         topBar = {

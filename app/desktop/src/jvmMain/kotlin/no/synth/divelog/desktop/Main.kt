@@ -3,38 +3,38 @@ package no.synth.divelog.desktop
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import kotlinx.coroutines.launch
 import no.synth.divelog.core.db.DriverFactory
 import no.synth.divelog.core.db.createDatabase
-import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.SynthDivelogApp
 import no.synth.divelog.ui.SynthTheme
 import no.synth.divelog.ui.io.LogbookIo
+import no.synth.divelog.ui.settings.AppSettings
+import no.synth.divelog.ui.settings.SettingsStore
+import no.synth.divelog.ui.sync.CloudSync
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
-import java.util.prefs.Preferences
 
 /**
  * Desktop (JVM) entry point. Reuses the shared Compose UI and core repositories
- * over a file-backed SQLite database in the user's home. Bluetooth download is
- * Android-only for now (a serial/USB transport is a later milestone); import,
- * export and re-parse work through the shared logbook operations.
+ * over a file-backed SQLite database in the user's home. Wired-serial download is
+ * Android-only for now; file import/export, re-parse and cloud sync go through the
+ * shared logbook and sync code.
  */
 fun main() = application {
-    val prefs = remember { Preferences.userRoot().node("no/synth/divelog") }
+    val settings = remember { AppSettings(SettingsStore()) }
     val container = remember { AppContainer(DriverFactory(databasePath()).createDatabase()) }
     val logbook = remember { LogbookIo(container) }
-    var unitSystem by remember {
-        mutableStateOf(
-            runCatching { UnitSystem.valueOf(prefs.get("unitSystem", UnitSystem.METRIC.name)) }
-                .getOrDefault(UnitSystem.METRIC),
-        )
-    }
+    val scope = rememberCoroutineScope()
+    var unitSystem by remember { mutableStateOf(settings.unitSystem) }
     var dataVersion by remember { mutableStateOf(0) }
+    var status by remember { mutableStateOf<String?>(null) }
 
     Window(onCloseRequest = ::exitApplication, title = "Synth Divelog") {
         SynthTheme {
@@ -43,12 +43,51 @@ fun main() = application {
                 unitSystem = unitSystem,
                 onUnitSystemChange = {
                     unitSystem = it
-                    prefs.put("unitSystem", it.name)
+                    settings.unitSystem = it
                 },
-                onDownloadClick = {}, // Bluetooth download is Android-only for now.
-                onImport = { if (importFromFile(logbook)) dataVersion++ },
+                onDownloadClick = {}, // Wired-serial download is Android-only for now.
+                onImport = {
+                    val path = pickFile(FileDialog.LOAD)
+                    if (path != null) {
+                        val text = File(path).readText()
+                        status = runCatching { logbook.importMessage(text) }
+                            .getOrElse { e -> "Import failed: ${e.message ?: e::class.simpleName}" }
+                        dataVersion++
+                    }
+                },
                 onExport = { formatId -> exportToFile(logbook, formatId) },
-                onReparse = { logbook.reparseAll(); dataVersion++ },
+                onReparse = {
+                    val count = logbook.reparseAll()
+                    dataVersion++
+                    status = "Re-parsed $count dives"
+                },
+                cloudEnabled = true,
+                initialCloudUrl = settings.cloudUrl,
+                initialCloudUsername = settings.cloudUsername,
+                initialCloudPassword = settings.cloudPassword,
+                onCloudConfigChange = { url, user, pass ->
+                    settings.cloudUrl = url
+                    settings.cloudUsername = user
+                    settings.cloudPassword = pass
+                },
+                onCloudPull = { url, user, pass ->
+                    scope.launch {
+                        status = runCatching { logbook.cloudPullMessage(CloudSync.pull(url, user, pass)) }
+                            .getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
+                        dataVersion++
+                    }
+                },
+                onCloudPush = { url, user, pass ->
+                    scope.launch {
+                        status = runCatching {
+                            val format = LogbookIo.formats().first { it.id == "subsurface-xml" }
+                            CloudSync.push(url, user, pass, logbook.exportAll(format))
+                            "Pushed to the cloud"
+                        }.getOrElse { "Push failed: ${it.message ?: it::class.simpleName}" }
+                    }
+                },
+                statusMessage = status,
+                onStatusShown = { status = null },
                 dataVersion = dataVersion,
             )
         }
@@ -73,13 +112,10 @@ private fun exportToFile(logbook: LogbookIo, formatId: String) {
     File(dir, name).writeText(logbook.exportAll(format))
 }
 
-/** Returns true if something was imported (so the caller can refresh). */
-private fun importFromFile(logbook: LogbookIo): Boolean {
-    val dialog = FileDialog(null as Frame?, "Import logbook", FileDialog.LOAD).apply { isVisible = true }
-    val dir = dialog.directory ?: return false
-    val name = dialog.file ?: return false
-    val text = File(dir, name).readText()
-    val format = LogbookIo.detect(text) ?: return false
-    logbook.import(format, text)
-    return true
+/** Opens a file dialog, returning the chosen absolute path or null if cancelled. */
+private fun pickFile(mode: Int): String? {
+    val dialog = FileDialog(null as Frame?, "Import logbook", mode).apply { isVisible = true }
+    val dir = dialog.directory ?: return null
+    val name = dialog.file ?: return null
+    return File(dir, name).absolutePath
 }

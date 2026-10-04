@@ -26,6 +26,9 @@ import no.synth.divelog.download.DownloadScreen
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.SynthDivelogApp
 import no.synth.divelog.ui.io.LogbookIo
+import no.synth.divelog.ui.settings.AppSettings
+import no.synth.divelog.ui.settings.SettingsStore
+import no.synth.divelog.ui.sync.CloudSync
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -34,7 +37,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val container = AppContainer(DriverFactory(applicationContext).createDatabase())
-        val settings = SettingsStore(applicationContext)
+        val settings = AppSettings(SettingsStore(applicationContext))
         val logbook = LogbookIo(container)
 
         setContent {
@@ -55,10 +58,7 @@ class MainActivity : ComponentActivity() {
                                     val text = context.contentResolver.openInputStream(uri)
                                         ?.bufferedReader()?.use { it.readText() }
                                         ?: return@runCatching "Could not read the file"
-                                    val format = LogbookIo.detect(text)
-                                        ?: return@runCatching "Unrecognized file (expected Subsurface XML or UDDF)"
-                                    val counts = logbook.import(format, text)
-                                    "Imported ${counts.imported}, skipped ${counts.skipped} (${format.displayName})"
+                                    logbook.importMessage(text)
                                 }.getOrElse { "Import failed: ${it.message ?: it::class.simpleName}" }
                             }
                             dataVersion++
@@ -110,11 +110,7 @@ class MainActivity : ComponentActivity() {
                         onCloudPull = { url, user, pass ->
                             scope.launch(Dispatchers.IO) {
                                 val message = runCatching {
-                                    val text = CloudSync.pull(url, user, pass)
-                                    val format = LogbookIo.detect(text)
-                                        ?: return@runCatching "Downloaded, but not a recognized dive-log file"
-                                    val counts = logbook.import(format, text)
-                                    "Pulled: imported ${counts.imported}, skipped ${counts.skipped}"
+                                    logbook.cloudPullMessage(CloudSync.pull(url, user, pass))
                                 }.getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
                                 dataVersion++
                                 withContext(Dispatchers.Main) {
