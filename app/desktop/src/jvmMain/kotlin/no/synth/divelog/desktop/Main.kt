@@ -19,6 +19,8 @@ import no.synth.divelog.ui.settings.AppSettings
 import no.synth.divelog.ui.settings.SettingsConnectionMemory
 import no.synth.divelog.ui.settings.SettingsStore
 import no.synth.divelog.ui.sync.CloudGit
+import org.maplibre.compose.desktop.ProvideMapPresentationHost
+import org.maplibre.compose.desktop.rememberAwtComposeMapPresentationHost
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
@@ -41,58 +43,62 @@ fun main() = application {
     var status by remember { mutableStateOf<String?>(null) }
 
     Window(onCloseRequest = ::exitApplication, title = "Synth Divelog") {
-        SynthTheme {
-            SynthDivelogApp(
-                container = container,
-                unitSystem = unitSystem,
-                onUnitSystemChange = {
-                    unitSystem = it
-                    settings.unitSystem = it
-                },
-                serialPorts = serialPorts,
-                connectionMemory = remember { SettingsConnectionMemory(settings) },
-                onDownloaded = { dataVersion++ },
-                onImport = {
-                    val path = pickFile(FileDialog.LOAD)
-                    if (path != null) {
-                        val text = File(path).readText()
-                        status = runCatching { logbook.importMessage(text) }
-                            .getOrElse { e -> "Import failed: ${e.message ?: e::class.simpleName}" }
+        // The desktop MapLibre map renders into a presentation host bound to this AWT
+        // window; it must sit above any map in the tree (see SiteLocationMap).
+        ProvideMapPresentationHost(host = rememberAwtComposeMapPresentationHost(window)) {
+            SynthTheme {
+                SynthDivelogApp(
+                    container = container,
+                    unitSystem = unitSystem,
+                    onUnitSystemChange = {
+                        unitSystem = it
+                        settings.unitSystem = it
+                    },
+                    serialPorts = serialPorts,
+                    connectionMemory = remember { SettingsConnectionMemory(settings) },
+                    onDownloaded = { dataVersion++ },
+                    onImport = {
+                        val path = pickFile(FileDialog.LOAD)
+                        if (path != null) {
+                            val text = File(path).readText()
+                            status = runCatching { logbook.importMessage(text) }
+                                .getOrElse { e -> "Import failed: ${e.message ?: e::class.simpleName}" }
+                            dataVersion++
+                        }
+                    },
+                    onExport = { formatId -> exportToFile(logbook, formatId) },
+                    onReparse = {
+                        val count = logbook.reparseAll()
                         dataVersion++
-                    }
-                },
-                onExport = { formatId -> exportToFile(logbook, formatId) },
-                onReparse = {
-                    val count = logbook.reparseAll()
-                    dataVersion++
-                    status = "Re-parsed $count dives"
-                },
-                cloudEnabled = true,
-                initialCloudEmail = settings.cloudEmail,
-                initialCloudPassword = settings.cloudPassword,
-                onCloudConfigChange = { email, pass ->
-                    settings.cloudEmail = email
-                    settings.cloudPassword = pass
-                },
-                onCloudPull = { email, pass ->
-                    scope.launch {
-                        status = runCatching { logbook.cloudImportMessage(cloud.pull(email, pass)) }
-                            .getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
-                        dataVersion++
-                    }
-                },
-                onCloudPush = { email, pass ->
-                    scope.launch {
-                        status = runCatching {
-                            cloud.push(email, pass, logbook.exportCloudTree())
-                            "Pushed to the cloud"
-                        }.getOrElse { "Push failed: ${it.message ?: it::class.simpleName}" }
-                    }
-                },
-                statusMessage = status,
-                onStatusShown = { status = null },
-                dataVersion = dataVersion,
-            )
+                        status = "Re-parsed $count dives"
+                    },
+                    cloudEnabled = true,
+                    initialCloudEmail = settings.cloudEmail,
+                    initialCloudPassword = settings.cloudPassword,
+                    onCloudConfigChange = { email, pass ->
+                        settings.cloudEmail = email
+                        settings.cloudPassword = pass
+                    },
+                    onCloudPull = { email, pass ->
+                        scope.launch {
+                            status = runCatching { logbook.cloudImportMessage(cloud.pull(email, pass)) }
+                                .getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
+                            dataVersion++
+                        }
+                    },
+                    onCloudPush = { email, pass ->
+                        scope.launch {
+                            status = runCatching {
+                                cloud.push(email, pass, logbook.exportCloudTree())
+                                "Pushed to the cloud"
+                            }.getOrElse { "Push failed: ${it.message ?: it::class.simpleName}" }
+                        }
+                    },
+                    statusMessage = status,
+                    onStatusShown = { status = null },
+                    dataVersion = dataVersion,
+                )
+            }
         }
     }
 }

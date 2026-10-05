@@ -30,6 +30,8 @@ kotlin {
             // Provides Dispatchers.Main on desktop (the AWT event thread), which the
             // MapLibre Compose map needs to deliver its engine callbacks.
             implementation(libs.kotlinx.coroutines.swing)
+            // The desktop map's presentation host is installed around the window here.
+            implementation(libs.maplibre.compose)
         }
     }
 }
