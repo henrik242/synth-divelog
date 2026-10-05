@@ -7,7 +7,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import no.synth.divelog.core.db.DriverFactory
 import no.synth.divelog.core.db.createDatabase
 import no.synth.divelog.ui.AppContainer
@@ -57,15 +59,8 @@ fun main() = application {
                     serialPorts = serialPorts,
                     connectionMemory = remember { SettingsConnectionMemory(settings) },
                     onDownloaded = { dataVersion++ },
-                    onImport = {
-                        val path = pickFile(FileDialog.LOAD)
-                        if (path != null) {
-                            val text = File(path).readText()
-                            status = runCatching { logbook.importMessage(text) }
-                                .getOrElse { e -> "Import failed: ${e.message ?: e::class.simpleName}" }
-                            dataVersion++
-                        }
-                    },
+                    // Pick and read the file off the UI thread; the shared app runs the import.
+                    onPickImportFile = { withContext(Dispatchers.IO) { pickFile(FileDialog.LOAD)?.let { File(it).readText() } } },
                     onExport = { formatId -> exportToFile(logbook, formatId) },
                     onReparse = {
                         val count = logbook.reparseAll()

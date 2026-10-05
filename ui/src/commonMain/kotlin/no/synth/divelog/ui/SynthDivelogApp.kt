@@ -12,31 +12,35 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.outlined.BarChart
-import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Waves
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,8 +56,10 @@ import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Country
 import no.synth.divelog.core.model.Dive
@@ -80,6 +86,7 @@ import no.synth.divelog.ui.download.NoSerialPorts
 import no.synth.divelog.ui.download.SerialPortInfo
 import no.synth.divelog.ui.download.SerialPorts
 import no.synth.divelog.ui.format.Format
+import no.synth.divelog.ui.io.LogbookIo
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
 import no.synth.divelog.ui.stats.StatisticsSection
@@ -100,6 +107,10 @@ private enum class Section(val label: String, val icon: ImageVector, val selecte
  * [onDownloadActive] brackets a running download so a platform can hold the process awake
  * (Android: a foreground service). [onDownloaded] lets the host refresh after a download;
  * [dataVersion] is bumped by the host to trigger a reload after an import.
+ *
+ * File import is co-located with the download under the Add-dives button. [onPickImportFile],
+ * if set, picks and reads a file and returns its text (or null if cancelled); the shared app
+ * then runs the import with a progress dialog. A null value hides the file-import option.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -115,7 +126,7 @@ fun SynthDivelogApp(
     onDownloadProgress: (label: String) -> Unit = {},
     onRecordTranscript: ((transcript: String) -> Unit)? = null,
     onDownloaded: () -> Unit = {},
-    onImport: () -> Unit = {},
+    onPickImportFile: (suspend () -> String?)? = null,
     onExport: (formatId: String) -> Unit = {},
     onReparse: () -> Unit = {},
     cloudEnabled: Boolean = false,
@@ -217,6 +228,34 @@ fun SynthDivelogApp(
         }
     }
 
+    // Shared file import: the platform only picks and reads the file; the import itself runs
+    // here off the main thread behind a progress dialog, mirroring the download flow.
+    val logbook = remember(container) { LogbookIo(container) }
+    var addDivesOpen by remember { mutableStateOf(false) }
+    var importProgress by remember { mutableStateOf<ImportProgress?>(null) }
+
+    val onImportFromFile: () -> Unit = {
+        val pick = onPickImportFile
+        if (pick == null) {
+            scope.launch { snackbarHostState.showSnackbar("File import is not available on this device.") }
+        } else {
+            scope.launch {
+                val text = pick()
+                if (text != null) {
+                    importProgress = ImportProgress(0, 0)
+                    val message = withContext(Dispatchers.Default) {
+                        runCatching {
+                            logbook.importMessage(text) { done, total -> importProgress = ImportProgress(done, total) }
+                        }.getOrElse { "Import failed: ${it.message ?: it::class.simpleName}" }
+                    }
+                    importProgress = null
+                    onDownloaded()
+                    snackbarHostState.showSnackbar(message)
+                }
+            }
+        }
+    }
+
     // Hosts that lack a native toast (desktop, iOS) surface import/cloud results here.
     LaunchedEffect(statusMessage) {
         val message = statusMessage ?: return@LaunchedEffect
@@ -304,7 +343,7 @@ fun SynthDivelogApp(
             }
             when (section) {
                 Section.DIVES -> DivesSection(
-                    container, unitSystem, onDownloadClick, dataVersion,
+                    container, unitSystem, { addDivesOpen = true }, dataVersion,
                     openDiveId = openDiveId,
                     onOpenDiveChange = { openDiveId = it },
                     editing = editing,
@@ -330,7 +369,6 @@ fun SynthDivelogApp(
                     container = container,
                     unitSystem = unitSystem,
                     onUnitSystemChange = onUnitSystemChange,
-                    onImport = onImport,
                     onExport = onExport,
                     onReparse = onReparse,
                     cloudEnabled = cloudEnabled,
@@ -360,8 +398,78 @@ fun SynthDivelogApp(
                 )
                 is DownloadUiState.Reviewing -> DownloadReviewDialog(ui)
             }
+
+            if (addDivesOpen) {
+                AddDivesChooser(
+                    importSupported = onPickImportFile != null,
+                    onDiveComputer = { addDivesOpen = false; onDownloadClick() },
+                    onImportFile = { addDivesOpen = false; onImportFromFile() },
+                    onDismiss = { addDivesOpen = false },
+                )
+            }
+
+            importProgress?.let { p -> ImportProgressDialog(p) }
         }
     }
+}
+
+/** One place to get dives in: the download picker or a file import. */
+@Composable
+private fun AddDivesChooser(
+    importSupported: Boolean,
+    onDiveComputer: () -> Unit,
+    onImportFile: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add dives") },
+        text = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onDiveComputer, modifier = Modifier.fillMaxWidth()) {
+                    Text("Dive computer")
+                }
+                if (importSupported) {
+                    OutlinedButton(onClick = onImportFile, modifier = Modifier.fillMaxWidth()) {
+                        Text("Import from file")
+                    }
+                    Text(
+                        "Imports Subsurface XML, UDDF and MacDive XML files.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** The running count while a file import is applied. */
+private data class ImportProgress(val done: Int, val total: Int)
+
+/** Modal progress while a file import runs; determinate once the dive count is known. */
+@Composable
+private fun ImportProgressDialog(progress: ImportProgress) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Importing dives") },
+        text = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(if (progress.total > 0) "Importing ${progress.done} of ${progress.total}" else "Reading file")
+                if (progress.total > 0) {
+                    LinearProgressIndicator(
+                        progress = { progress.done.toFloat() / progress.total },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+        },
+        confirmButton = {},
+    )
 }
 
 @Composable
@@ -457,7 +565,7 @@ private fun DivesSection(
     Box(Modifier.fillMaxSize()) {
       Column(Modifier.fillMaxSize()) {
         if (dives.isEmpty()) {
-            EmptyState("No dives yet. Tap Download to pull dives from your computer.", Icons.Outlined.Waves)
+            EmptyState("No dives yet. Tap Add dives to download from a computer or import a file.", Icons.Outlined.Waves)
         } else {
             OutlinedTextField(
                 value = query,
@@ -524,8 +632,8 @@ private fun DivesSection(
       }
       ExtendedFloatingActionButton(
           onClick = onDownloadClick,
-          icon = { Icon(Icons.Outlined.FileDownload, contentDescription = null) },
-          text = { Text("Download") },
+          icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+          text = { Text("Add dives") },
           modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
       )
     }

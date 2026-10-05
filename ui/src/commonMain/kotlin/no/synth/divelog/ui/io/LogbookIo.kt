@@ -19,7 +19,7 @@ import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.ui.AppContainer
 
-data class ImportCounts(val imported: Int, val skipped: Int)
+data class ImportCounts(val imported: Int, val merged: Int, val skipped: Int)
 
 /** Exports the logbook to, and imports it from, the file formats. */
 class LogbookIo(private val container: AppContainer) {
@@ -73,11 +73,14 @@ class LogbookIo(private val container: AppContainer) {
         return DiveLog(entries)
     }
 
-    /** Detect and import file [text], returning a user-facing summary. */
-    fun importMessage(text: String): String {
+    /**
+     * Detect and import file [text], returning a user-facing summary. [onProgress] is
+     * called per dive with the running count and the total so a caller can show progress.
+     */
+    fun importMessage(text: String, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): String {
         val format = detect(text) ?: return "Unrecognized file (expected Subsurface XML, UDDF or MacDive XML)"
-        val counts = import(format, text)
-        return "Imported ${counts.imported}, skipped ${counts.skipped} (${format.displayName})"
+        val counts = import(format, text, onProgress)
+        return "Imported ${counts.imported}, merged ${counts.merged}, skipped ${counts.skipped} (${format.displayName})"
     }
 
     /** Import the files pulled from the cloud git repo, returning a user-facing summary. */
@@ -87,16 +90,34 @@ class LogbookIo(private val container: AppContainer) {
         return "Pulled: imported ${counts.imported}, skipped ${counts.skipped}"
     }
 
-    fun import(format: DiveFormat, text: String): ImportCounts =
-        importLog(format.read(text), format.id, format.displayName)
+    fun import(
+        format: DiveFormat,
+        text: String,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): ImportCounts =
+        // A time overlap in a file import means the same dive logged twice (MacDive exports
+        // repeat dives), so attach it to the existing dive rather than duplicating it.
+        importLog(format.read(text), format.id, format.displayName, autoMerge = true, onProgress = onProgress)
 
-    private fun importLog(log: DiveLog, formatId: String, displayName: String): ImportCounts {
-        val deviceId = container.devices.getOrCreate(Device(vendor = "Imported", model = displayName))
+    private fun importLog(
+        log: DiveLog,
+        formatId: String,
+        displayName: String,
+        autoMerge: Boolean = false,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): ImportCounts {
+        val total = log.dives.size
+        var processed = 0
         var imported = 0
+        var merged = 0
         var skipped = 0
         for (entry in log.dives) {
             val fingerprint = "import:$formatId:${entry.startEpochSeconds}:${entry.number ?: 0}:${entry.maxDepthMm ?: 0}"
             val primary = entry.computers.firstOrNull { it.samples.isNotEmpty() } ?: entry.computers.firstOrNull()
+            // Resolve the device from this dive's computer so the same dive logged on two
+            // computers merges into one dive that keeps both records. A dive with no computer
+            // info falls back to a single generic imported device.
+            val deviceId = importDeviceId(primary?.model, displayName)
             val incoming = IncomingDive(
                 deviceId = deviceId,
                 number = entry.number,
@@ -113,17 +134,32 @@ class LogbookIo(private val container: AppContainer) {
                 samples = primary?.samples ?: emptyList(),
                 events = primary?.events ?: emptyList(),
             )
-            when (val result = container.dives.import(incoming) { false }) {
+            when (val result = container.dives.import(incoming) { autoMerge }) {
                 is ImportResult.SkippedDuplicate -> skipped++
                 is ImportResult.CreatedDive -> {
                     applyMetadata(result.diveId, entry)
-                    attachExtraComputers(result.diveId, entry, deviceId)
+                    attachExtraComputers(result.diveId, entry, displayName)
                     imported++
                 }
-                is ImportResult.AttachedToDive -> imported++
+                is ImportResult.AttachedToDive -> merged++
             }
+            processed++
+            onProgress(processed, total)
         }
-        return ImportCounts(imported, skipped)
+        return ImportCounts(imported, merged, skipped)
+    }
+
+    /**
+     * Resolve (or create) an imported device for a computer [model]. Keyed on a synthetic
+     * "import:<model>" Bluetooth address so `getOrCreate` dedupes per computer, keeping the
+     * same computer's records on one device. Falls back to a single generic device keyed on
+     * the format name when a dive carries no computer model.
+     */
+    private fun importDeviceId(model: String?, displayName: String): Long {
+        val name = model ?: displayName
+        return container.devices.getOrCreate(
+            Device(vendor = "Imported", model = name, bluetoothAddress = "import:$name"),
+        )
     }
 
     private fun applyMetadata(diveId: Long, entry: DiveEntry) {
@@ -164,11 +200,11 @@ class LogbookIo(private val container: AppContainer) {
         }
     }
 
-    private fun attachExtraComputers(diveId: Long, entry: DiveEntry, deviceId: Long) {
+    private fun attachExtraComputers(diveId: Long, entry: DiveEntry, displayName: String) {
         entry.computers.drop(1).forEachIndexed { i, computer ->
             container.dives.attachToDive(
                 IncomingDive(
-                    deviceId = deviceId,
+                    deviceId = importDeviceId(computer.model, displayName),
                     startEpochSeconds = entry.startEpochSeconds,
                     utcOffsetSeconds = entry.utcOffsetSeconds,
                     durationSeconds = entry.durationSeconds,

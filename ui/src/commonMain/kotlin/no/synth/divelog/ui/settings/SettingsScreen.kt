@@ -45,7 +45,6 @@ fun SettingsSection(
     container: AppContainer,
     unitSystem: UnitSystem,
     onUnitSystemChange: (UnitSystem) -> Unit,
-    onImport: () -> Unit = {},
     onExport: (formatId: String) -> Unit = {},
     onReparse: () -> Unit = {},
     cloudEnabled: Boolean = false,
@@ -91,24 +90,15 @@ fun SettingsSection(
 
         var cloudDialog by remember { mutableStateOf<CloudAction?>(null) }
 
-        Text("Import", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Subsurface XML and UDDF files are supported.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
-                Text("Import file")
+        // File import lives with the Add-dives button; only cloud import stays here.
+        if (cloudEnabled) {
+            Text("Import", style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick = { cloudDialog = CloudAction.IMPORT }, modifier = Modifier.fillMaxWidth()) {
+                Text("Import from Subsurface cloud")
             }
-            if (cloudEnabled) {
-                OutlinedButton(onClick = { cloudDialog = CloudAction.IMPORT }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Import from Subsurface cloud")
-                }
-            }
-        }
 
-        HorizontalDivider()
+            HorizontalDivider()
+        }
 
         Text("Export", style = MaterialTheme.typography.titleMedium)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -58,24 +58,8 @@ class MainActivity : ComponentActivity() {
                 var dataVersion by remember { mutableIntStateOf(0) }
                 var unitSystem by remember { mutableStateOf(settings.unitSystem) }
 
-                val importLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.OpenDocument(),
-                ) { uri ->
-                    if (uri != null) {
-                        scope.launch {
-                            val message = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    val text = context.contentResolver.openInputStream(uri)
-                                        ?.bufferedReader()?.use { it.readText() }
-                                        ?: return@runCatching "Could not read the file"
-                                    logbook.importMessage(text)
-                                }.getOrElse { "Import failed: ${it.message ?: it::class.simpleName}" }
-                            }
-                            dataVersion++
-                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
+                // Picks a file and reads its text; the shared app runs the import and shows progress.
+                val pickImportFile = rememberImportFilePick(context)
 
                 SynthDivelogApp(
                     container = container,
@@ -105,7 +89,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onDownloaded = { dataVersion++ },
-                    onImport = { importLauncher.launch(arrayOf("*/*")) },
+                    onPickImportFile = pickImportFile,
                     onExport = { formatId ->
                         scope.launch(Dispatchers.IO) {
                             val format = LogbookIo.formats().first { it.id == formatId }
@@ -171,6 +155,36 @@ class MainActivity : ComponentActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(Intent.createChooser(intent, "Export logbook").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
+
+/**
+ * Builds a suspend action that opens the system document picker and returns the chosen
+ * file's text, or null if the user cancelled. The launcher must be created in composition,
+ * so the pending result is bridged to the coroutine through a [CompletableDeferred]. The
+ * file is read off the main thread.
+ */
+@Composable
+private fun rememberImportFilePick(context: Context): suspend () -> String? {
+    val pending = remember { mutableStateOf<CompletableDeferred<android.net.Uri?>?>(null) }
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        pending.value?.complete(uri)
+        pending.value = null
+    }
+    return {
+        val deferred = CompletableDeferred<android.net.Uri?>()
+        pending.value = deferred
+        launcher.launch(arrayOf("*/*"))
+        val uri = deferred.await()
+        if (uri == null) {
+            null
+        } else {
+            withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }
+        }
     }
 }
 
