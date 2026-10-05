@@ -91,6 +91,17 @@ class MainActivity : ComponentActivity() {
                             DownloadService.stop(context.applicationContext)
                         }
                     },
+                    // Follow the download in the foreground-service notification.
+                    onDownloadProgress = { label -> DownloadService.publish(label) },
+                    // Save the wire exchange so a real download can be replayed as a test fixture.
+                    onRecordTranscript = { transcript ->
+                        runCatching {
+                            val dir = File(context.filesDir, "captures").apply { mkdirs() }
+                            val file = File(dir, "capture-${System.currentTimeMillis()}.transcript.txt")
+                            file.writeText(transcript)
+                            android.util.Log.i("SynthDivelog", "Saved download transcript to ${file.absolutePath}")
+                        }
+                    },
                     onDownloaded = { dataVersion++ },
                     onImport = { importLauncher.launch(arrayOf("*/*")) },
                     onExport = { formatId ->

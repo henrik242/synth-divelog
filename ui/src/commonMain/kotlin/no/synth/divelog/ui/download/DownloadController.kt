@@ -18,6 +18,7 @@ import no.synth.divelog.core.divecomputer.suunto.SuuntoFamily
 import no.synth.divelog.core.divecomputer.suunto.SuuntoVyperParser
 import no.synth.divelog.core.divecomputer.suunto.SuuntoVyperProtocol
 import no.synth.divelog.core.divecomputer.transport.Parity
+import no.synth.divelog.core.divecomputer.transport.RecordingTransport
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.model.Device
@@ -157,10 +158,16 @@ class DownloadController(
         cancel: () -> Boolean,
         onProgress: (fraction: Float, label: String) -> Unit,
         amount: DownloadAmount = DownloadAmount.NewOnly,
+        recordTo: ((transcript: String) -> Unit)? = null,
         confirmMerge: suspend (MergeReview) -> Boolean = { false },
     ): String = withContext(Dispatchers.Default) {
         onProgress(0f, "Connecting to the dive computer")
-        val transport = serialPorts.open(portId, type.serialParams)
+        val opened = serialPorts.open(portId, type.serialParams)
+        // When a sink is given, observe the wire through a recorder so the exchange can be
+        // saved and replayed as a test fixture. The recorder only observes; it is wrapped
+        // around the already-open transport, so it is never opened itself.
+        val recording = recordTo?.let { RecordingTransport(opened) }
+        val transport: Transport = recording ?: opened
         try {
             val protocol = type.protocol(transport)
             // For an incremental download the protocol needs the stop fingerprint up front,
@@ -177,9 +184,26 @@ class DownloadController(
             val limit = (amount as? DownloadAmount.Latest)?.count
 
             var deviceInfo: DeviceInfo? = null
+            // Devices that read the whole memory report a byte fraction (total > 0); devices
+            // served one dive at a time report dive counts instead, so the label follows
+            // whichever the protocol gives.
+            var diveCount = 0
             val listener = object : DownloadListener {
                 override fun onDeviceInfo(info: DeviceInfo) {
                     deviceInfo = info
+                }
+
+                override fun onDiveCount(total: Int) {
+                    diveCount = total
+                    if (total > 0) onProgress(0f, "Downloading dive 1 of $total")
+                }
+
+                override fun onDiveDownloaded(index: Int) {
+                    if (diveCount > 0) {
+                        val done = index + 1
+                        val next = (done + 1).coerceAtMost(diveCount)
+                        onProgress(done.toFloat() / diveCount, "Downloading dive $next of $diveCount")
+                    }
                 }
 
                 override fun onProgress(current: Int, total: Int) {
@@ -198,6 +222,7 @@ class DownloadController(
             val deviceId = container.devices.getOrCreate(type.device(deviceInfo))
             importRaws(raws, type.parser(), deviceId, confirmMerge)
         } finally {
+            recording?.let { rec -> runCatching { recordTo?.invoke(rec.transcript().toText()) } }
             runCatching { transport.close() }
         }
     }

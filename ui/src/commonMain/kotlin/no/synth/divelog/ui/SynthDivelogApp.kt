@@ -109,6 +109,8 @@ fun SynthDivelogApp(
     downloadTypes: List<DiveComputerType> = DiveComputerType.entries,
     onPrepareDownload: (suspend () -> Unit)? = null,
     onDownloadActive: (Boolean) -> Unit = {},
+    onDownloadProgress: (label: String) -> Unit = {},
+    onRecordTranscript: ((transcript: String) -> Unit)? = null,
     onDownloaded: () -> Unit = {},
     onImport: () -> Unit = {},
     onExport: (formatId: String) -> Unit = {},
@@ -153,7 +155,11 @@ fun SynthDivelogApp(
                         portId = portId,
                         cancel = { cancelDownload.value },
                         amount = amount,
-                        onProgress = { fraction, label -> downloadUi = DownloadUiState.Running(fraction, label) },
+                        recordTo = onRecordTranscript,
+                        onProgress = { fraction, label ->
+                            downloadUi = DownloadUiState.Running(fraction, label)
+                            onDownloadProgress(label)
+                        },
                         confirmMerge = { review ->
                             val answer = CompletableDeferred<Boolean>()
                             downloadUi = DownloadUiState.Reviewing(review) { answer.complete(it) }
