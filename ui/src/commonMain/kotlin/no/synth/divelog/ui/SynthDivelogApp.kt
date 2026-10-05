@@ -1,10 +1,8 @@
 package no.synth.divelog.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,7 +12,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Place
@@ -53,13 +50,14 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import no.synth.divelog.core.model.Buddy
+import no.synth.divelog.core.model.Country
 import no.synth.divelog.core.model.Dive
+import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.buddies.BuddiesSection
@@ -67,6 +65,8 @@ import no.synth.divelog.ui.dive.DiveDetailScreen
 import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
 import no.synth.divelog.ui.dive.diveSourceLabels
+import no.synth.divelog.ui.components.Breadcrumb
+import no.synth.divelog.ui.components.Crumb
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.download.ConnectionMemory
 import no.synth.divelog.ui.download.DiveComputerType
@@ -135,9 +135,29 @@ fun SynthDivelogApp(
     var openDiveId by remember(dataVersion) { mutableStateOf<Long?>(null) }
     var editing by remember(dataVersion) { mutableStateOf(false) }
     val diveDrilledIn = section == Section.DIVES && openDiveId != null
+    // Sites drill-in state is lifted here too, so the top bar breadcrumb and the root
+    // back handler drive it the same way the dive state does.
+    var siteCountry by remember(dataVersion) { mutableStateOf<Country?>(null) }
+    var sitePlace by remember(dataVersion) { mutableStateOf<Place?>(null) }
+    var siteOpen by remember(dataVersion) { mutableStateOf<Site?>(null) }
+    var siteEditing by remember(dataVersion) { mutableStateOf(false) }
     // Set when a dive-detail computer name is tapped: jumps to Settings and scrolls there.
     var settingsFocusDeviceId by remember { mutableStateOf<Long?>(null) }
     var pendingSiteId by remember { mutableStateOf<Long?>(null) }
+
+    // A dive's site link sets this: drill straight to that site, deriving its place and
+    // country so the breadcrumb and the back steps still work.
+    LaunchedEffect(pendingSiteId) {
+        val id = pendingSiteId ?: return@LaunchedEffect
+        container.sites.site(id)?.let { s ->
+            val p = container.sites.place(s.placeId)
+            siteCountry = p?.let { container.sites.country(it.countryId) }
+            sitePlace = p
+            siteOpen = s
+            siteEditing = false
+        }
+        pendingSiteId = null
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -204,22 +224,37 @@ fun SynthDivelogApp(
         onStatusShown()
     }
 
+    // The open dive's label for the breadcrumb; re-read when leaving the editor so an
+    // edited dive number shows. Kept unconditional so it stays positionally stable.
+    val diveNumberLabel = remember(openDiveId, editing, dataVersion) {
+        openDiveId?.let { id -> container.dives.getDive(id)?.number?.let { "Dive #$it" } ?: "Dive" }
+    }
+
+    // One breadcrumb for the drill-in sections (Dives, Sites); other sections keep their
+    // plain label. Every crumb but the last navigates to that level when tapped.
+    val crumbs: List<Crumb> = when (section) {
+        Section.DIVES -> buildList {
+            add(Crumb("Dives") { editing = false; openDiveId = null })
+            if (openDiveId != null) add(Crumb(diveNumberLabel ?: "Dive") { editing = false })
+            if (openDiveId != null && editing) add(Crumb("Edit"))
+        }
+        Section.SITES -> buildList {
+            add(Crumb("Sites") { siteCountry = null; sitePlace = null; siteOpen = null; siteEditing = false })
+            siteCountry?.let { c -> add(Crumb(c.name) { sitePlace = null; siteOpen = null; siteEditing = false }) }
+            sitePlace?.let { p -> add(Crumb(p.name) { siteOpen = null; siteEditing = false }) }
+            // Re-read the site when leaving the editor so autosaved edits show in the detail.
+            siteOpen?.let { s ->
+                add(Crumb(s.name) { container.sites.site(s.id)?.let { siteOpen = it }; siteEditing = false })
+            }
+            if (siteEditing) add(Crumb("Edit"))
+        }
+        else -> listOf(Crumb(section.label))
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    if (diveDrilledIn) {
-                        Row(
-                            Modifier.clickable { editing = false; openDiveId = null },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to dive list")
-                            Text(section.label, Modifier.padding(start = 8.dp))
-                        }
-                    } else {
-                        Text(section.label)
-                    }
-                },
+                title = { Breadcrumb(crumbs) },
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -242,11 +277,22 @@ fun SynthDivelogApp(
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            // Root-level back. Section drill-in handlers compose deeper and take
-            // priority, so this only fires at a section root or a drilled-in dive.
+            // Root-level back. Pops one breadcrumb level first (matching the crumbs),
+            // then falls through to the section/exit logic.
             BackHandler {
                 when {
-                    diveDrilledIn -> { editing = false; openDiveId = null }
+                    // Dives: edit -> detail -> list.
+                    diveDrilledIn && editing -> editing = false
+                    diveDrilledIn -> openDiveId = null
+                    // Sites: edit -> site -> place -> country -> list. Leaving the editor
+                    // re-reads the site so the detail shows the autosaved edits.
+                    section == Section.SITES && siteEditing -> {
+                        siteOpen?.let { container.sites.site(it.id) }?.let { siteOpen = it }
+                        siteEditing = false
+                    }
+                    section == Section.SITES && siteOpen != null -> siteOpen = null
+                    section == Section.SITES && sitePlace != null -> sitePlace = null
+                    section == Section.SITES && siteCountry != null -> siteCountry = null
                     section != Section.DIVES -> section = Section.DIVES
                     backArmed -> onExit()
                     else -> {
@@ -267,11 +313,16 @@ fun SynthDivelogApp(
                     onOpenSite = { siteId -> pendingSiteId = siteId; section = Section.SITES },
                 )
                 Section.SITES -> SitesSection(
-                    container,
-                    unitSystem,
-                    dataVersion,
-                    openSiteId = pendingSiteId,
-                    onOpenSiteConsumed = { pendingSiteId = null },
+                    container = container,
+                    unitSystem = unitSystem,
+                    country = siteCountry,
+                    place = sitePlace,
+                    site = siteOpen,
+                    editing = siteEditing,
+                    onCountryChange = { siteCountry = it },
+                    onPlaceChange = { sitePlace = it },
+                    onSiteChange = { siteOpen = it },
+                    onEditingChange = { siteEditing = it },
                 )
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
                 Section.STATS -> StatisticsSection(container, unitSystem, dataVersion)
@@ -328,6 +379,10 @@ private fun DivesSection(
 ) {
     var reloadKey by remember(dataVersion) { mutableStateOf(0) }
 
+    // Leaving the autosaving editor (via breadcrumb or back) re-reads the dive so the
+    // detail and the list show the saved edits.
+    LaunchedEffect(editing) { if (!editing) reloadKey++ }
+
     val dives = remember(dataVersion, reloadKey) { container.dives.allDives() }
     val siteNames = remember(dataVersion, reloadKey) { container.sites.allSites().associate { it.id to it.name } }
     val sources = remember(dataVersion, reloadKey) { diveSourceLabels(container) }
@@ -378,7 +433,6 @@ private fun DivesSection(
                 container = container,
                 diveId = currentDive,
                 unitSystem = unitSystem,
-                onDone = { onEditingChange(false); reloadKey++ },
                 onCancel = { onEditingChange(false) },
             )
         } else {

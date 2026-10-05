@@ -20,15 +20,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlin.math.round
@@ -37,64 +34,34 @@ import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
-import no.synth.divelog.ui.components.BackHeader
 import no.synth.divelog.ui.components.CountryField
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.dive.DiveListWithDetail
 
-@OptIn(ExperimentalComposeUiApi::class)
+/**
+ * Renders a single Sites drill-in level from the navigation state owned by the caller
+ * (SynthDivelogApp). The top-bar breadcrumb is the back affordance, so the levels no
+ * longer draw their own headers. Callbacks move the lifted state to drill in.
+ */
 @Composable
 fun SitesSection(
     container: AppContainer,
     unitSystem: UnitSystem,
-    dataVersion: Int,
-    openSiteId: Long? = null,
-    onOpenSiteConsumed: () -> Unit = {},
+    country: Country?,
+    place: Place?,
+    site: Site?,
+    editing: Boolean,
+    onCountryChange: (Country?) -> Unit,
+    onPlaceChange: (Place?) -> Unit,
+    onSiteChange: (Site?) -> Unit,
+    onEditingChange: (Boolean) -> Unit,
 ) {
-    var country by remember(dataVersion) { mutableStateOf<Country?>(null) }
-    var place by remember(dataVersion) { mutableStateOf<Place?>(null) }
-    var site by remember(dataVersion) { mutableStateOf<Site?>(null) }
-    var editing by remember(dataVersion) { mutableStateOf(false) }
-
-    // Opened from elsewhere (e.g. a dive's site link): drill straight to that site,
-    // deriving its place and country so the back steps still work.
-    LaunchedEffect(openSiteId) {
-        val id = openSiteId ?: return@LaunchedEffect
-        container.sites.site(id)?.let { s ->
-            val p = container.sites.place(s.placeId)
-            country = p?.let { container.sites.country(it.countryId) }
-            place = p
-            site = s
-            editing = false
-        }
-        onOpenSiteConsumed()
-    }
-
-    // Hardware back pops one drill level before the root handler switches sections.
-    BackHandler(enabled = editing || site != null || place != null || country != null) {
-        when {
-            // Leaving the autosaving editor: re-read the site so the detail shows the edits.
-            editing -> { site?.let { container.sites.site(it.id) }?.let { site = it }; editing = false }
-            site != null -> site = null
-            place != null -> place = null
-            else -> country = null
-        }
-    }
-
-    // Capture into locals so the non-null checks smart-cast (delegated state does not).
-    val currentSite = site
-    val currentPlace = place
-    val currentCountry = country
     when {
-        editing && currentSite != null -> SiteEditScreen(
-            container,
-            currentSite,
-            onDone = { updated -> site = updated; editing = false },
-        )
-        currentSite != null -> SiteDetail(container, currentSite, unitSystem, onEdit = { editing = true }, onBack = { site = null })
-        currentPlace != null -> PlaceSites(container, currentPlace, onBack = { place = null }, onOpen = { site = it })
-        currentCountry != null -> CountryPlaces(container, currentCountry, onBack = { country = null }, onOpen = { place = it })
-        else -> Countries(container, onOpen = { country = it })
+        editing && site != null -> SiteEditScreen(container, site)
+        site != null -> SiteDetail(container, site, unitSystem, onEdit = { onEditingChange(true) })
+        place != null -> PlaceSites(container, place, onOpen = { onSiteChange(it) })
+        country != null -> CountryPlaces(container, country, onOpen = { onPlaceChange(it) })
+        else -> Countries(container, onOpen = { onCountryChange(it) })
     }
 }
 
@@ -113,24 +80,18 @@ private fun Countries(container: AppContainer, onOpen: (Country) -> Unit) {
 }
 
 @Composable
-private fun CountryPlaces(container: AppContainer, country: Country, onBack: () -> Unit, onOpen: (Place) -> Unit) {
+private fun CountryPlaces(container: AppContainer, country: Country, onOpen: (Place) -> Unit) {
     val places = remember(country.id) { container.sites.places(country.id) }
-    Column(Modifier.fillMaxSize()) {
-        BackHeader(country.name, onBack)
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(places) { p -> RowItem(p.name) { onOpen(p) } }
-        }
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(places) { p -> RowItem(p.name) { onOpen(p) } }
     }
 }
 
 @Composable
-private fun PlaceSites(container: AppContainer, place: Place, onBack: () -> Unit, onOpen: (Site) -> Unit) {
+private fun PlaceSites(container: AppContainer, place: Place, onOpen: (Site) -> Unit) {
     val sites = remember(place.id) { container.sites.sites(place.id) }
-    Column(Modifier.fillMaxSize()) {
-        BackHeader(place.name, onBack)
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(sites) { s -> RowItem(s.name) { onOpen(s) } }
-        }
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(sites) { s -> RowItem(s.name) { onOpen(s) } }
     }
 }
 
@@ -140,11 +101,9 @@ private fun SiteDetail(
     site: Site,
     unitSystem: UnitSystem,
     onEdit: () -> Unit,
-    onBack: () -> Unit,
 ) {
     val dives = remember(site.id) { container.dives.divesBySite(site.id) }
     Column(Modifier.fillMaxSize()) {
-        BackHeader(site.name, onBack)
         if (site.latitude != null && site.longitude != null) {
             Text("${site.latitude}, ${site.longitude}", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
             SiteLocationMap(
@@ -165,16 +124,16 @@ private fun SiteDetail(
 
 /**
  * Edit a site's name, coordinate and notes. Every change is written straight to the
- * database, so there is no save step; [onDone] carries the updated site back. While the
- * site differs from how it was opened, an "Undo changes" action restores the original.
- * The map takes the remaining space; the compact fields and the map set the same
- * latitude/longitude, so either way of entering them works.
+ * database, so there is no save step; leaving the screen (via the breadcrumb or back)
+ * returns to the detail, which re-reads the saved site. While the site differs from how
+ * it was opened, an "Undo changes" action restores the original. The map takes the
+ * remaining space; the compact fields and the map set the same latitude/longitude, so
+ * either way of entering them works.
  */
 @Composable
 private fun SiteEditScreen(
     container: AppContainer,
     site: Site,
-    onDone: (Site) -> Unit,
 ) {
     val originalName = remember(site.id) { site.name }
     val originalLat = remember(site.id) { site.latitude?.toString() ?: "" }
@@ -218,7 +177,6 @@ private fun SiteEditScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        BackHeader("Edit site") { onDone(current()) }
         if (hasEdits) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { undo() }) { Text("Undo changes") }

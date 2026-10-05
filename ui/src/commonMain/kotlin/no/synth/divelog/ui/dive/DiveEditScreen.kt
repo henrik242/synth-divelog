@@ -37,7 +37,6 @@ import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
-import no.synth.divelog.ui.components.BackHeader
 import no.synth.divelog.ui.components.CountryField
 import no.synth.divelog.ui.components.SiteField
 import no.synth.divelog.ui.components.SiteOption
@@ -45,8 +44,9 @@ import kotlin.math.roundToLong
 
 /**
  * Edits a dive. Every change is written straight to the database, so there is no save
- * step; [onDone] just leaves the screen. While the dive differs from how it was opened,
- * an "Undo changes" action restores the original number, notes, site and buddies.
+ * step; leaving the screen (via the breadcrumb or back) returns to the detail. While the
+ * dive differs from how it was opened, an "Undo changes" action restores the original
+ * number, notes, site and buddies. [onCancel] is used only when the dive is missing.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -54,7 +54,6 @@ fun DiveEditScreen(
     container: AppContainer,
     diveId: Long,
     unitSystem: UnitSystem,
-    onDone: () -> Unit,
     onCancel: () -> Unit,
 ) {
     val dive = remember(diveId) { container.dives.getDive(diveId) } ?: run { onCancel(); return }
@@ -125,7 +124,6 @@ fun DiveEditScreen(
 
     val focusManager = LocalFocusManager.current
     Column(Modifier.fillMaxSize()) {
-        BackHeader("Edit dive", onBack = onDone)
         if (hasEdits) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { undo() }) { Text("Undo changes") }
