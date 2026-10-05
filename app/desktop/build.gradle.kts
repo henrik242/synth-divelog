@@ -10,6 +10,9 @@ plugins {
 kotlin {
     jvm()
 
+    // MapLibre Compose desktop renders through the Java FFM API, which needs JDK 25.
+    jvmToolchain(25)
+
     sourceSets {
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
@@ -31,6 +34,8 @@ kotlin {
 compose.desktop {
     application {
         mainClass = "no.synth.divelog.desktop.MainKt"
+        // MapLibre Compose calls native rendering code through the FFM API.
+        jvmArgs += "--enable-native-access=ALL-UNNAMED"
         // Native packaging (jpackage) needs a full JDK, which the JBR used by the
         // Android tooling lacks. The bundled runtime must also be new enough to run
         // the compiled bytecode (Java 25), so use a non-JBR JDK 25 (BellSoft/Liberica
@@ -43,6 +48,8 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
             packageName = "SynthDivelog"
             packageVersion = "1.0.0"
+            // The packaged app also renders the map through the FFM API.
+            jvmArgs += "--enable-native-access=ALL-UNNAMED"
             // The SQLite JDBC driver needs java.sql, which the minimized runtime
             // image would otherwise strip.
             modules("java.sql")

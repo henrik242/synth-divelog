@@ -122,6 +122,12 @@ private fun SiteDetail(
         BackHeader(site.name, onBack)
         if (site.latitude != null && site.longitude != null) {
             Text("${site.latitude}, ${site.longitude}", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+            SiteLocationMap(
+                latitude = site.latitude,
+                longitude = site.longitude,
+                interactive = false,
+                modifier = Modifier.padding(16.dp).fillMaxWidth().height(220.dp),
+            )
         }
         if (!site.notes.isNullOrBlank()) {
             Text(site.notes!!, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)

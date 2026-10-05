@@ -32,8 +32,8 @@ jna = "5.17.0"
 # Git client for cloud sync (jvm + android)
 jgit = "6.10.0.202406032230-r"
 
-# Interactive site map (android target only)
-maplibre = "13.6.1"
+# Unified Compose map (Android, iOS, JVM desktop)
+maplibreCompose = "0.19.0"
 
 [libraries]
 # kotlinx
@@ -55,8 +55,11 @@ jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 # Git client (cloud sync on jvm + android)
 jgit = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
 
-# MapLibre Native Android SDK for the interactive dive-site map (android only)
-maplibre-android = { module = "org.maplibre.gl:android-sdk", version.ref = "maplibre" }
+# MapLibre Compose: one Compose map across Android, iOS and desktop. The two
+# runtime artifacts provide the native renderer per platform.
+maplibre-compose = { module = "org.maplibre.compose:maplibre-compose", version.ref = "maplibreCompose" }
+maplibre-compose-runtime-opengl-android = { module = "org.maplibre.compose:maplibre-compose-runtime-opengl-android", version.ref = "maplibreCompose" }
+maplibre-compose-runtime-metal-macos-arm64 = { module = "org.maplibre.compose:maplibre-compose-runtime-metal-macos-arm64", version.ref = "maplibreCompose" }
 
 # SQLDelight drivers (wired in M1)
 sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }
