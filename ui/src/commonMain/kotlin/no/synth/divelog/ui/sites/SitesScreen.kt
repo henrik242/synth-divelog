@@ -10,17 +10,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Place
-import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,23 +50,27 @@ fun SitesSection(container: AppContainer, unitSystem: UnitSystem, dataVersion: I
     // Hardware back pops one drill level before the root handler switches sections.
     BackHandler(enabled = editing || site != null || place != null || country != null) {
         when {
-            editing -> editing = false
+            // Leaving the autosaving editor: re-read the site so the detail shows the edits.
+            editing -> { site?.let { container.sites.site(it.id) }?.let { site = it }; editing = false }
             site != null -> site = null
             place != null -> place = null
             else -> country = null
         }
     }
 
+    // Capture into locals so the non-null checks smart-cast (delegated state does not).
+    val currentSite = site
+    val currentPlace = place
+    val currentCountry = country
     when {
-        editing && site != null -> SiteEditScreen(
+        editing && currentSite != null -> SiteEditScreen(
             container,
-            site!!,
+            currentSite,
             onDone = { updated -> site = updated; editing = false },
-            onCancel = { editing = false },
         )
-        site != null -> SiteDetail(container, site!!, unitSystem, onEdit = { editing = true }, onBack = { site = null })
-        place != null -> PlaceSites(container, place!!, onBack = { place = null }, onOpen = { site = it })
-        country != null -> CountryPlaces(container, country!!, onBack = { country = null }, onOpen = { place = it })
+        currentSite != null -> SiteDetail(container, currentSite, unitSystem, onEdit = { editing = true }, onBack = { site = null })
+        currentPlace != null -> PlaceSites(container, currentPlace, onBack = { place = null }, onOpen = { site = it })
+        currentCountry != null -> CountryPlaces(container, currentCountry, onBack = { country = null }, onOpen = { place = it })
         else -> Countries(container, onOpen = { country = it })
     }
 }
@@ -129,8 +131,8 @@ private fun SiteDetail(
                 modifier = Modifier.padding(16.dp).fillMaxWidth().height(220.dp),
             )
         }
-        if (!site.notes.isNullOrBlank()) {
-            Text(site.notes!!, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+        site.notes?.takeIf { it.isNotBlank() }?.let { notes ->
+            Text(notes, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
         }
         OutlinedButton(onClick = onEdit, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Edit location") }
         Text("${dives.size} dive(s)", Modifier.padding(16.dp), style = MaterialTheme.typography.titleSmall)
@@ -138,72 +140,103 @@ private fun SiteDetail(
     }
 }
 
-/** Edit a site's name, coordinate and notes. The map and the two fields set the
- * same latitude/longitude; either way of entering them works. */
+/**
+ * Edit a site's name, coordinate and notes. Every change is written straight to the
+ * database, so there is no save step; [onDone] carries the updated site back. While the
+ * site differs from how it was opened, an "Undo changes" action restores the original.
+ * The map takes the remaining space; the compact fields and the map set the same
+ * latitude/longitude, so either way of entering them works.
+ */
 @Composable
 private fun SiteEditScreen(
     container: AppContainer,
     site: Site,
     onDone: (Site) -> Unit,
-    onCancel: () -> Unit,
 ) {
-    var name by remember(site.id) { mutableStateOf(site.name) }
-    var lat by remember(site.id) { mutableStateOf(site.latitude?.toString() ?: "") }
-    var lon by remember(site.id) { mutableStateOf(site.longitude?.toString() ?: "") }
-    var notes by remember(site.id) { mutableStateOf(site.notes ?: "") }
+    val originalName = remember(site.id) { site.name }
+    val originalLat = remember(site.id) { site.latitude?.toString() ?: "" }
+    val originalLon = remember(site.id) { site.longitude?.toString() ?: "" }
+    val originalNotes = remember(site.id) { site.notes ?: "" }
 
-    fun save() {
-        val updated = site.copy(
-            name = name.trim().ifBlank { site.name },
-            latitude = lat.trim().toDoubleOrNull(),
-            longitude = lon.trim().toDoubleOrNull(),
-            notes = notes.ifBlank { null },
-        )
-        container.sites.updateSite(updated)
-        onDone(updated)
+    var name by remember(site.id) { mutableStateOf(originalName) }
+    var lat by remember(site.id) { mutableStateOf(originalLat) }
+    var lon by remember(site.id) { mutableStateOf(originalLon) }
+    var notes by remember(site.id) { mutableStateOf(originalNotes) }
+
+    fun current(): Site = site.copy(
+        name = name.trim().ifBlank { site.name },
+        latitude = lat.trim().toDoubleOrNull(),
+        longitude = lon.trim().toDoubleOrNull(),
+        notes = notes.ifBlank { null },
+    )
+
+    fun persist() = container.sites.updateSite(current())
+
+    val hasEdits = name != originalName || lat != originalLat || lon != originalLon || notes != originalNotes
+
+    fun undo() {
+        name = originalName; lat = originalLat; lon = originalLon; notes = originalNotes
+        persist()
     }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        BackHeader("Edit site", onCancel)
-
-        OutlinedTextField(name, { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                lat,
-                { lat = it },
-                label = { Text("Latitude") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f),
-            )
-            OutlinedTextField(
-                lon,
-                { lon = it },
-                label = { Text("Longitude") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f),
-            )
+    Column(Modifier.fillMaxSize()) {
+        BackHeader("Edit site") { onDone(current()) }
+        if (hasEdits) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { undo() }) { Text("Undo changes") }
+            }
         }
 
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                name,
+                { name = it; persist() },
+                label = { Text("Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    lat,
+                    { lat = it; persist() },
+                    label = { Text("Latitude") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    lon,
+                    { lon = it; persist() },
+                    label = { Text("Longitude") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        // The map fills the space the fixed fields and the old save row used to take.
         SiteLocationMap(
             latitude = lat.trim().toDoubleOrNull(),
             longitude = lon.trim().toDoubleOrNull(),
             onPick = { pickedLat, pickedLon ->
                 lat = round6(pickedLat).toString()
                 lon = round6(pickedLon).toString()
+                persist()
             },
-            modifier = Modifier.fillMaxWidth().height(280.dp),
+            modifier = Modifier.fillMaxWidth().weight(1f).padding(16.dp),
         )
 
-        OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { save() }, modifier = Modifier.weight(1f)) { Text("Save") }
-            OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
-        }
+        OutlinedTextField(
+            notes,
+            { notes = it; persist() },
+            label = { Text("Notes") },
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        )
     }
 }
 
