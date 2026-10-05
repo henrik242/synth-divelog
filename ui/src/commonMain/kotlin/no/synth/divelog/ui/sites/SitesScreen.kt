@@ -87,10 +87,11 @@ private fun Countries(container: AppContainer, onOpen: (Country) -> Unit, onOpen
     }
     Column(Modifier.fillMaxSize()) {
         // Overview map of every site that has a coordinate; tap a pin to open that site.
+        // The map takes most of the space; the country list scrolls in the rest.
         SitesOverviewMap(
             allSites,
             onOpenSite,
-            Modifier.fillMaxWidth().height(220.dp).padding(16.dp),
+            Modifier.fillMaxWidth().weight(2f).padding(16.dp),
         )
         LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
             items(countries) { c ->
