@@ -195,7 +195,9 @@ class DiveRepository(private val db: DiveDatabase) {
     }
 
     private fun insertSamplesAndEvents(recordId: Long, incoming: IncomingDive) {
-        for (s in incoming.samples) {
+        // A sample is keyed on (recordId, timeOffsetSeconds); some sources (e.g. MacDive)
+        // emit more than one sample at the same time, so keep the first per time.
+        for (s in incoming.samples.distinctBy { it.timeOffsetSeconds }) {
             samples.insertSample(
                 recordId,
                 s.timeOffsetSeconds.toLong(),
