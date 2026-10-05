@@ -1,6 +1,7 @@
 package no.synth.divelog.core.db
 
 import no.synth.divelog.core.db.sql.DiveDatabase
+import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.DiveComputerRecord
 import no.synth.divelog.core.model.Event
@@ -73,6 +74,22 @@ class DiveRepository(private val db: DiveDatabase) {
 
     fun recordsForDive(diveId: Long): List<DiveComputerRecord> =
         records.selectRecordSummariesForDive(diveId).executeAsList().map { it.toDomain() }
+
+    /**
+     * Distinct source computers per dive id, for the whole log in one query. A null entry means a
+     * record with no device (e.g. a file import). Only the identifying fields of [Device] are filled.
+     */
+    fun sourcesByDive(): Map<Long, List<Device?>> =
+        records.selectDiveSources().executeAsList().groupBy({ it.diveId }) { row ->
+            if (row.deviceId == null || row.vendor == null || row.model == null) null
+            else Device(
+                id = row.deviceId,
+                vendor = row.vendor,
+                model = row.model,
+                serial = row.serial,
+                nickname = row.nickname,
+            )
+        }
 
     fun record(id: Long): DiveComputerRecord? =
         records.selectRecordSummaryById(id).executeAsOneOrNull()?.toDomain()

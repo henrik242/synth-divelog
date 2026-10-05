@@ -26,6 +26,13 @@ selectRecordSummariesForDive:
 SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
 FROM diveComputerRecord WHERE diveId = ? ORDER BY startEpochSeconds;
 
+-- One row per (dive, device) for the whole log, so lists need no per-dive lookups.
+-- Device columns are null for records without a device (file imports).
+selectDiveSources:
+SELECT DISTINCT r.diveId, r.deviceId, d.vendor, d.model, d.serial, d.nickname
+FROM diveComputerRecord r LEFT JOIN device d ON d.id = r.deviceId
+ORDER BY r.diveId, r.deviceId;
+
 selectRawData:
 SELECT rawData FROM diveComputerRecord WHERE id = ?;
 

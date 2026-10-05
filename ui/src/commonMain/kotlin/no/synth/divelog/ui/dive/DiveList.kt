@@ -31,11 +31,12 @@ import no.synth.divelog.ui.format.Format
 
 /** One dive summary row: site (or date) as the headline, depth emphasized. */
 @Composable
-fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit, siteName: String? = null) {
+fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit, siteName: String? = null, source: String? = null) {
     val hasSite = !siteName.isNullOrBlank()
     val headline = if (hasSite) siteName!! else Format.date(dive.startEpochSeconds, dive.utcOffsetSeconds)
     val secondary = buildList {
         dive.number?.let { add("#$it") }
+        source?.let { add(it) }
         add(
             if (hasSite) Format.dateTime(dive.startEpochSeconds, dive.utcOffsetSeconds)
             else Format.time(dive.startEpochSeconds, dive.utcOffsetSeconds),
@@ -88,10 +89,17 @@ fun DiveListWithDetail(container: AppContainer, dives: List<Dive>, unitSystem: U
         }
         return
     }
+    val sources = remember(dives) { diveSourceLabels(container) }
     LazyColumn(Modifier.fillMaxSize()) {
         items(dives) { dive ->
-            DiveRow(dive, unitSystem, onClick = { openId = dive.id })
+            DiveRow(dive, unitSystem, onClick = { openId = dive.id }, source = sources[dive.id])
             HorizontalDivider()
         }
     }
 }
+
+/** Compact source label per dive id for list rows, from a single query. */
+fun diveSourceLabels(container: AppContainer): Map<Long, String> =
+    container.dives.sourcesByDive().mapValues { (_, sources) ->
+        sources.map { deviceName(it) }.distinct().joinToString(" + ")
+    }

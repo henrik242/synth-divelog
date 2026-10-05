@@ -66,6 +66,7 @@ import no.synth.divelog.ui.buddies.BuddiesSection
 import no.synth.divelog.ui.dive.DiveDetailScreen
 import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
+import no.synth.divelog.ui.dive.diveSourceLabels
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.download.ConnectionMemory
 import no.synth.divelog.ui.download.DiveComputerType
@@ -338,6 +339,7 @@ private fun DivesSection(
 
     val dives = remember(dataVersion, reloadKey) { container.dives.allDives() }
     val siteNames = remember(dataVersion, reloadKey) { container.sites.allSites().associate { it.id to it.name } }
+    val sources = remember(dataVersion, reloadKey) { diveSourceLabels(container) }
     var query by remember { mutableStateOf("") }
     var sort by remember { mutableStateOf(DiveSort.DATE) }
     var selectedYear by remember { mutableStateOf<Int?>(null) }
@@ -433,13 +435,13 @@ private fun DivesSection(
                             }
                         }
                         items(monthDives) { dive ->
-                            DiveRow(dive, unitSystem, onClick = { onOpenDiveChange(dive.id) }, siteName = dive.siteId?.let { siteNames[it] })
+                            DiveRow(dive, unitSystem, onClick = { onOpenDiveChange(dive.id) }, siteName = dive.siteId?.let { siteNames[it] }, source = sources[dive.id])
                             HorizontalDivider()
                         }
                     }
                 } else {
                     items(shown) { dive ->
-                        DiveRow(dive, unitSystem, onClick = { onOpenDiveChange(dive.id) }, siteName = dive.siteId?.let { siteNames[it] })
+                        DiveRow(dive, unitSystem, onClick = { onOpenDiveChange(dive.id) }, siteName = dive.siteId?.let { siteNames[it] }, source = sources[dive.id])
                         HorizontalDivider()
                     }
                 }

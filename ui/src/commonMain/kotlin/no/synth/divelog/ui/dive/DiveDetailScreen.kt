@@ -24,7 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import no.synth.divelog.core.model.DiveComputerRecord
+import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.format.Format
@@ -44,6 +44,9 @@ fun DiveDetailScreen(
         Text("Dive not found", Modifier.padding(16.dp)); return
     }
     val records = remember(diveId, reloadKey) { container.dives.recordsForDive(diveId) }
+    val devices = remember(records) {
+        records.mapNotNull { it.deviceId }.distinct().associateWith { container.devices.get(it) }
+    }
     val site = remember(diveId, reloadKey) { dive.siteId?.let { container.sites.site(it) } }
     val buddies = remember(diveId, reloadKey) { container.buddies.buddiesForDive(diveId) }
 
@@ -145,7 +148,9 @@ fun DiveDetailScreen(
                             FilterChip(
                                 selected = selectedRecord?.id == rec.id,
                                 onClick = { selectedRecord = rec },
-                                label = { Text(recordLabel(rec, i, dive.primaryComputerRecordId)) },
+                                label = {
+                                    Text(recordLabel(devices[rec.deviceId], i, rec.id == dive.primaryComputerRecordId))
+                                },
                             )
                             androidx.compose.material3.TextButton(
                                 onClick = { container.dives.splitRecordIntoNewDive(rec.id); onChanged() },
@@ -166,6 +171,11 @@ fun DiveDetailScreen(
                 SummaryRow("Max depth", Format.depth(dive.maxDepthMm, unitSystem))
                 SummaryRow("Avg depth", Format.depth(dive.meanDepthMm, unitSystem))
                 SummaryRow("Water temp", Format.temperature(dive.waterTempMk, unitSystem))
+                SummaryRow(
+                    "Source",
+                    records.map { deviceDescription(devices[it.deviceId]) }.distinct()
+                        .joinToString().ifEmpty { "-" },
+                )
                 SummaryRow("Site", site?.name ?: "-")
                 SummaryRow("Buddies", if (buddies.isEmpty()) "-" else buddies.joinToString { it.name })
                 if (!dive.notes.isNullOrBlank()) {
@@ -188,9 +198,9 @@ fun DiveDetailScreen(
     }
 }
 
-private fun recordLabel(record: DiveComputerRecord, index: Int, primaryId: Long?): String {
-    val base = "Computer ${index + 1}"
-    return if (record.id == primaryId) "$base (primary)" else base
+private fun recordLabel(device: Device?, index: Int, isPrimary: Boolean): String {
+    val base = if (device == null) "Computer ${index + 1}: ${deviceName(null)}" else deviceName(device)
+    return if (isPrimary) "$base (primary)" else base
 }
 
 @Composable
