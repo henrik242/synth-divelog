@@ -27,6 +27,9 @@ kotlin {
             implementation(libs.jserialcomm)
             implementation(libs.jna)
             implementation(libs.kotlinx.coroutines.core)
+            // Provides Dispatchers.Main on desktop (the AWT event thread), which the
+            // MapLibre Compose map needs to deliver its engine callbacks.
+            implementation(libs.kotlinx.coroutines.swing)
         }
     }
 }
