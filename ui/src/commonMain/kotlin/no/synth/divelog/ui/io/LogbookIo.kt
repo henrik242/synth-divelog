@@ -189,9 +189,18 @@ class LogbookIo(private val container: AppContainer) {
         )
         if (filled != dive) container.dives.updateDive(filled)
 
-        // Site: only when the dive has none yet.
-        if (dive.siteId == null) {
-            entry.site?.let { s ->
+        // Site: take the incoming one when the dive has none, or when it is richer than the
+        // current site (coordinates and a real country/place outrank a bare placeholder, e.g.
+        // a MacDive "(duplikat)" marker with no location).
+        entry.site?.let { s ->
+            val incomingScore = siteScore(s.latitude != null && s.longitude != null, s.country, s.place)
+            val currentScore = dive.siteId?.let { id ->
+                val existing = container.sites.site(id)
+                val place = existing?.let { container.sites.place(it.placeId) }
+                val country = place?.let { container.sites.country(it.countryId) }
+                if (existing == null) 0 else siteScore(existing.latitude != null && existing.longitude != null, country?.name, place?.name)
+            } ?: 0
+            if (dive.siteId == null || incomingScore > currentScore) {
                 val siteId = container.sites.getOrCreateSite(s.country ?: "Unknown", s.place ?: "Unknown", s.name)
                 if (s.latitude != null && s.longitude != null) {
                     container.sites.site(siteId)?.let {
@@ -227,6 +236,16 @@ class LogbookIo(private val container: AppContainer) {
                 )
             }
         }
+    }
+
+    /** How informative a site is: coordinates count most, a real country/place next. */
+    private fun siteScore(hasCoordinates: Boolean, country: String?, place: String?): Int {
+        var score = 0
+        if (hasCoordinates) score += 2
+        val realCountry = country?.takeIf { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+        val realPlace = place?.takeIf { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+        if (realCountry != null || realPlace != null) score += 1
+        return score
     }
 
     private fun attachExtraComputers(diveId: Long, entry: DiveEntry, displayName: String) {
