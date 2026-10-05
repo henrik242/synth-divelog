@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -37,6 +38,7 @@ import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.format.Format
+import no.synth.divelog.ui.sites.SiteLocationMap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,6 +50,7 @@ fun DiveDetailScreen(
     orderedDiveIds: List<Long> = emptyList(),
     onNavigate: (Long) -> Unit = {},
     onOpenDevice: (Long) -> Unit = {},
+    onOpenSite: (Long) -> Unit = {},
     onEdit: () -> Unit = {},
     onChanged: () -> Unit = {},
     onDeleted: () -> Unit = {},
@@ -224,11 +227,13 @@ fun DiveDetailScreen(
                     deviceDescription(devices[sourceDeviceId]),
                     onClick = sourceDeviceId?.let { { onOpenDevice(it) } },
                 )
-                SummaryRow("Site", site?.name ?: "-")
+                SummaryRow(
+                    "Site",
+                    site?.name ?: "-",
+                    onClick = dive.siteId?.let { id -> { onOpenSite(id) } },
+                )
                 SummaryRow("Buddies", if (buddies.isEmpty()) "-" else buddies.joinToString { it.name })
-                if (!dive.notes.isNullOrBlank()) {
-                    SummaryRow("Notes", dive.notes!!)
-                }
+                dive.notes?.takeIf { it.isNotBlank() }?.let { SummaryRow("Notes", it) }
             }
         }
 
@@ -240,6 +245,18 @@ fun DiveDetailScreen(
                     contentColor = MaterialTheme.colorScheme.error,
                 ),
             ) { Text("Delete") }
+        }
+
+        // A small map of the dive's site, when it has a coordinate.
+        site?.let { s ->
+            if (s.latitude != null && s.longitude != null) {
+                SiteLocationMap(
+                    latitude = s.latitude,
+                    longitude = s.longitude,
+                    interactive = false,
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                )
+            }
         }
 
         androidx.compose.foundation.layout.Spacer(Modifier.padding(bottom = 8.dp))

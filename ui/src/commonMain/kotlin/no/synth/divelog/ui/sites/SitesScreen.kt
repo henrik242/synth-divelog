@@ -20,10 +20,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
@@ -41,11 +43,31 @@ import no.synth.divelog.ui.dive.DiveListWithDetail
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun SitesSection(container: AppContainer, unitSystem: UnitSystem, dataVersion: Int) {
+fun SitesSection(
+    container: AppContainer,
+    unitSystem: UnitSystem,
+    dataVersion: Int,
+    openSiteId: Long? = null,
+    onOpenSiteConsumed: () -> Unit = {},
+) {
     var country by remember(dataVersion) { mutableStateOf<Country?>(null) }
     var place by remember(dataVersion) { mutableStateOf<Place?>(null) }
     var site by remember(dataVersion) { mutableStateOf<Site?>(null) }
     var editing by remember(dataVersion) { mutableStateOf(false) }
+
+    // Opened from elsewhere (e.g. a dive's site link): drill straight to that site,
+    // deriving its place and country so the back steps still work.
+    LaunchedEffect(openSiteId) {
+        val id = openSiteId ?: return@LaunchedEffect
+        container.sites.site(id)?.let { s ->
+            val p = container.sites.place(s.placeId)
+            country = p?.let { container.sites.country(it.countryId) }
+            place = p
+            site = s
+            editing = false
+        }
+        onOpenSiteConsumed()
+    }
 
     // Hardware back pops one drill level before the root handler switches sections.
     BackHandler(enabled = editing || site != null || place != null || country != null) {
@@ -162,6 +184,8 @@ private fun SiteEditScreen(
     var lat by remember(site.id) { mutableStateOf(originalLat) }
     var lon by remember(site.id) { mutableStateOf(originalLon) }
     var notes by remember(site.id) { mutableStateOf(originalNotes) }
+    // The map is the main way to set the coordinate; the manual fields stay collapsed.
+    var showCoordFields by remember(site.id) { mutableStateOf(false) }
 
     fun current(): Site = site.copy(
         name = name.trim().ifBlank { site.name },
@@ -198,23 +222,41 @@ private fun SiteEditScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    lat,
-                    { lat = it; persist() },
-                    label = { Text("Latitude") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            val coordSummary = run {
+                val la = lat.trim().toDoubleOrNull()
+                val lo = lon.trim().toDoubleOrNull()
+                if (la != null && lo != null) "${round6(la)}, ${round6(lo)}" else "tap the map or set manually"
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Coordinate: $coordSummary",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                OutlinedTextField(
-                    lon,
-                    { lon = it; persist() },
-                    label = { Text("Longitude") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.weight(1f),
-                )
+                TextButton(onClick = { showCoordFields = !showCoordFields }) {
+                    Text(if (showCoordFields) "Hide" else "Edit")
+                }
+            }
+            if (showCoordFields) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        lat,
+                        { lat = it; persist() },
+                        label = { Text("Latitude") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        lon,
+                        { lon = it; persist() },
+                        label = { Text("Longitude") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
 

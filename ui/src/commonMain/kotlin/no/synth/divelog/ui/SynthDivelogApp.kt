@@ -137,6 +137,7 @@ fun SynthDivelogApp(
     val diveDrilledIn = section == Section.DIVES && openDiveId != null
     // Set when a dive-detail computer name is tapped: jumps to Settings and scrolls there.
     var settingsFocusDeviceId by remember { mutableStateOf<Long?>(null) }
+    var pendingSiteId by remember { mutableStateOf<Long?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -263,8 +264,15 @@ fun SynthDivelogApp(
                     editing = editing,
                     onEditingChange = { editing = it },
                     onOpenDevice = { deviceId -> settingsFocusDeviceId = deviceId; section = Section.SETTINGS },
+                    onOpenSite = { siteId -> pendingSiteId = siteId; section = Section.SITES },
                 )
-                Section.SITES -> SitesSection(container, unitSystem, dataVersion)
+                Section.SITES -> SitesSection(
+                    container,
+                    unitSystem,
+                    dataVersion,
+                    openSiteId = pendingSiteId,
+                    onOpenSiteConsumed = { pendingSiteId = null },
+                )
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
                 Section.STATS -> StatisticsSection(container, unitSystem, dataVersion)
                 Section.SETTINGS -> SettingsSection(
@@ -316,6 +324,7 @@ private fun DivesSection(
     editing: Boolean,
     onEditingChange: (Boolean) -> Unit,
     onOpenDevice: (Long) -> Unit = {},
+    onOpenSite: (Long) -> Unit = {},
 ) {
     var reloadKey by remember(dataVersion) { mutableStateOf(0) }
 
@@ -382,6 +391,7 @@ private fun DivesSection(
                 orderedDiveIds = shown.map { it.id },
                 onNavigate = { onOpenDiveChange(it) },
                 onOpenDevice = onOpenDevice,
+                onOpenSite = onOpenSite,
                 onEdit = { onEditingChange(true) },
                 onChanged = { reloadKey++ },
                 onDeleted = { onOpenDiveChange(null); reloadKey++ },
