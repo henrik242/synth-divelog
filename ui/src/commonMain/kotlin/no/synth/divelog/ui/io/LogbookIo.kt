@@ -175,32 +175,43 @@ class LogbookIo(private val container: AppContainer) {
      */
     private fun applyMetadata(diveId: Long, entry: DiveEntry, isNew: Boolean) {
         val dive = container.dives.getDive(diveId) ?: return
+        val currentBuddies = container.buddies.buddiesForDive(diveId)
 
-        // Scalar fields: keep the dive's value, else take the incoming one.
+        // Scalar fields: keep the dive's value, else take the incoming one. Notes are not just
+        // filled - the longer (richer) note wins, so a copy that actually has notes is kept.
+        val bestNotes = listOfNotNull(
+            dive.notes?.takeIf { it.isNotBlank() },
+            entry.notes?.takeIf { it.isNotBlank() },
+        ).maxByOrNull { it.length }
         val filled = dive.copy(
             number = dive.number ?: entry.number,
             maxDepthMm = dive.maxDepthMm ?: entry.maxDepthMm,
             meanDepthMm = dive.meanDepthMm ?: entry.meanDepthMm,
             waterTempMk = dive.waterTempMk ?: entry.waterTempMk,
             airTempMk = dive.airTempMk ?: entry.airTempMk,
-            notes = dive.notes?.takeIf { it.isNotBlank() } ?: entry.notes?.takeIf { it.isNotBlank() },
+            notes = bestNotes,
             rating = dive.rating ?: entry.rating,
             visibility = dive.visibility ?: entry.visibility,
         )
         if (filled != dive) container.dives.updateDive(filled)
 
-        // Site: take the incoming one when the dive has none, or when it is richer than the
-        // current site (coordinates and a real country/place outrank a bare placeholder, e.g.
-        // a MacDive "(duplikat)" marker with no location).
+        // Site: take the incoming one when the dive has none, when its site is richer
+        // (coordinates and a real country/place outrank a bare placeholder like a MacDive
+        // "(duplikat)" marker), or on a site tie when the incoming copy carries more buddies
+        // and notes - so the copy with the real metadata wins.
         entry.site?.let { s ->
-            val incomingScore = siteScore(s.latitude != null && s.longitude != null, s.country, s.place)
-            val currentScore = dive.siteId?.let { id ->
+            val incomingSiteScore = siteScore(s.latitude != null && s.longitude != null, s.country, s.place)
+            val currentSiteScore = dive.siteId?.let { id ->
                 val existing = container.sites.site(id)
                 val place = existing?.let { container.sites.place(it.placeId) }
                 val country = place?.let { container.sites.country(it.countryId) }
                 if (existing == null) 0 else siteScore(existing.latitude != null && existing.longitude != null, country?.name, place?.name)
             } ?: 0
-            if (dive.siteId == null || incomingScore > currentScore) {
+            val incomingExtra = extraScore(entry.buddies.any { it.isNotBlank() }, !entry.notes.isNullOrBlank())
+            val currentExtra = extraScore(currentBuddies.isNotEmpty(), !dive.notes.isNullOrBlank())
+            val richer = incomingSiteScore > currentSiteScore ||
+                (incomingSiteScore == currentSiteScore && incomingExtra > currentExtra)
+            if (dive.siteId == null || richer) {
                 val siteId = container.sites.getOrCreateSite(s.country ?: "Unknown", s.place ?: "Unknown", s.name)
                 if (s.latitude != null && s.longitude != null) {
                     container.sites.site(siteId)?.let {
@@ -212,7 +223,7 @@ class LogbookIo(private val container: AppContainer) {
         }
 
         // Buddies: union, adding only those not already on the dive.
-        val linked = container.buddies.buddiesForDive(diveId).map { it.name }.toSet()
+        val linked = currentBuddies.map { it.name }.toSet()
         entry.buddies.filter { it.isNotBlank() && it !in linked }.forEach { name ->
             val id = container.buddies.all().firstOrNull { it.name == name }?.id ?: container.buddies.add(name)
             container.buddies.linkToDive(diveId, id)
@@ -247,6 +258,10 @@ class LogbookIo(private val container: AppContainer) {
         if (realCountry != null || realPlace != null) score += 1
         return score
     }
+
+    /** Extra richness a copy carries beyond its site: having buddies and having notes. */
+    private fun extraScore(hasBuddies: Boolean, hasNotes: Boolean): Int =
+        (if (hasBuddies) 1 else 0) + (if (hasNotes) 1 else 0)
 
     private fun attachExtraComputers(diveId: Long, entry: DiveEntry, displayName: String) {
         entry.computers.drop(1).forEachIndexed { i, computer ->
