@@ -61,20 +61,41 @@ fun SitesSection(
         site != null -> SiteDetail(container, site, unitSystem, onEdit = { onEditingChange(true) })
         place != null -> PlaceSites(container, place, onOpen = { onSiteChange(it) })
         country != null -> CountryPlaces(container, country, onOpen = { onPlaceChange(it) })
-        else -> Countries(container, onOpen = { onCountryChange(it) })
+        else -> Countries(
+            container,
+            onOpen = { onCountryChange(it) },
+            onOpenSite = { id ->
+                // Drill straight to the tapped pin's site, deriving its place and country.
+                container.sites.site(id)?.let { s ->
+                    val p = container.sites.place(s.placeId)
+                    onCountryChange(p?.let { container.sites.country(it.countryId) })
+                    onPlaceChange(p)
+                    onSiteChange(s)
+                }
+            },
+        )
     }
 }
 
 @Composable
-private fun Countries(container: AppContainer, onOpen: (Country) -> Unit) {
+private fun Countries(container: AppContainer, onOpen: (Country) -> Unit, onOpenSite: (Long) -> Unit) {
     val countries = remember { container.sites.countries() }
+    val allSites = remember { container.sites.allSites() }
     if (countries.isEmpty()) {
         EmptyState("No dive sites yet. Add one when editing a dive.", Icons.Outlined.Place)
         return
     }
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(countries) { c ->
-            RowItem(c.name) { onOpen(c) }
+    Column(Modifier.fillMaxSize()) {
+        // Overview map of every site that has a coordinate; tap a pin to open that site.
+        SitesOverviewMap(
+            allSites,
+            onOpenSite,
+            Modifier.fillMaxWidth().height(220.dp).padding(16.dp),
+        )
+        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+            items(countries) { c ->
+                RowItem(c.name) { onOpen(c) }
+            }
         }
     }
 }

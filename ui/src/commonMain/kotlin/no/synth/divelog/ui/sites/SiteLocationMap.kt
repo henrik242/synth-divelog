@@ -1,5 +1,6 @@
 package no.synth.divelog.ui.sites
 
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material3.Icon
@@ -11,7 +12,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import kotlin.math.abs
+import no.synth.divelog.core.model.Site
 import org.maplibre.compose.camera.CameraPosition
 import org.maplibre.compose.camera.CameraUpdate
 import org.maplibre.compose.interaction.ClickResult
@@ -21,6 +24,8 @@ import org.maplibre.compose.map.rememberMapState
 import org.maplibre.compose.style.BaseStyle
 import org.maplibre.compose.overlay.MapOverlay
 import org.maplibre.compose.overlay.include
+import org.maplibre.compose.util.DpPadding
+import org.maplibre.spatialk.geojson.BoundingBox
 import org.maplibre.spatialk.geojson.Position
 
 /**
@@ -111,6 +116,73 @@ fun SiteLocationMap(
                         Position(latitude = latitude, longitude = longitude),
                         alignment = Alignment.BottomCenter,
                     ),
+                )
+            }
+        },
+    )
+}
+
+/** One site with a known coordinate, for the overview map. */
+private data class LocatedSite(val id: Long, val name: String, val latitude: Double, val longitude: Double)
+
+/**
+ * Read-only overview map with a pin per [sites] entry that has a coordinate. The camera
+ * fits all the pins; tapping a pin calls [onOpenSite]. Renders nothing when no site has
+ * a coordinate yet.
+ */
+@Composable
+fun SitesOverviewMap(sites: List<Site>, onOpenSite: (Long) -> Unit, modifier: Modifier = Modifier) {
+    val located = remember(sites) {
+        sites.mapNotNull { s ->
+            val la = s.latitude
+            val lo = s.longitude
+            if (la != null && lo != null) LocatedSite(s.id, s.name, la, lo) else null
+        }
+    }
+    if (located.isEmpty()) return
+
+    val mapState = rememberMapState(
+        baseStyle = BaseStyle.Uri(SITE_MAP_STYLE_URL),
+        initialCameraPosition = remember(located) {
+            CameraPosition(
+                target = Position(
+                    latitude = located.map { it.latitude }.average(),
+                    longitude = located.map { it.longitude }.average(),
+                ),
+                zoom = if (located.size == 1) 10.0 else 2.0,
+            )
+        },
+    )
+
+    // Fit the camera to all the pins once they are known.
+    LaunchedEffect(located) {
+        if (located.size > 1) {
+            mapState.animateCameraToBounds(
+                boundingBox = BoundingBox(
+                    west = located.minOf { it.longitude },
+                    south = located.minOf { it.latitude },
+                    east = located.maxOf { it.longitude },
+                    north = located.maxOf { it.latitude },
+                ),
+                fitPadding = DpPadding(left = 32.dp, top = 32.dp, right = 32.dp, bottom = 32.dp),
+            )
+        }
+    }
+
+    MaplibreMap(
+        modifier = modifier,
+        state = mapState,
+        interactions = MapInteractions.Standard,
+        overlay = {
+            include(MapOverlay.AttributionOnly)
+            located.forEach { s ->
+                Icon(
+                    Icons.Outlined.Place,
+                    contentDescription = s.name,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .placedAt(Position(latitude = s.latitude, longitude = s.longitude), alignment = Alignment.BottomCenter)
+                        .clickable { onOpenSite(s.id) },
                 )
             }
         },
