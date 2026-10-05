@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.components.CountryField
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -107,7 +108,7 @@ fun DiveEditScreen(
                 }
             }
             Text("Or add a new site", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-            OutlinedTextField(newCountry, { newCountry = it }, label = { Text("Country") }, modifier = Modifier.fillMaxWidth())
+            CountryField(newCountry, { newCountry = it }, Modifier.fillMaxWidth())
             OutlinedTextField(newPlace, { newPlace = it }, label = { Text("Place") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(newSite, { newSite = it }, label = { Text("Site name") }, modifier = Modifier.fillMaxWidth())
         }
