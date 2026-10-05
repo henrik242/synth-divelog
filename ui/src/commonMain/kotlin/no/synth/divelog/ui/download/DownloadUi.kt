@@ -49,12 +49,17 @@ fun DownloadPickerDialog(
     types: List<DiveComputerType>,
     ports: List<SerialPortInfo>,
     onRefresh: () -> List<SerialPortInfo>,
-    onStart: (type: DiveComputerType, portId: String, amount: DownloadAmount) -> Unit,
+    onStart: (type: DiveComputerType, port: SerialPortInfo, amount: DownloadAmount) -> Unit,
     onCancel: () -> Unit,
+    preselectPortId: (DiveComputerType) -> String? = { null },
 ) {
+    // Preselect the port a device of this type was last reached on, else a sensible guess.
+    fun pick(t: DiveComputerType, list: List<SerialPortInfo>): SerialPortInfo? =
+        preselectPortId(t)?.let { id -> list.firstOrNull { it.id == id } } ?: preferredPort(list)
+
     var type by remember { mutableStateOf(types.first()) }
     var current by remember { mutableStateOf(ports) }
-    var port by remember { mutableStateOf(preferredPort(ports)) }
+    var port by remember { mutableStateOf(pick(types.first(), ports)) }
     var portMenuOpen by remember { mutableStateOf(false) }
     var amount by remember { mutableStateOf<DownloadAmount>(DownloadAmount.NewOnly) }
     var amountMenuOpen by remember { mutableStateOf(false) }
@@ -68,9 +73,9 @@ fun DownloadPickerDialog(
                 types.forEach { t ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().clickable { type = t },
+                        modifier = Modifier.fillMaxWidth().clickable { type = t; port = pick(t, current) },
                     ) {
-                        RadioButton(selected = type == t, onClick = { type = t })
+                        RadioButton(selected = type == t, onClick = { type = t; port = pick(t, current) })
                         Text(t.displayName)
                     }
                 }
@@ -95,7 +100,7 @@ fun DownloadPickerDialog(
                 }
                 TextButton(onClick = {
                     current = onRefresh()
-                    if (port == null || current.none { it.id == port?.id }) port = preferredPort(current)
+                    if (port == null || current.none { it.id == port?.id }) port = pick(type, current)
                 }) { Text("Refresh ports") }
 
                 Text("Download", style = MaterialTheme.typography.labelLarge)
@@ -113,7 +118,7 @@ fun DownloadPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = port != null, onClick = { port?.let { onStart(type, it.id, amount) } }) {
+            TextButton(enabled = port != null, onClick = { port?.let { onStart(type, it, amount) } }) {
                 Text("Download")
             }
         },

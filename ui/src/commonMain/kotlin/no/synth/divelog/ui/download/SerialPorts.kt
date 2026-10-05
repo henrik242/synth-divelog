@@ -7,14 +7,18 @@ import no.synth.divelog.core.divecomputer.transport.Transport
 enum class SerialPortKind { USB_SERIAL, BLUETOOTH_SPP }
 
 /**
- * A port offered to the download picker: a stable [id], a human [label] and the [kind]
- * of link it rides. The [id] is opaque to the picker; the platform [SerialPorts] encodes
- * whatever it needs to reopen the port in it.
+ * A port offered to the download picker: an [id], a human [label] and the [kind] of link
+ * it rides. The [id] is opaque to the picker and encodes what the platform [SerialPorts]
+ * needs to reopen the port in this session (it may change between sessions, e.g. a USB
+ * adapter index). [descriptor] is the session-stable identity of the physical port, used
+ * to remember a device's connection across sessions; it defaults to [id] where that is
+ * already stable (a port name or a Bluetooth address).
  */
 data class SerialPortInfo(
     val id: String,
     val label: String,
     val kind: SerialPortKind = SerialPortKind.USB_SERIAL,
+    val descriptor: String = id,
 )
 
 /**

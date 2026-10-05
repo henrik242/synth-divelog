@@ -16,6 +16,7 @@ import no.synth.divelog.ui.SynthTheme
 import no.synth.divelog.ui.download.DesktopSerialPorts
 import no.synth.divelog.ui.io.LogbookIo
 import no.synth.divelog.ui.settings.AppSettings
+import no.synth.divelog.ui.settings.SettingsConnectionMemory
 import no.synth.divelog.ui.settings.SettingsStore
 import no.synth.divelog.ui.sync.CloudGit
 import java.awt.FileDialog
@@ -49,6 +50,7 @@ fun main() = application {
                     settings.unitSystem = it
                 },
                 serialPorts = serialPorts,
+                connectionMemory = remember { SettingsConnectionMemory(settings) },
                 onDownloaded = { dataVersion++ },
                 onImport = {
                     val path = pickFile(FileDialog.LOAD)

@@ -35,6 +35,7 @@ import no.synth.divelog.ui.SynthDivelogApp
 import no.synth.divelog.ui.download.AndroidSerialPorts
 import no.synth.divelog.ui.io.LogbookIo
 import no.synth.divelog.ui.settings.AppSettings
+import no.synth.divelog.ui.settings.SettingsConnectionMemory
 import no.synth.divelog.ui.settings.SettingsStore
 import no.synth.divelog.ui.sync.CloudGit
 import java.io.File
@@ -81,6 +82,7 @@ class MainActivity : ComponentActivity() {
                     unitSystem = unitSystem,
                     onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
                     serialPorts = remember { AndroidSerialPorts(context.applicationContext) },
+                    connectionMemory = remember { SettingsConnectionMemory(settings) },
                     // Request Bluetooth and notification permissions before the picker lists devices.
                     onPrepareDownload = prepareDownload,
                     // Hold the process awake with a foreground service for the length of the download.

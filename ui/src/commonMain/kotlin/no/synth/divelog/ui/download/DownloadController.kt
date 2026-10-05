@@ -78,6 +78,10 @@ enum class DiveComputerType(
 
     fun parser(): DiveLogParser = parserFactory()
 
+    /** Whether [device] is one this type reads, by its stored identity key. */
+    internal fun owns(device: Device): Boolean =
+        device.bluetoothAddress?.startsWith(identityKey) == true
+
     /** Identity for the connected computer, folding in the serial when the protocol read one. */
     internal fun device(info: DeviceInfo?): Device = Device(
         vendor = info?.vendor ?: displayName.substringBefore(' '),
@@ -144,7 +148,21 @@ sealed interface DownloadAmount {
 class DownloadController(
     private val container: AppContainer,
     private val serialPorts: SerialPorts,
+    private val connectionMemory: ConnectionMemory = ConnectionMemory.None,
 ) {
+    /**
+     * The id of a port to preselect for [type]: the one a device of this type was last
+     * reached on, if it is present in [ports] now. Null when nothing is remembered or the
+     * remembered port is not currently available, so the caller can fall back to a guess.
+     */
+    fun preselectedPortId(type: DiveComputerType, ports: List<SerialPortInfo>): String? {
+        val remembered = container.devices.all()
+            .filter { type.owns(it) }
+            .mapNotNull { device -> device.bluetoothAddress?.let { connectionMemory.recall(it) } }
+            .toSet()
+        return ports.firstOrNull { it.descriptor in remembered }?.id
+    }
+
     /**
      * Run the download end to end. Blocking work runs off the main thread. [cancel] is
      * polled during the memory read; [onProgress] reports a 0..1 fraction and a label.
@@ -158,6 +176,7 @@ class DownloadController(
         cancel: () -> Boolean,
         onProgress: (fraction: Float, label: String) -> Unit,
         amount: DownloadAmount = DownloadAmount.NewOnly,
+        portDescriptor: String? = null,
         recordTo: ((transcript: String) -> Unit)? = null,
         confirmMerge: suspend (MergeReview) -> Boolean = { false },
     ): String = withContext(Dispatchers.Default) {
@@ -219,10 +238,17 @@ class DownloadController(
                 limit = limit,
             )
             onProgress(1f, "Parsing dives")
-            val deviceId = container.devices.getOrCreate(type.device(deviceInfo))
+            val device = type.device(deviceInfo)
+            val deviceId = container.devices.getOrCreate(device)
+            // Remember where this device was reached so the picker can preselect it next time.
+            if (portDescriptor != null) {
+                device.bluetoothAddress?.let { connectionMemory.remember(it, portDescriptor) }
+            }
             importRaws(raws, type.parser(), deviceId, confirmMerge)
         } finally {
-            recording?.let { rec -> runCatching { recordTo?.invoke(rec.transcript().toText()) } }
+            if (recording != null) {
+                runCatching { recordTo(recording.transcript().toText()) }
+            }
             runCatching { transport.close() }
         }
     }

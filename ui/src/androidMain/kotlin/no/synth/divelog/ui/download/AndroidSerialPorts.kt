@@ -33,23 +33,28 @@ class AndroidSerialPorts(context: Context) : SerialPorts {
 
     override fun list(): List<SerialPortInfo> = usbPorts() + bluetoothPorts()
 
-    // The id is the adapter's index in the current listing; open() re-lists to resolve it.
+    // The id is the adapter's index in the current listing (open() re-lists to resolve it,
+    // since the index is not stable across replugs); the descriptor keys on the stable
+    // vendor/product so the connection can be remembered between sessions.
     private fun usbPorts(): List<SerialPortInfo> =
         UsbSerialDevices.available(appContext).mapIndexed { index, c ->
             SerialPortInfo(
                 id = "$USB_PREFIX$index",
                 label = (c.name ?: "USB serial device") + if (c.looksLikeSuuntoCable) " (Suunto cable)" else "",
                 kind = SerialPortKind.USB_SERIAL,
+                descriptor = "usb:${c.vendorId}:${c.productId}",
             )
         }
 
-    // The id is the stable Bluetooth address; empty when BLUETOOTH_CONNECT is not granted.
+    // The id and descriptor are both the stable Bluetooth address; empty when
+    // BLUETOOTH_CONNECT is not granted.
     private fun bluetoothPorts(): List<SerialPortInfo> =
         runCatching { BluetoothDevices.paired(appContext) }.getOrDefault(emptyList()).map { d ->
             SerialPortInfo(
                 id = "$BT_PREFIX${d.address}",
                 label = (d.name ?: d.address) + " (Bluetooth)",
                 kind = SerialPortKind.BLUETOOTH_SPP,
+                descriptor = "bt:${d.address}",
             )
         }
 
