@@ -237,7 +237,7 @@ class MacDiveXml : DiveFormat {
                                 "tempLow" -> d?.waterTempMk = FormatUnits.macCelsiusToMk(t)
                                 "tempHigh" -> if (d?.waterTempMk == null) d?.waterTempMk = FormatUnits.macCelsiusToMk(t)
                                 "visibility" -> d?.visibility = t.toIntOrNull()
-                                "notes" -> d?.notes = t.ifBlank { null }
+                                "notes" -> d?.notes = notesOrNull(t)
                                 "buddy" -> if (t.isNotBlank()) d?.buddies?.add(t)
                             }
                         }
@@ -250,6 +250,21 @@ class MacDiveXml : DiveFormat {
             throw FormatException("Malformed MacDive XML", e)
         }
         return DiveLog(dives)
+    }
+
+    /**
+     * MacDive seeds every dive's notes with an empty section template ("Summary:",
+     * "Environment:", "Gas:", "Gear:", "Issues:"). Treat a note that is only such bare
+     * headers (and blank lines) as no note; keep it once any line carries real content.
+     */
+    private fun notesOrNull(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        val hasContent = trimmed.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .any { !it.endsWith(":") }
+        return if (hasContent) trimmed else null
     }
 
     private fun eventName(e: Event): String = when (e.type) {

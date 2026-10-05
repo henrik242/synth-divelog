@@ -250,7 +250,18 @@ fun DiveDetailScreen(
                     onClick = dive.siteId?.let { id -> { onOpenSite(id) } },
                 )
                 SummaryRow("Buddies", if (buddies.isEmpty()) "-" else buddies.joinToString { it.name })
-                dive.notes?.takeIf { it.isNotBlank() }?.let { SummaryRow("Notes", it) }
+                // Notes can be long and multi-line, so lay them out full-width and
+                // left-aligned under the label instead of in the right-aligned value column.
+                dive.notes?.takeIf { it.isNotBlank() }?.let { notes ->
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Text(
+                            "Notes",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(notes, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 2.dp))
+                    }
+                }
             }
         }
 
