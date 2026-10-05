@@ -38,6 +38,7 @@ import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.components.BackHeader
+import no.synth.divelog.ui.components.CountryField
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.dive.DiveListWithDetail
 
@@ -187,7 +188,18 @@ private fun SiteEditScreen(
     // The map is the main way to set the coordinate; the manual fields stay collapsed.
     var showCoordFields by remember(site.id) { mutableStateOf(false) }
 
+    // Moving the site to another place/country changes its placeId; that is a deliberate
+    // action (not keystroke autosave, which would create junk places while typing).
+    var placeId by remember(site.id) { mutableStateOf(site.placeId) }
+    var showMove by remember(site.id) { mutableStateOf(false) }
+    var moveCountry by remember(site.id) { mutableStateOf("") }
+    var movePlace by remember(site.id) { mutableStateOf("") }
+    val place = remember(placeId) { container.sites.place(placeId) }
+    val countryName = remember(placeId) { place?.let { container.sites.country(it.countryId)?.name } ?: "" }
+    val placeName = place?.name ?: ""
+
     fun current(): Site = site.copy(
+        placeId = placeId,
         name = name.trim().ifBlank { site.name },
         latitude = lat.trim().toDoubleOrNull(),
         longitude = lon.trim().toDoubleOrNull(),
@@ -196,10 +208,12 @@ private fun SiteEditScreen(
 
     fun persist() = container.sites.updateSite(current())
 
-    val hasEdits = name != originalName || lat != originalLat || lon != originalLon || notes != originalNotes
+    val hasEdits = name != originalName || lat != originalLat || lon != originalLon ||
+        notes != originalNotes || placeId != site.placeId
 
     fun undo() {
         name = originalName; lat = originalLat; lon = originalLon; notes = originalNotes
+        placeId = site.placeId
         persist()
     }
 
@@ -222,6 +236,39 @@ private fun SiteEditScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            val locationSummary = listOf(countryName, placeName).filter { it.isNotBlank() }
+                .joinToString(" / ").ifBlank { "-" }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Location: $locationSummary",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = {
+                    moveCountry = countryName; movePlace = placeName; showMove = !showMove
+                }) { Text(if (showMove) "Hide" else "Move") }
+            }
+            if (showMove) {
+                CountryField(moveCountry, { moveCountry = it }, Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    movePlace,
+                    { movePlace = it },
+                    label = { Text("Place") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedButton(
+                    enabled = moveCountry.isNotBlank() && movePlace.isNotBlank(),
+                    onClick = {
+                        placeId = container.sites.getOrCreatePlace(moveCountry.trim(), movePlace.trim())
+                        persist()
+                        showMove = false
+                    },
+                ) { Text("Move here") }
+            }
+
             val coordSummary = run {
                 val la = lat.trim().toDoubleOrNull()
                 val lo = lon.trim().toDoubleOrNull()

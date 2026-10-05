@@ -63,6 +63,18 @@ class SiteRepository(private val db: DiveDatabase) {
 
     fun deleteSite(id: Long) = q.deleteSite(id)
 
+    /** Resolve or build a country/place path, returning the place id (for moving a site). */
+    fun getOrCreatePlace(country: String, place: String): Long = db.transactionWithResult {
+        val countryId = q.selectCountryByName(country).executeAsOneOrNull()?.id ?: run {
+            q.insertCountry(country)
+            q.lastInsertRowId().executeAsOne()
+        }
+        q.selectPlacesByCountry(countryId).executeAsList().firstOrNull { it.name == place }?.id ?: run {
+            q.insertPlace(countryId, place)
+            q.lastInsertRowId().executeAsOne()
+        }
+    }
+
     /** Resolve or build a full country/place/site path, returning the site id. */
     fun getOrCreateSite(country: String, place: String, site: String): Long =
         db.transactionWithResult {
