@@ -8,24 +8,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.components.CloudCredentialsDialog
 import no.synth.divelog.ui.io.LogbookIo
 
 @Composable
@@ -39,7 +36,6 @@ fun SettingsSection(
     initialCloudEmail: String = "",
     initialCloudPassword: String = "",
     onCloudConfigChange: (email: String, pass: String) -> Unit = { _, _ -> },
-    onCloudPull: (email: String, pass: String) -> Unit = { _, _ -> },
     onCloudPush: (email: String, pass: String) -> Unit = { _, _ -> },
     onOpenComputers: () -> Unit = {},
 ) {
@@ -60,18 +56,9 @@ fun SettingsSection(
 
         HorizontalDivider()
 
-        var cloudDialog by remember { mutableStateOf<CloudAction?>(null) }
+        var cloudExportOpen by remember { mutableStateOf(false) }
 
-        // File import lives with the Add-dives button; only cloud import stays here.
-        if (cloudEnabled) {
-            Text("Import", style = MaterialTheme.typography.titleMedium)
-            OutlinedButton(onClick = { cloudDialog = CloudAction.IMPORT }, modifier = Modifier.fillMaxWidth()) {
-                Text("Import from Subsurface cloud")
-            }
-
-            HorizontalDivider()
-        }
-
+        // Cloud import lives with the Add-dives button; only cloud export stays here.
         Text("Export", style = MaterialTheme.typography.titleMedium)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             // One button per registered file format, so a new format appears here too.
@@ -81,23 +68,24 @@ fun SettingsSection(
                 }
             }
             if (cloudEnabled) {
-                OutlinedButton(onClick = { cloudDialog = CloudAction.EXPORT }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { cloudExportOpen = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Export to Subsurface cloud")
                 }
             }
         }
 
-        cloudDialog?.let { action ->
-            CloudDialog(
-                action = action,
+        if (cloudExportOpen) {
+            CloudCredentialsDialog(
+                title = "Export to Subsurface cloud",
+                confirmLabel = "Export",
                 initialEmail = initialCloudEmail,
                 initialPassword = initialCloudPassword,
                 onConfirm = { email, pass ->
                     onCloudConfigChange(email, pass)
-                    if (action == CloudAction.IMPORT) onCloudPull(email, pass) else onCloudPush(email, pass)
-                    cloudDialog = null
+                    onCloudPush(email, pass)
+                    cloudExportOpen = false
                 },
-                onDismiss = { cloudDialog = null },
+                onDismiss = { cloudExportOpen = false },
             )
         }
 
@@ -119,57 +107,4 @@ fun SettingsSection(
             Text("Dive computers")
         }
     }
-}
-
-private enum class CloudAction(val title: String, val confirm: String) {
-    IMPORT("Import from Subsurface cloud", "Import"),
-    EXPORT("Export to Subsurface cloud", "Export"),
-}
-
-@Composable
-private fun CloudDialog(
-    action: CloudAction,
-    initialEmail: String,
-    initialPassword: String,
-    onConfirm: (email: String, pass: String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var email by remember { mutableStateOf(initialEmail) }
-    var pass by remember { mutableStateOf(initialPassword) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(action.title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "The Subsurface cloud stores your logbook as a git repository. Sign in " +
-                        "with the email and password of your Subsurface cloud account.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    email, { email = it },
-                    label = { Text("Subsurface cloud email") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    pass, { pass = it },
-                    label = { Text("Subsurface cloud password") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(email.trim(), pass) },
-                enabled = email.isNotBlank() && pass.isNotBlank(),
-            ) {
-                Text(action.confirm)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }

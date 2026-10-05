@@ -75,6 +75,7 @@ import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
 import no.synth.divelog.ui.dive.diveSourceLabels
 import no.synth.divelog.ui.components.Breadcrumb
+import no.synth.divelog.ui.components.CloudCredentialsDialog
 import no.synth.divelog.ui.components.Crumb
 import no.synth.divelog.ui.components.EmptyState
 import no.synth.divelog.ui.download.ConnectionMemory
@@ -240,6 +241,7 @@ fun SynthDivelogApp(
     // here off the main thread behind a progress dialog, mirroring the download flow.
     val logbook = remember(container) { LogbookIo(container) }
     var addDivesOpen by remember { mutableStateOf(false) }
+    var cloudImportOpen by remember { mutableStateOf(false) }
     var importProgress by remember { mutableStateOf<ImportProgress?>(null) }
 
     val onImportFromFile: () -> Unit = {
@@ -405,7 +407,6 @@ fun SynthDivelogApp(
                     initialCloudEmail = initialCloudEmail,
                     initialCloudPassword = initialCloudPassword,
                     onCloudConfigChange = onCloudConfigChange,
-                    onCloudPull = onCloudPull,
                     onCloudPush = onCloudPush,
                     onOpenComputers = { computersFocusDeviceId = null; computersOpen = true },
                 )
@@ -431,9 +432,26 @@ fun SynthDivelogApp(
             if (addDivesOpen) {
                 AddDivesChooser(
                     importSupported = onPickImportFile != null,
+                    cloudSupported = cloudEnabled,
                     onDiveComputer = { addDivesOpen = false; onDownloadClick() },
                     onImportFile = { addDivesOpen = false; onImportFromFile() },
+                    onSubsurfaceCloud = { addDivesOpen = false; cloudImportOpen = true },
                     onDismiss = { addDivesOpen = false },
+                )
+            }
+
+            if (cloudImportOpen) {
+                CloudCredentialsDialog(
+                    title = "Import from Subsurface cloud",
+                    confirmLabel = "Import",
+                    initialEmail = initialCloudEmail,
+                    initialPassword = initialCloudPassword,
+                    onConfirm = { email, pass ->
+                        onCloudConfigChange(email, pass)
+                        onCloudPull(email, pass)
+                        cloudImportOpen = false
+                    },
+                    onDismiss = { cloudImportOpen = false },
                 )
             }
 
@@ -446,8 +464,10 @@ fun SynthDivelogApp(
 @Composable
 private fun AddDivesChooser(
     importSupported: Boolean,
+    cloudSupported: Boolean,
     onDiveComputer: () -> Unit,
     onImportFile: () -> Unit,
+    onSubsurfaceCloud: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -467,6 +487,11 @@ private fun AddDivesChooser(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                if (cloudSupported) {
+                    OutlinedButton(onClick = onSubsurfaceCloud, modifier = Modifier.fillMaxWidth()) {
+                        Text("Import from Subsurface cloud")
+                    }
                 }
             }
         },
