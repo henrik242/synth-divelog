@@ -135,6 +135,8 @@ fun SynthDivelogApp(
     var openDiveId by remember(dataVersion) { mutableStateOf<Long?>(null) }
     var editing by remember(dataVersion) { mutableStateOf(false) }
     val diveDrilledIn = section == Section.DIVES && openDiveId != null
+    // Set when a dive-detail computer name is tapped: jumps to Settings and scrolls there.
+    var settingsFocusDeviceId by remember { mutableStateOf<Long?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -260,6 +262,7 @@ fun SynthDivelogApp(
                     onOpenDiveChange = { openDiveId = it },
                     editing = editing,
                     onEditingChange = { editing = it },
+                    onOpenDevice = { deviceId -> settingsFocusDeviceId = deviceId; section = Section.SETTINGS },
                 )
                 Section.SITES -> SitesSection(container, unitSystem, dataVersion)
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
@@ -277,6 +280,8 @@ fun SynthDivelogApp(
                     onCloudConfigChange = onCloudConfigChange,
                     onCloudPull = onCloudPull,
                     onCloudPush = onCloudPush,
+                    focusDeviceId = settingsFocusDeviceId,
+                    onFocusConsumed = { settingsFocusDeviceId = null },
                 )
             }
 
@@ -310,32 +315,9 @@ private fun DivesSection(
     onOpenDiveChange: (Long?) -> Unit,
     editing: Boolean,
     onEditingChange: (Boolean) -> Unit,
+    onOpenDevice: (Long) -> Unit = {},
 ) {
     var reloadKey by remember(dataVersion) { mutableStateOf(0) }
-
-    val currentDive = openDiveId
-    if (currentDive != null) {
-        if (editing) {
-            DiveEditScreen(
-                container = container,
-                diveId = currentDive,
-                unitSystem = unitSystem,
-                onDone = { onEditingChange(false); reloadKey++ },
-                onCancel = { onEditingChange(false) },
-            )
-        } else {
-            DiveDetailScreen(
-                container = container,
-                diveId = currentDive,
-                unitSystem = unitSystem,
-                reloadKey = reloadKey,
-                onEdit = { onEditingChange(true) },
-                onChanged = { reloadKey++ },
-                onDeleted = { onOpenDiveChange(null); reloadKey++ },
-            )
-        }
-        return
-    }
 
     val dives = remember(dataVersion, reloadKey) { container.dives.allDives() }
     val siteNames = remember(dataVersion, reloadKey) { container.sites.allSites().associate { it.id to it.name } }
@@ -378,6 +360,34 @@ private fun DivesSection(
         } else {
             null
         }
+    }
+
+    val currentDive = openDiveId
+    if (currentDive != null) {
+        if (editing) {
+            DiveEditScreen(
+                container = container,
+                diveId = currentDive,
+                unitSystem = unitSystem,
+                onDone = { onEditingChange(false); reloadKey++ },
+                onCancel = { onEditingChange(false) },
+            )
+        } else {
+            DiveDetailScreen(
+                container = container,
+                diveId = currentDive,
+                unitSystem = unitSystem,
+                reloadKey = reloadKey,
+                // Prev/next follow the same filtered, sorted order as the list behind this screen.
+                orderedDiveIds = shown.map { it.id },
+                onNavigate = { onOpenDiveChange(it) },
+                onOpenDevice = onOpenDevice,
+                onEdit = { onEditingChange(true) },
+                onChanged = { reloadKey++ },
+                onDeleted = { onOpenDiveChange(null); reloadKey++ },
+            )
+        }
+        return
     }
 
     Box(Modifier.fillMaxSize()) {

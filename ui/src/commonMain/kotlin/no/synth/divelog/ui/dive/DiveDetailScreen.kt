@@ -1,6 +1,8 @@
 package no.synth.divelog.ui.dive
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,10 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.units.UnitSystem
@@ -36,6 +45,9 @@ fun DiveDetailScreen(
     diveId: Long,
     unitSystem: UnitSystem,
     reloadKey: Int = 0,
+    orderedDiveIds: List<Long> = emptyList(),
+    onNavigate: (Long) -> Unit = {},
+    onOpenDevice: (Long) -> Unit = {},
     onEdit: () -> Unit = {},
     onChanged: () -> Unit = {},
     onDeleted: () -> Unit = {},
@@ -49,6 +61,11 @@ fun DiveDetailScreen(
     }
     val site = remember(diveId, reloadKey) { dive.siteId?.let { container.sites.site(it) } }
     val buddies = remember(diveId, reloadKey) { container.buddies.buddiesForDive(diveId) }
+
+    // Previous/next follow the order of the list the user came from (index-1 / index+1).
+    val index = orderedDiveIds.indexOf(diveId)
+    val prevId = if (index > 0) orderedDiveIds[index - 1] else null
+    val nextId = if (index >= 0 && index < orderedDiveIds.lastIndex) orderedDiveIds[index + 1] else null
 
     var selectedRecord by remember(diveId) {
         mutableStateOf(
@@ -113,8 +130,23 @@ fun DiveDetailScreen(
         )
     }
 
+    // Horizontal swipe: left reveals the next dive, right the previous one.
+    val density = LocalDensity.current
+    val swipeThresholdPx = with(density) { 56.dp.toPx() }
+    val swipeModifier = Modifier.pointerInput(diveId, orderedDiveIds) {
+        var total = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { total = 0f },
+            onDragEnd = {
+                if (total <= -swipeThresholdPx) nextId?.let(onNavigate)
+                else if (total >= swipeThresholdPx) prevId?.let(onNavigate)
+            },
+            onHorizontalDrag = { _, dragAmount -> total += dragAmount },
+        )
+    }
+
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        Modifier.fillMaxSize().then(swipeModifier).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
@@ -122,10 +154,18 @@ fun DiveDetailScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = dive.number?.let { "Dive #$it" } ?: "Dive",
-                style = MaterialTheme.typography.headlineSmall,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { prevId?.let(onNavigate) }, enabled = prevId != null) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous dive")
+                }
+                Text(
+                    text = dive.number?.let { "Dive #$it" } ?: "Dive",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                IconButton(onClick = { nextId?.let(onNavigate) }, enabled = nextId != null) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next dive")
+                }
+            }
             androidx.compose.material3.TextButton(onClick = onEdit) { Text("Edit") }
         }
 
@@ -135,31 +175,36 @@ fun DiveDetailScreen(
             }
         }
 
+        // Compact computer switcher, only when a dive carries more than one computer.
+        // A single small chip row selects which computer's profile is shown; the split
+        // action targets whichever computer is selected.
         if (records.size > 1) {
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Computers", style = MaterialTheme.typography.titleSmall)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     records.forEachIndexed { i, rec ->
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            FilterChip(
-                                selected = selectedRecord?.id == rec.id,
-                                onClick = { selectedRecord = rec },
-                                label = {
-                                    Text(recordLabel(devices[rec.deviceId], i, rec.id == dive.primaryComputerRecordId))
-                                },
-                            )
-                            androidx.compose.material3.TextButton(
-                                onClick = { container.dives.splitRecordIntoNewDive(rec.id); onChanged() },
-                                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.error,
-                                ),
-                            ) { Text("Split out") }
-                        }
+                        FilterChip(
+                            selected = selectedRecord?.id == rec.id,
+                            onClick = { selectedRecord = rec },
+                            label = {
+                                Text(recordLabel(devices[rec.deviceId], i, rec.id == dive.primaryComputerRecordId))
+                            },
+                        )
                     }
+                }
+                selectedRecord?.let { rec ->
+                    androidx.compose.material3.TextButton(
+                        onClick = { container.dives.splitRecordIntoNewDive(rec.id); onChanged() },
+                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
+                    ) { Text("Split out") }
                 }
             }
         }
@@ -171,10 +216,13 @@ fun DiveDetailScreen(
                 SummaryRow("Max depth", Format.depth(dive.maxDepthMm, unitSystem))
                 SummaryRow("Avg depth", Format.depth(dive.meanDepthMm, unitSystem))
                 SummaryRow("Water temp", Format.temperature(dive.waterTempMk, unitSystem))
+                // Source shows the selected computer and links to it in Settings so its
+                // nickname can be edited. Imported-from-file records have no device to open.
+                val sourceDeviceId = selectedRecord?.deviceId
                 SummaryRow(
                     "Source",
-                    records.map { deviceDescription(devices[it.deviceId]) }.distinct()
-                        .joinToString().ifEmpty { "-" },
+                    deviceDescription(devices[sourceDeviceId]),
+                    onClick = sourceDeviceId?.let { { onOpenDevice(it) } },
                 )
                 SummaryRow("Site", site?.name ?: "-")
                 SummaryRow("Buddies", if (buddies.isEmpty()) "-" else buddies.joinToString { it.name })
@@ -204,12 +252,19 @@ private fun recordLabel(device: Device?, index: Int, isPrimary: Boolean): String
 }
 
 @Composable
-private fun SummaryRow(label: String, value: String) {
+private fun SummaryRow(label: String, value: String, onClick: (() -> Unit)? = null) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 16.dp))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (onClick != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = 16.dp),
+        )
     }
 }

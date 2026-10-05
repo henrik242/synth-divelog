@@ -1,11 +1,14 @@
 package no.synth.divelog.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -17,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -24,12 +28,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.shape.RoundedCornerShape
+import kotlinx.coroutines.delay
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsSection(
     container: AppContainer,
@@ -44,9 +53,23 @@ fun SettingsSection(
     onCloudConfigChange: (email: String, pass: String) -> Unit = { _, _ -> },
     onCloudPull: (email: String, pass: String) -> Unit = { _, _ -> },
     onCloudPush: (email: String, pass: String) -> Unit = { _, _ -> },
+    focusDeviceId: Long? = null,
+    onFocusConsumed: () -> Unit = {},
 ) {
     var version by remember { mutableIntStateOf(0) }
     val devices = remember(version) { container.devices.all() }
+
+    // Scroll the Dive computers list to the device a dive-detail link asked for, then
+    // let the highlight fade.
+    val bringIntoView = remember { BringIntoViewRequester() }
+    LaunchedEffect(focusDeviceId, devices) {
+        val id = focusDeviceId ?: return@LaunchedEffect
+        if (devices.any { it.id == id }) {
+            bringIntoView.bringIntoView()
+            delay(2000)
+            onFocusConsumed()
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -134,8 +157,11 @@ fun SettingsSection(
         } else {
             devices.forEach { device ->
                 key(device.id) {
+                    val focused = device.id == focusDeviceId
                     DeviceRow(
                         device = device,
+                        highlighted = focused,
+                        modifier = if (focused) Modifier.bringIntoViewRequester(bringIntoView) else Modifier,
                         onRename = { container.devices.update(device.copy(nickname = it.ifBlank { null })); version++ },
                         onForget = { container.devices.delete(device.id); version++ },
                     )
@@ -199,9 +225,23 @@ private fun CloudDialog(
 }
 
 @Composable
-private fun DeviceRow(device: Device, onRename: (String) -> Unit, onForget: () -> Unit) {
+private fun DeviceRow(
+    device: Device,
+    onRename: (String) -> Unit,
+    onForget: () -> Unit,
+    highlighted: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
     var nickname by remember { mutableStateOf(device.nickname ?: "") }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    val base = modifier.fillMaxWidth()
+    val background = if (highlighted) {
+        base.clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(8.dp)
+    } else {
+        base
+    }
+    Column(background, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("${device.vendor} ${device.model}", style = MaterialTheme.typography.titleSmall)
         device.bluetoothAddress?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
