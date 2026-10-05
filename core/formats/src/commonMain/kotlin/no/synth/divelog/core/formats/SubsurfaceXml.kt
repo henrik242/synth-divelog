@@ -61,6 +61,7 @@ class SubsurfaceXml : DiveFormat {
         w.attribute(NS, "duration", "", FormatUnits.secondsToClock(dive.durationSeconds))
         dive.rating?.let { w.attribute(NS, "rating", "", it.toString()) }
         dive.visibility?.let { w.attribute(NS, "visibility", "", it.toString()) }
+        if (dive.tags.isNotEmpty()) w.attribute(NS, "tags", "", dive.tags.joinToString(", "))
         siteUuid?.let { w.attribute(NS, "divesiteid", "", it) }
 
         for (buddy in dive.buddies) textElement(w, "buddy", buddy)
@@ -113,9 +114,10 @@ class SubsurfaceXml : DiveFormat {
             w.startTag(NS, "event", "")
             w.attribute(NS, "time", "", FormatUnits.secondsToClock(e.timeOffsetSeconds))
             w.attribute(NS, "name", "", eventName(e.type))
-            if (e.type == DiveEventType.GAS_SWITCH && e.value != null) {
-                val o2 = ((e.value!! shr 8) and 0xFF).toInt()
-                val he = (e.value!! and 0xFF).toInt()
+            val gasValue = e.value
+            if (e.type == DiveEventType.GAS_SWITCH && gasValue != null) {
+                val o2 = ((gasValue shr 8) and 0xFF).toInt()
+                val he = (gasValue and 0xFF).toInt()
                 w.attribute(NS, "o2", "", "$o2.0%")
                 if (he > 0) w.attribute(NS, "he", "", "$he.0%")
             }
@@ -199,6 +201,11 @@ class SubsurfaceXml : DiveFormat {
             rating = attr(reader, "rating")?.toIntOrNull(),
             visibility = attr(reader, "visibility")?.toIntOrNull(),
             siteUuid = attr(reader, "divesiteid"),
+            tags = attr(reader, "tags")
+                ?.split(",")
+                ?.map { it.trim() }
+                ?.filter { it.isNotBlank() }
+                ?: emptyList(),
         )
     }
 
@@ -286,6 +293,7 @@ class SubsurfaceXml : DiveFormat {
         val rating: Int?,
         val visibility: Int?,
         val siteUuid: String?,
+        val tags: List<String> = emptyList(),
         var notes: String? = null,
         val buddies: MutableList<String> = mutableListOf(),
         val tanks: MutableList<TankEntry> = mutableListOf(),
@@ -307,6 +315,7 @@ class SubsurfaceXml : DiveFormat {
                 visibility = visibility,
                 site = siteUuid?.let { sites[it] },
                 buddies = buddies,
+                tags = tags,
                 tanks = tanks,
                 computers = computers.map { it.build() },
             )

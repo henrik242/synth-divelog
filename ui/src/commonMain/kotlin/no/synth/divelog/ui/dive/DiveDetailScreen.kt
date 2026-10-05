@@ -68,6 +68,7 @@ fun DiveDetailScreen(
     }
     val site = remember(diveId, reloadKey) { dive.siteId?.let { container.sites.site(it) } }
     val buddies = remember(diveId, reloadKey) { container.buddies.buddiesForDive(diveId) }
+    val tags = remember(diveId, reloadKey) { container.tags.tagsForDive(diveId) }
 
     // Previous/next follow the order of the list the user came from (index-1 / index+1).
     val index = orderedDiveIds.indexOf(diveId)
@@ -250,6 +251,7 @@ fun DiveDetailScreen(
                     onClick = dive.siteId?.let { id -> { onOpenSite(id) } },
                 )
                 SummaryRow("Buddies", if (buddies.isEmpty()) "-" else buddies.joinToString { it.name })
+                SummaryRow("Tags", if (tags.isEmpty()) "-" else tags.joinToString { it.name })
                 // Notes can be long and multi-line, so lay them out full-width and
                 // left-aligned under the label instead of in the right-aligned value column.
                 dive.notes?.takeIf { it.isNotBlank() }?.let { notes ->

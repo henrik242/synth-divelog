@@ -22,6 +22,7 @@ data class DiveEntry(
     val visibility: Int? = null,
     val site: SiteRef? = null,
     val buddies: List<String> = emptyList(),
+    val tags: List<String> = emptyList(),
     val gasMixes: List<GasMix> = emptyList(),
     val tanks: List<TankEntry> = emptyList(),
     val computers: List<ComputerEntry> = emptyList(),

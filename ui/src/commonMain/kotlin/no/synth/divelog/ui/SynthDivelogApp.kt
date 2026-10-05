@@ -16,11 +16,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Waves
 import androidx.compose.material3.AlertDialog
@@ -67,6 +69,7 @@ import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.buddies.BuddiesSection
+import no.synth.divelog.ui.tags.TagsSection
 import no.synth.divelog.ui.dive.DiveDetailScreen
 import no.synth.divelog.ui.dive.DiveEditScreen
 import no.synth.divelog.ui.dive.DiveRow
@@ -96,6 +99,7 @@ private enum class Section(val label: String, val icon: ImageVector, val selecte
     DIVES("Dives", Icons.Outlined.Waves, Icons.Filled.Waves),
     SITES("Sites", Icons.Outlined.Place, Icons.Filled.Place),
     BUDDIES("Buddies", Icons.Outlined.Group, Icons.Filled.Group),
+    TAGS("Tags", Icons.Outlined.Sell, Icons.Filled.Sell),
     STATS("Stats", Icons.Outlined.BarChart, Icons.Filled.BarChart),
     SETTINGS("Settings", Icons.Outlined.Settings, Icons.Filled.Settings),
 }
@@ -389,6 +393,7 @@ fun SynthDivelogApp(
                     onEditingChange = { siteEditing = it },
                 )
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
+                Section.TAGS -> TagsSection(container, unitSystem, dataVersion)
                 Section.STATS -> StatisticsSection(container, unitSystem, dataVersion)
                 Section.SETTINGS -> SettingsSection(
                     container = container,

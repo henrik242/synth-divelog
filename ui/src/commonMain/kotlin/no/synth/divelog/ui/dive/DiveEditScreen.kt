@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Place
+import no.synth.divelog.core.model.Tag
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.components.CountryField
@@ -58,6 +59,7 @@ fun DiveEditScreen(
 ) {
     val dive = remember(diveId) { container.dives.getDive(diveId) } ?: run { onCancel(); return }
     val originalBuddyIds = remember(diveId) { container.buddies.buddiesForDive(diveId).map { it.id }.toSet() }
+    val originalTagIds = remember(diveId) { container.tags.tagsForDive(diveId).map { it.id }.toSet() }
 
     // Resolve a site's place and country for the picker detail line and the selected-site card.
     val countriesById = remember(diveId) { container.sites.countries().associateBy { it.id } }
@@ -71,6 +73,7 @@ fun DiveEditScreen(
     // Sites and buddies grow as new ones are added here, so they are editable state.
     var availableSites by remember(diveId) { mutableStateOf(container.sites.allSites()) }
     var availableBuddies by remember(diveId) { mutableStateOf(container.buddies.all()) }
+    var availableTags by remember(diveId) { mutableStateOf(container.tags.all()) }
     val siteOptions = availableSites.map { SiteOption(it.id, it.name, locationLabel(it.placeId)) }
 
     val originalNumber = remember(diveId) { dive.number?.toString() ?: "" }
@@ -80,11 +83,13 @@ fun DiveEditScreen(
     var notes by remember(diveId) { mutableStateOf(originalNotes) }
     var selectedSiteId by remember(diveId) { mutableStateOf(dive.siteId) }
     var buddySelection by remember(diveId) { mutableStateOf(originalBuddyIds) }
+    var tagSelection by remember(diveId) { mutableStateOf(originalTagIds) }
     var newCountry by remember(diveId) { mutableStateOf("") }
     var newPlace by remember(diveId) { mutableStateOf("") }
     var newSite by remember(diveId) { mutableStateOf("") }
     var addingSite by remember(diveId) { mutableStateOf(false) }
     var newBuddy by remember(diveId) { mutableStateOf("") }
+    var newTag by remember(diveId) { mutableStateOf("") }
 
     // Write the dive's own fields; buddy links are written as they are toggled.
     fun persistDive() {
@@ -107,10 +112,21 @@ fun DiveEditScreen(
         }
     }
 
+    fun toggleTag(id: Long) {
+        if (id in tagSelection) {
+            tagSelection = tagSelection - id
+            container.tags.unlinkFromDive(diveId, id)
+        } else {
+            tagSelection = tagSelection + id
+            container.tags.linkToDive(diveId, id)
+        }
+    }
+
     val hasEdits = number != originalNumber ||
         notes != originalNotes ||
         selectedSiteId != dive.siteId ||
-        buddySelection != originalBuddyIds
+        buddySelection != originalBuddyIds ||
+        tagSelection != originalTagIds
 
     fun undo() {
         number = originalNumber
@@ -119,6 +135,9 @@ fun DiveEditScreen(
         (buddySelection - originalBuddyIds).forEach { container.buddies.unlinkFromDive(diveId, it) }
         (originalBuddyIds - buddySelection).forEach { container.buddies.linkToDive(diveId, it) }
         buddySelection = originalBuddyIds
+        (tagSelection - originalTagIds).forEach { container.tags.unlinkFromDive(diveId, it) }
+        (originalTagIds - tagSelection).forEach { container.tags.linkToDive(diveId, it) }
+        tagSelection = originalTagIds
         persistDive()
     }
 
@@ -232,6 +251,35 @@ fun DiveEditScreen(
                                 availableBuddies = availableBuddies + Buddy(id, newBuddy.trim())
                                 buddySelection = buddySelection + id
                                 newBuddy = ""
+                            }
+                        },
+                    ) { Text("Add") }
+                }
+            }
+
+            Column {
+                Text("Tags", style = MaterialTheme.typography.titleSmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    availableTags.forEach { tag ->
+                        FilterChip(
+                            selected = tag.id in tagSelection,
+                            onClick = { toggleTag(tag.id) },
+                            label = { Text(tag.name) },
+                        )
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(newTag, { newTag = it }, label = { Text("Add tag") }, modifier = Modifier.weight(1f))
+                    OutlinedButton(
+                        onClick = {
+                            if (newTag.isNotBlank()) {
+                                val id = container.tags.getOrCreate(newTag.trim())
+                                container.tags.linkToDive(diveId, id)
+                                if (availableTags.none { it.id == id }) {
+                                    availableTags = availableTags + Tag(id, newTag.trim())
+                                }
+                                tagSelection = tagSelection + id
+                                newTag = ""
                             }
                         },
                     ) { Text("Add") }

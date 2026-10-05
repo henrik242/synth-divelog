@@ -11,6 +11,7 @@ import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Sample
 import no.synth.divelog.core.model.Site
+import no.synth.divelog.core.model.Tag
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.core.db.sql.Buddy as BuddyRow
 import no.synth.divelog.core.db.sql.Country as CountryRow
@@ -24,6 +25,7 @@ import no.synth.divelog.core.db.sql.Sample as SampleRow
 import no.synth.divelog.core.db.sql.SelectRecordSummariesForDive
 import no.synth.divelog.core.db.sql.SelectRecordSummaryById
 import no.synth.divelog.core.db.sql.Site as SiteRow
+import no.synth.divelog.core.db.sql.Tag as TagRow
 import no.synth.divelog.core.db.sql.Tank as TankRow
 
 internal fun CountryRow.toDomain() = Country(id = id, name = name)
@@ -40,6 +42,8 @@ internal fun SiteRow.toDomain() = Site(
 )
 
 internal fun BuddyRow.toDomain() = Buddy(id = id, name = name)
+
+internal fun TagRow.toDomain() = Tag(id = id, name = name)
 
 internal fun DeviceRow.toDomain() = Device(
     id = id,

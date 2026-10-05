@@ -66,6 +66,7 @@ class LogbookIo(private val container: AppContainer) {
                 visibility = dive.visibility,
                 site = site,
                 buddies = container.buddies.buddiesForDive(dive.id).map { it.name },
+                tags = container.tags.tagsForDive(dive.id).map { it.name },
                 tanks = tanks,
                 computers = computers,
             )
@@ -176,6 +177,7 @@ class LogbookIo(private val container: AppContainer) {
     private fun applyMetadata(diveId: Long, entry: DiveEntry, isNew: Boolean) {
         val dive = container.dives.getDive(diveId) ?: return
         val currentBuddies = container.buddies.buddiesForDive(diveId)
+        val currentTags = container.tags.tagsForDive(diveId)
 
         // Scalar fields: keep the dive's value, else take the incoming one. Notes are not just
         // filled - the longer (richer) note wins, so a copy that actually has notes is kept.
@@ -207,8 +209,8 @@ class LogbookIo(private val container: AppContainer) {
                 val country = place?.let { container.sites.country(it.countryId) }
                 if (existing == null) 0 else siteScore(existing.latitude != null && existing.longitude != null, country?.name, place?.name)
             } ?: 0
-            val incomingExtra = extraScore(entry.buddies.any { it.isNotBlank() }, !entry.notes.isNullOrBlank())
-            val currentExtra = extraScore(currentBuddies.isNotEmpty(), !dive.notes.isNullOrBlank())
+            val incomingExtra = extraScore(entry.buddies.any { it.isNotBlank() }, !entry.notes.isNullOrBlank(), entry.tags.any { it.isNotBlank() })
+            val currentExtra = extraScore(currentBuddies.isNotEmpty(), !dive.notes.isNullOrBlank(), currentTags.isNotEmpty())
             val richer = incomingSiteScore > currentSiteScore ||
                 (incomingSiteScore == currentSiteScore && incomingExtra > currentExtra)
             if (dive.siteId == null || richer) {
@@ -227,6 +229,12 @@ class LogbookIo(private val container: AppContainer) {
         entry.buddies.filter { it.isNotBlank() && it !in linked }.forEach { name ->
             val id = container.buddies.all().firstOrNull { it.name == name }?.id ?: container.buddies.add(name)
             container.buddies.linkToDive(diveId, id)
+        }
+
+        // Tags: union, adding only those not already on the dive.
+        val linkedTags = currentTags.map { it.name }.toSet()
+        entry.tags.filter { it.isNotBlank() && it !in linkedTags }.forEach { name ->
+            container.tags.linkToDive(diveId, container.tags.getOrCreate(name))
         }
 
         // Tanks belong to the dive; add them for a new dive only so a merge does not duplicate.
@@ -259,9 +267,9 @@ class LogbookIo(private val container: AppContainer) {
         return score
     }
 
-    /** Extra richness a copy carries beyond its site: having buddies and having notes. */
-    private fun extraScore(hasBuddies: Boolean, hasNotes: Boolean): Int =
-        (if (hasBuddies) 1 else 0) + (if (hasNotes) 1 else 0)
+    /** Extra richness a copy carries beyond its site: having buddies, notes and tags. */
+    private fun extraScore(hasBuddies: Boolean, hasNotes: Boolean, hasTags: Boolean): Int =
+        (if (hasBuddies) 1 else 0) + (if (hasNotes) 1 else 0) + (if (hasTags) 1 else 0)
 
     private fun attachExtraComputers(diveId: Long, entry: DiveEntry, displayName: String) {
         entry.computers.drop(1).forEachIndexed { i, computer ->

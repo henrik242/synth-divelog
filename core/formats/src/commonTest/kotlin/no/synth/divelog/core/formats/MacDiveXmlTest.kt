@@ -25,6 +25,7 @@ class MacDiveXmlTest {
                 visibility = 8,
                 site = SiteRef("Testholmen", "Testland", "Testfjorden", 59.66, 10.63),
                 buddies = listOf("Alex", "Sam"),
+                tags = listOf("CCR", "Tech2"),
                 tanks = listOf(
                     TankEntry(
                         index = 0,
@@ -84,6 +85,7 @@ class MacDiveXmlTest {
         assertEquals(4, d.rating)
         assertEquals(8, d.visibility)
         assertEquals(listOf("Alex", "Sam"), d.buddies)
+        assertEquals(listOf("CCR", "Tech2"), d.tags)
 
         assertEquals("Testholmen", d.site?.name)
         assertEquals("Testland", d.site?.country)

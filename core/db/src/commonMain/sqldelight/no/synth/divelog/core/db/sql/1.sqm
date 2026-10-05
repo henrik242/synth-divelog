@@ -1,0 +1,13 @@
+-- Adds free-text dive tags. Upgrades a version-1 database (no tag tables) in place.
+CREATE TABLE tag (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE diveTag (
+    diveId INTEGER NOT NULL REFERENCES dive(id) ON DELETE CASCADE,
+    tagId INTEGER NOT NULL REFERENCES tag(id) ON DELETE CASCADE,
+    PRIMARY KEY (diveId, tagId)
+);
+
+CREATE INDEX diveTag_tag ON diveTag(tagId);

@@ -1,0 +1,45 @@
+CREATE TABLE tag (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE diveTag (
+    diveId INTEGER NOT NULL REFERENCES dive(id) ON DELETE CASCADE,
+    tagId INTEGER NOT NULL REFERENCES tag(id) ON DELETE CASCADE,
+    PRIMARY KEY (diveId, tagId)
+);
+
+CREATE INDEX diveTag_tag ON diveTag(tagId);
+
+insertTag:
+INSERT INTO tag(name) VALUES (?);
+
+selectAllTags:
+SELECT * FROM tag ORDER BY name;
+
+selectTagById:
+SELECT * FROM tag WHERE id = ?;
+
+updateTag:
+UPDATE tag SET name = ? WHERE id = ?;
+
+deleteTag:
+DELETE FROM tag WHERE id = ?;
+
+linkDiveTag:
+INSERT OR IGNORE INTO diveTag(diveId, tagId) VALUES (?, ?);
+
+unlinkDiveTag:
+DELETE FROM diveTag WHERE diveId = ? AND tagId = ?;
+
+selectTagsForDive:
+SELECT tag.* FROM tag
+JOIN diveTag ON diveTag.tagId = tag.id
+WHERE diveTag.diveId = ?
+ORDER BY tag.name;
+
+selectDiveIdsForTag:
+SELECT diveId FROM diveTag WHERE tagId = ?;
+
+lastInsertRowId:
+SELECT last_insert_rowid();

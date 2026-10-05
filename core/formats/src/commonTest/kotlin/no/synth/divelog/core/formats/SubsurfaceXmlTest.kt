@@ -20,6 +20,7 @@ class SubsurfaceXmlTest {
                 visibility = 8,
                 site = SiteRef("Drøbak", "Norway", "Oslofjorden", 59.66, 10.63),
                 buddies = listOf("Alex", "Sam"),
+                tags = listOf("boat", "deep"),
                 tanks = listOf(TankEntry(index = 0, volumeMl = 12_000, workingPressureMbar = 232_000, startPressureMbar = 200_000, endPressureMbar = 60_000, o2Permille = 320)),
                 computers = listOf(
                     ComputerEntry(
@@ -64,6 +65,7 @@ class SubsurfaceXmlTest {
         assertEquals(4, d.rating)
         assertEquals(8, d.visibility)
         assertEquals(listOf("Alex", "Sam"), d.buddies)
+        assertEquals(listOf("boat", "deep"), d.tags)
 
         assertEquals("Drøbak", d.site?.name)
         assertEquals("Norway", d.site?.country)

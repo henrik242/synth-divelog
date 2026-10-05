@@ -62,6 +62,12 @@ class MacDiveXml : DiveFormat {
             w.endTag(NS, "buddies", "")
         }
 
+        if (dive.tags.isNotEmpty()) {
+            w.startTag(NS, "tags", "")
+            for (tag in dive.tags) text(w, "tag", tag)
+            w.endTag(NS, "tags", "")
+        }
+
         writeGases(w, dive)
 
         if (computer != null && computer.samples.isNotEmpty()) {
@@ -239,6 +245,7 @@ class MacDiveXml : DiveFormat {
                                 "visibility" -> d?.visibility = t.toIntOrNull()
                                 "notes" -> d?.notes = notesOrNull(t)
                                 "buddy" -> if (t.isNotBlank()) d?.buddies?.add(t)
+                                "tag" -> if (t.isNotBlank()) d?.tags?.add(t)
                             }
                         }
                     }
@@ -401,6 +408,7 @@ class MacDiveXml : DiveFormat {
         var computerModel: String? = null,
         var site: SiteRef? = null,
         val buddies: MutableList<String> = mutableListOf(),
+        val tags: MutableList<String> = mutableListOf(),
         val gases: MutableList<GasBuilder> = mutableListOf(),
         val samples: MutableList<SampleBuilder> = mutableListOf(),
         val events: MutableList<EventBuilder> = mutableListOf(),
@@ -451,6 +459,7 @@ class MacDiveXml : DiveFormat {
                 visibility = visibility,
                 site = site,
                 buddies = buddies,
+                tags = tags,
                 gasMixes = gasMixes,
                 tanks = tanks,
                 computers = computers,
