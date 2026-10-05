@@ -13,6 +13,14 @@ internal object FormatUnits {
         return "$whole.$frac"
     }
 
+    fun twoDecimals(value: Double): String {
+        val scaled = (value * 100).roundToLong()
+        val whole = scaled / 100
+        val frac = abs(scaled % 100)
+        val sign = if (value < 0 && whole == 0L) "-" else ""
+        return "$sign$whole.${frac.toString().padStart(2, '0')}"
+    }
+
     /** Leading numeric part of a value like "35.9 m" or "32.0%". */
     fun leadingNumber(text: String): Double? {
         val sb = StringBuilder()
@@ -70,4 +78,19 @@ internal object FormatUnits {
     fun siKelvinToMk(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
     fun siFraction(permille: Int): String = (permille / 1000.0).toString()
     fun siFractionToPermille(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+
+    // MacDive plain decimals: metres, Celsius, bar, integer percent, litres, minutes
+    fun macDepth(mm: Int): String = twoDecimals(mm / 1000.0)
+    fun macDepthToMm(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+    fun macCelsius(mk: Int): String = twoDecimals((mk - 273_150) / 1000.0)
+    fun macCelsiusToMk(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() + 273_150 }
+    fun macBar(mbar: Int): String = twoDecimals(mbar / 1000.0)
+    fun macBarToMbar(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+    fun macPercent(permille: Int): String = (permille / 10).toString()
+    fun macPercentToPermille(text: String): Int? = leadingNumber(text)?.let { (it * 10).roundToInt() }
+    fun macLitres(ml: Int): String = twoDecimals(ml / 1000.0)
+    fun macLitresToMl(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+    fun macMinutes(seconds: Int): String = (seconds / 60).toString()
+    fun macMinutesToSeconds(text: String): Int? = leadingNumber(text)?.let { (it * 60).roundToInt() }
+    fun macSeconds(text: String): Int? = leadingNumber(text)?.roundToInt()
 }

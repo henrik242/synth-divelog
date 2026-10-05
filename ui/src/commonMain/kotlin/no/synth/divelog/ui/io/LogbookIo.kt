@@ -5,6 +5,7 @@ import no.synth.divelog.core.formats.DiveEntry
 import no.synth.divelog.core.formats.DiveFormat
 import no.synth.divelog.core.formats.DiveLog
 import no.synth.divelog.core.formats.GitLogFormat
+import no.synth.divelog.core.formats.MacDiveXml
 import no.synth.divelog.core.formats.SiteRef
 import no.synth.divelog.core.formats.SubsurfaceXml
 import no.synth.divelog.core.formats.TankEntry
@@ -74,7 +75,7 @@ class LogbookIo(private val container: AppContainer) {
 
     /** Detect and import file [text], returning a user-facing summary. */
     fun importMessage(text: String): String {
-        val format = detect(text) ?: return "Unrecognized file (expected Subsurface XML or UDDF)"
+        val format = detect(text) ?: return "Unrecognized file (expected Subsurface XML, UDDF or MacDive XML)"
         val counts = import(format, text)
         return "Imported ${counts.imported}, skipped ${counts.skipped} (${format.displayName})"
     }
@@ -223,10 +224,11 @@ class LogbookIo(private val container: AppContainer) {
     companion object {
         private val REPARSEABLE_FORMATS = setOf(PredatorDump.FORMAT_ID, PredatorParser.PETREL_FORMAT_ID)
 
-        fun formats(): List<DiveFormat> = listOf(SubsurfaceXml(), UddfFormat())
+        fun formats(): List<DiveFormat> = listOf(SubsurfaceXml(), UddfFormat(), MacDiveXml())
 
         /** Guess the format from the file content. */
         fun detect(text: String): DiveFormat? = when {
+            text.contains("mac-dive") -> MacDiveXml()
             text.contains("<uddf") -> UddfFormat()
             text.contains("<divelog") -> SubsurfaceXml()
             else -> null

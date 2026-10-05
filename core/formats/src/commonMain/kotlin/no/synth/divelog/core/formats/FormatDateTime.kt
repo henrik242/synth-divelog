@@ -31,6 +31,18 @@ internal object FormatDateTime {
     fun isoDateTime(epochSeconds: Long, utcOffsetSeconds: Int): String =
         "${date(epochSeconds, utcOffsetSeconds)}T${time(epochSeconds, utcOffsetSeconds)}"
 
+    /** "YYYY-MM-DD HH:MM:SS" local wall clock, space-separated (used by MacDive). */
+    fun spaceDateTime(epochSeconds: Long, utcOffsetSeconds: Int): String =
+        "${date(epochSeconds, utcOffsetSeconds)} ${time(epochSeconds, utcOffsetSeconds)}"
+
+    /** Parse "YYYY-MM-DD HH:MM:SS" into epoch seconds (offset treated as 0). */
+    fun epochFromSpaceDateTime(value: String): Long {
+        val parts = value.trim().split(" ")
+        val datePart = parts.getOrNull(0) ?: return 0L
+        val timePart = parts.getOrNull(1) ?: "00:00:00"
+        return epochFromDateTime(datePart, timePart)
+    }
+
     /** Parse "YYYY-MM-DD" + "HH:MM:SS" into epoch seconds (offset treated as 0). */
     fun epochFromDateTime(date: String, time: String): Long {
         val (y, mo, d) = date.split("-").map { it.toInt() }
