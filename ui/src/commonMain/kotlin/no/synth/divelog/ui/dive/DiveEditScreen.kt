@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -34,15 +33,21 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
+import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Place
-import no.synth.divelog.core.model.Site
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.components.BackHeader
 import no.synth.divelog.ui.components.CountryField
 import no.synth.divelog.ui.components.SiteField
 import no.synth.divelog.ui.components.SiteOption
 import kotlin.math.roundToLong
 
+/**
+ * Edits a dive. Every change is written straight to the database, so there is no save
+ * step; [onDone] just leaves the screen. While the dive differs from how it was opened,
+ * an "Undo changes" action restores the original number, notes, site and buddies.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DiveEditScreen(
@@ -53,9 +58,7 @@ fun DiveEditScreen(
     onCancel: () -> Unit,
 ) {
     val dive = remember(diveId) { container.dives.getDive(diveId) } ?: run { onCancel(); return }
-    val existingSites = remember(diveId) { container.sites.allSites() }
-    val allBuddies = remember(diveId) { container.buddies.all() }
-    val linkedBuddyIds = remember(diveId) { container.buddies.buddiesForDive(diveId).map { it.id }.toSet() }
+    val originalBuddyIds = remember(diveId) { container.buddies.buddiesForDive(diveId).map { it.id }.toSet() }
 
     // Resolve a site's place and country for the picker detail line and the selected-site card.
     val countriesById = remember(diveId) { container.sites.countries().associateBy { it.id } }
@@ -65,134 +68,177 @@ fun DiveEditScreen(
         val place = placeOf(placeId)
         return listOfNotNull(place?.name, place?.let { countriesById[it.countryId]?.name }).joinToString(", ")
     }
-    val siteOptions = existingSites.map { SiteOption(it.id, it.name, locationLabel(it.placeId)) }
 
-    var number by remember { mutableStateOf(dive.number?.toString() ?: "") }
-    var notes by remember { mutableStateOf(dive.notes ?: "") }
-    var selectedSiteId by remember { mutableStateOf(dive.siteId) }
-    var newCountry by remember { mutableStateOf("") }
-    var newPlace by remember { mutableStateOf("") }
-    var newSite by remember { mutableStateOf("") }
-    var addingSite by remember { mutableStateOf(false) }
-    var buddySelection by remember { mutableStateOf(linkedBuddyIds) }
-    var newBuddy by remember { mutableStateOf("") }
-    var createdBuddies by remember { mutableStateOf(listOf<String>()) }
+    // Sites and buddies grow as new ones are added here, so they are editable state.
+    var availableSites by remember(diveId) { mutableStateOf(container.sites.allSites()) }
+    var availableBuddies by remember(diveId) { mutableStateOf(container.buddies.all()) }
+    val siteOptions = availableSites.map { SiteOption(it.id, it.name, locationLabel(it.placeId)) }
 
-    fun save() {
-        val siteId = if (newSite.isNotBlank() && newCountry.isNotBlank() && newPlace.isNotBlank()) {
-            container.sites.getOrCreateSite(newCountry.trim(), newPlace.trim(), newSite.trim())
-        } else {
-            selectedSiteId
-        }
+    val originalNumber = remember(diveId) { dive.number?.toString() ?: "" }
+    val originalNotes = remember(diveId) { dive.notes ?: "" }
+
+    var number by remember(diveId) { mutableStateOf(originalNumber) }
+    var notes by remember(diveId) { mutableStateOf(originalNotes) }
+    var selectedSiteId by remember(diveId) { mutableStateOf(dive.siteId) }
+    var buddySelection by remember(diveId) { mutableStateOf(originalBuddyIds) }
+    var newCountry by remember(diveId) { mutableStateOf("") }
+    var newPlace by remember(diveId) { mutableStateOf("") }
+    var newSite by remember(diveId) { mutableStateOf("") }
+    var addingSite by remember(diveId) { mutableStateOf(false) }
+    var newBuddy by remember(diveId) { mutableStateOf("") }
+
+    // Write the dive's own fields; buddy links are written as they are toggled.
+    fun persistDive() {
         container.dives.updateDive(
             dive.copy(
                 number = number.trim().toIntOrNull(),
                 notes = notes.ifBlank { null },
-                siteId = siteId,
+                siteId = selectedSiteId,
             ),
         )
-        val newIds = createdBuddies.filter { it.isNotBlank() }.map { container.buddies.add(it.trim()) }
-        val finalIds = buddySelection + newIds
-        (finalIds - linkedBuddyIds).forEach { container.buddies.linkToDive(diveId, it) }
-        (linkedBuddyIds - finalIds).forEach { container.buddies.unlinkFromDive(diveId, it) }
-        onDone()
+    }
+
+    fun toggleBuddy(id: Long) {
+        if (id in buddySelection) {
+            buddySelection = buddySelection - id
+            container.buddies.unlinkFromDive(diveId, id)
+        } else {
+            buddySelection = buddySelection + id
+            container.buddies.linkToDive(diveId, id)
+        }
+    }
+
+    val hasEdits = number != originalNumber ||
+        notes != originalNotes ||
+        selectedSiteId != dive.siteId ||
+        buddySelection != originalBuddyIds
+
+    fun undo() {
+        number = originalNumber
+        notes = originalNotes
+        selectedSiteId = dive.siteId
+        (buddySelection - originalBuddyIds).forEach { container.buddies.unlinkFromDive(diveId, it) }
+        (originalBuddyIds - buddySelection).forEach { container.buddies.linkToDive(diveId, it) }
+        buddySelection = originalBuddyIds
+        persistDive()
     }
 
     val focusManager = LocalFocusManager.current
-    Column(
-        Modifier.fillMaxSize()
-            // Tab / Shift-Tab move between fields instead of being typed or trapped in one.
-            // The preview pass runs on this ancestor before the focused field handles the key.
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.Tab) {
-                    focusManager.moveFocus(if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
-                    true
-                } else {
-                    false
-                }
+    Column(Modifier.fillMaxSize()) {
+        BackHeader("Edit dive", onBack = onDone)
+        if (hasEdits) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { undo() }) { Text("Undo changes") }
             }
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text("Edit dive", style = MaterialTheme.typography.headlineSmall)
+        }
 
-        OutlinedTextField(
-            number,
-            { number = it.filter { c -> c.isDigit() } },
-            label = { Text("Dive number") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        OutlinedTextField(
-            notes,
-            { notes = it },
-            label = { Text("Notes") },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 3,
-        )
-
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Site", style = MaterialTheme.typography.titleSmall)
-            SiteField(
-                options = siteOptions,
-                selectedId = selectedSiteId,
-                onSelect = { selectedSiteId = it },
+        Column(
+            Modifier.fillMaxWidth().weight(1f)
+                // Tab / Shift-Tab move between fields instead of being typed or trapped in one.
+                // The preview pass runs on this ancestor before the focused field handles the key.
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Tab) {
+                        focusManager.moveFocus(if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
+                        true
+                    } else {
+                        false
+                    }
+                }
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            OutlinedTextField(
+                number,
+                { number = it.filter { c -> c.isDigit() }; persistDive() },
+                label = { Text("Dive number") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
             )
-            existingSites.firstOrNull { it.id == selectedSiteId }?.let { site ->
-                val detail = buildList {
-                    locationLabel(site.placeId).takeIf { it.isNotEmpty() }?.let { add(it) }
-                    coordinateLabel(site.latitude, site.longitude)?.let { add(it) }
-                    site.notes?.takeIf { it.isNotBlank() }?.let { add(it) }
+
+            OutlinedTextField(
+                notes,
+                { notes = it; persistDive() },
+                label = { Text("Notes") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Site", style = MaterialTheme.typography.titleSmall)
+                SiteField(
+                    options = siteOptions,
+                    selectedId = selectedSiteId,
+                    onSelect = { selectedSiteId = it; persistDive() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                availableSites.firstOrNull { it.id == selectedSiteId }?.let { site ->
+                    val detail = buildList {
+                        locationLabel(site.placeId).takeIf { it.isNotEmpty() }?.let { add(it) }
+                        coordinateLabel(site.latitude, site.longitude)?.let { add(it) }
+                        site.notes?.takeIf { it.isNotBlank() }?.let { add(it) }
+                    }
+                    if (detail.isNotEmpty()) {
+                        Text(
+                            detail.joinToString("\n"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                if (detail.isNotEmpty()) {
-                    Text(
-                        detail.joinToString("\n"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+
+                if (addingSite) {
+                    CountryField(newCountry, { newCountry = it }, Modifier.fillMaxWidth().padding(top = 8.dp))
+                    OutlinedTextField(newPlace, { newPlace = it }, label = { Text("Place") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(newSite, { newSite = it }, label = { Text("Site name") }, modifier = Modifier.fillMaxWidth())
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            enabled = newCountry.isNotBlank() && newPlace.isNotBlank() && newSite.isNotBlank(),
+                            onClick = {
+                                val id = container.sites.getOrCreateSite(newCountry.trim(), newPlace.trim(), newSite.trim())
+                                container.sites.site(id)?.let { s ->
+                                    if (availableSites.none { it.id == s.id }) availableSites = availableSites + s
+                                }
+                                selectedSiteId = id
+                                persistDive()
+                                addingSite = false; newCountry = ""; newPlace = ""; newSite = ""
+                            },
+                        ) { Text("Add site") }
+                        TextButton(onClick = { addingSite = false; newCountry = ""; newPlace = ""; newSite = "" }) {
+                            Text("Cancel")
+                        }
+                    }
+                } else {
+                    TextButton(onClick = { addingSite = true }) { Text("Add a new site") }
                 }
             }
 
-            if (addingSite) {
-                CountryField(newCountry, { newCountry = it }, Modifier.fillMaxWidth().padding(top = 8.dp))
-                OutlinedTextField(newPlace, { newPlace = it }, label = { Text("Place") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(newSite, { newSite = it }, label = { Text("Site name") }, modifier = Modifier.fillMaxWidth())
-                TextButton(onClick = { addingSite = false; newCountry = ""; newPlace = ""; newSite = "" }) {
-                    Text("Cancel new site")
+            Column {
+                Text("Buddies", style = MaterialTheme.typography.titleSmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    availableBuddies.forEach { buddy ->
+                        FilterChip(
+                            selected = buddy.id in buddySelection,
+                            onClick = { toggleBuddy(buddy.id) },
+                            label = { Text(buddy.name) },
+                        )
+                    }
                 }
-            } else {
-                TextButton(onClick = { addingSite = true }) { Text("Add a new site") }
-            }
-        }
-
-        Column {
-            Text("Buddies", style = MaterialTheme.typography.titleSmall)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                allBuddies.forEach { buddy ->
-                    FilterChip(
-                        selected = buddy.id in buddySelection,
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(newBuddy, { newBuddy = it }, label = { Text("Add buddy") }, modifier = Modifier.weight(1f))
+                    OutlinedButton(
                         onClick = {
-                            buddySelection = if (buddy.id in buddySelection) buddySelection - buddy.id else buddySelection + buddy.id
+                            if (newBuddy.isNotBlank()) {
+                                val id = container.buddies.add(newBuddy.trim())
+                                container.buddies.linkToDive(diveId, id)
+                                availableBuddies = availableBuddies + Buddy(id, newBuddy.trim())
+                                buddySelection = buddySelection + id
+                                newBuddy = ""
+                            }
                         },
-                        label = { Text(buddy.name) },
-                    )
+                    ) { Text("Add") }
                 }
-                createdBuddies.forEach { name -> FilterChip(selected = true, onClick = {}, label = { Text(name) }) }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(newBuddy, { newBuddy = it }, label = { Text("Add buddy") }, modifier = Modifier.weight(1f))
-                OutlinedButton(
-                    onClick = { if (newBuddy.isNotBlank()) { createdBuddies = createdBuddies + newBuddy.trim(); newBuddy = "" } },
-                ) { Text("Add") }
-            }
-        }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { save() }, modifier = Modifier.weight(1f)) { Text("Save") }
-            OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
         }
     }
 }
