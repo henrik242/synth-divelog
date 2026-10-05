@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +17,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -84,6 +88,7 @@ fun DiveDetailScreen(
 
     var showMerge by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
 
     if (showDelete) {
         AlertDialog(
@@ -169,7 +174,19 @@ fun DiveDetailScreen(
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next dive")
                 }
             }
-            androidx.compose.material3.TextButton(onClick = onEdit) { Text("Edit") }
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Dive actions")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
+                    DropdownMenuItem(text = { Text("Merge in") }, onClick = { menuOpen = false; showMerge = true })
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        onClick = { menuOpen = false; showDelete = true },
+                    )
+                }
+            }
         }
 
         if (samples.size >= 2) {
@@ -237,16 +254,6 @@ fun DiveDetailScreen(
             }
         }
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.material3.TextButton(onClick = { showMerge = true }) { Text("Merge in") }
-            androidx.compose.material3.TextButton(
-                onClick = { showDelete = true },
-                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
-                ),
-            ) { Text("Delete") }
-        }
-
         // A small map of the dive's site, when it has a coordinate.
         site?.let { s ->
             if (s.latitude != null && s.longitude != null) {
@@ -254,7 +261,7 @@ fun DiveDetailScreen(
                     latitude = s.latitude,
                     longitude = s.longitude,
                     interactive = false,
-                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                    modifier = Modifier.fillMaxWidth().height(260.dp),
                 )
             }
         }
