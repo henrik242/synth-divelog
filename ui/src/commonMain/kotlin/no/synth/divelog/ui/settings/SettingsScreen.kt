@@ -37,6 +37,7 @@ import kotlinx.coroutines.delay
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.io.LogbookIo
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -111,11 +112,11 @@ fun SettingsSection(
 
         Text("Export", style = MaterialTheme.typography.titleMedium)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { onExport("subsurface-xml") }, modifier = Modifier.fillMaxWidth()) {
-                Text("Export Subsurface XML")
-            }
-            OutlinedButton(onClick = { onExport("uddf") }, modifier = Modifier.fillMaxWidth()) {
-                Text("Export UDDF")
+            // One button per registered file format, so a new format appears here too.
+            LogbookIo.formats().forEach { format ->
+                OutlinedButton(onClick = { onExport(format.id) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Export ${format.displayName}")
+                }
             }
             if (cloudEnabled) {
                 OutlinedButton(onClick = { cloudDialog = CloudAction.EXPORT }, modifier = Modifier.fillMaxWidth()) {
