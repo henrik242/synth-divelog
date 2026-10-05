@@ -51,6 +51,8 @@ kotlin {
             implementation(libs.jgit)
             // USB-serial adapters and the USB permission flow for the shared wired download.
             implementation(project(":core:transport"))
+            // Interactive dive-site map. Android is the only target with a native map.
+            implementation(libs.maplibre.android)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
