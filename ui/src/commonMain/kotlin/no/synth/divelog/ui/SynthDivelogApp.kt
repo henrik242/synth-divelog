@@ -87,6 +87,7 @@ import no.synth.divelog.ui.download.SerialPortInfo
 import no.synth.divelog.ui.download.SerialPorts
 import no.synth.divelog.ui.format.Format
 import no.synth.divelog.ui.io.LogbookIo
+import no.synth.divelog.ui.settings.ComputersScreen
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
 import no.synth.divelog.ui.stats.StatisticsSection
@@ -152,8 +153,11 @@ fun SynthDivelogApp(
     var sitePlace by remember(dataVersion) { mutableStateOf<Place?>(null) }
     var siteOpen by remember(dataVersion) { mutableStateOf<Site?>(null) }
     var siteEditing by remember(dataVersion) { mutableStateOf(false) }
-    // Set when a dive-detail computer name is tapped: jumps to Settings and scrolls there.
-    var settingsFocusDeviceId by remember { mutableStateOf<Long?>(null) }
+    // The Dive computers page is a drill-in over the current section (Settings, or Dives via a
+    // dive-detail link), so back returns to where it was opened from. The focus id is set by
+    // the dive-detail computer link: the page scrolls to and highlights that device.
+    var computersOpen by remember { mutableStateOf(false) }
+    var computersFocusDeviceId by remember { mutableStateOf<Long?>(null) }
     var pendingSiteId by remember { mutableStateOf<Long?>(null) }
 
     // A dive's site link sets this: drill straight to that site, deriving its place and
@@ -288,6 +292,17 @@ fun SynthDivelogApp(
             if (siteEditing) add(Crumb("Edit"))
         }
         else -> listOf(Crumb(section.label))
+    }.let { base ->
+        if (!computersOpen) {
+            base
+        } else {
+            // Parent crumbs close the page first; the page itself is the last, inert crumb.
+            val parents = base.map { c ->
+                val go = c.onClick
+                Crumb(c.label) { computersOpen = false; go?.invoke() }
+            }
+            parents + Crumb("Dive computers")
+        }
     }
 
     Scaffold(
@@ -302,7 +317,7 @@ fun SynthDivelogApp(
                 Section.entries.forEach { s ->
                     NavigationBarItem(
                         selected = section == s,
-                        onClick = { section = s },
+                        onClick = { computersOpen = false; section = s },
                         icon = {
                             Icon(
                                 imageVector = if (section == s) s.selectedIcon else s.icon,
@@ -320,6 +335,7 @@ fun SynthDivelogApp(
             // then falls through to the section/exit logic.
             BackHandler {
                 when {
+                    computersOpen -> computersOpen = false
                     // Dives: edit -> detail -> list.
                     diveDrilledIn && editing -> editing = false
                     diveDrilledIn -> openDiveId = null
@@ -341,14 +357,23 @@ fun SynthDivelogApp(
                     }
                 }
             }
-            when (section) {
+            if (computersOpen) {
+                ComputersScreen(
+                    container = container,
+                    onBack = { computersOpen = false },
+                    focusDeviceId = computersFocusDeviceId,
+                    onFocusConsumed = { computersFocusDeviceId = null },
+                )
+            }
+            // The open dive and sites state are lifted above, so they survive the page being shown.
+            if (!computersOpen) when (section) {
                 Section.DIVES -> DivesSection(
                     container, unitSystem, { addDivesOpen = true }, dataVersion,
                     openDiveId = openDiveId,
                     onOpenDiveChange = { openDiveId = it },
                     editing = editing,
                     onEditingChange = { editing = it },
-                    onOpenDevice = { deviceId -> settingsFocusDeviceId = deviceId; section = Section.SETTINGS },
+                    onOpenDevice = { deviceId -> computersFocusDeviceId = deviceId; computersOpen = true },
                     onOpenSite = { siteId -> pendingSiteId = siteId; section = Section.SITES },
                 )
                 Section.SITES -> SitesSection(
@@ -377,8 +402,7 @@ fun SynthDivelogApp(
                     onCloudConfigChange = onCloudConfigChange,
                     onCloudPull = onCloudPull,
                     onCloudPush = onCloudPush,
-                    focusDeviceId = settingsFocusDeviceId,
-                    onFocusConsumed = { settingsFocusDeviceId = null },
+                    onOpenComputers = { computersFocusDeviceId = null; computersOpen = true },
                 )
             }
 

@@ -38,6 +38,19 @@ class DeviceRepository(private val db: DiveDatabase) {
 
     fun delete(id: Long) = q.deleteDevice(id)
 
+    /** Number of distinct dives recorded by each device, keyed by device id. */
+    fun diveCounts(): Map<Long, Long> = db.recordQueries.countDivesByDevice().executeAsList()
+        .associate { it.deviceId to it.dives }
+
+    /** Move every record of [fromId] to [toId], then delete [fromId]. The target's details are kept. */
+    fun merge(fromId: Long, toId: Long) {
+        if (fromId == toId) return
+        db.transaction {
+            db.recordQueries.reassignRecordsFromDevice(toId, fromId)
+            q.deleteDevice(fromId)
+        }
+    }
+
     /** Id of an existing device matching [device]'s address, or null if none is stored yet. */
     fun findId(device: Device): Long? =
         device.bluetoothAddress?.let { q.selectDeviceByAddress(it).executeAsOneOrNull()?.id }

@@ -53,6 +53,14 @@ SELECT count(*) FROM diveComputerRecord WHERE diveId = ?;
 reassignRecordToDive:
 UPDATE diveComputerRecord SET diveId = ? WHERE id = ?;
 
+reassignRecordsFromDevice:
+UPDATE diveComputerRecord SET deviceId = ? WHERE deviceId = ?;
+
+-- Dives per device, for the dive computers page.
+countDivesByDevice:
+SELECT deviceId, count(DISTINCT diveId) AS dives FROM diveComputerRecord
+WHERE deviceId IS NOT NULL GROUP BY deviceId;
+
 deleteRecord:
 DELETE FROM diveComputerRecord WHERE id = ?;
 
