@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ main ]
@@ -14,22 +17,23 @@ jobs:
     name: Common tests (JVM)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install required SDK packages
-        run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
-
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.3.0
+        with:
+          cache-provider: basic
+
+      # Configuring the Android modules needs the SDK location; the runner has the
+      # SDK preinstalled and AGP provisions the compileSdk platform during the build.
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Run common tests on the JVM
         run: ./gradlew jvmTest --stacktrace
