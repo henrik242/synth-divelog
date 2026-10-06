@@ -16,6 +16,9 @@ androidx-coreKtx = "1.19.1"
 
 # Multiplatform AndroidX (org.jetbrains.androidx.*) -- used from M3 onwards
 jetbrains-lifecycle = "2.11.0"
+# androidx.navigationevent ships its own KMP targets; replaces the deprecated
+# compose ui-backhandler.
+androidx-navigationevent = "1.1.1"
 
 # kotlinx -- first referenced in M1; versions re-verified when used
 kotlinx-coroutines = "1.11.0"
@@ -77,6 +80,7 @@ androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx
 jetbrains-lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "jetbrains-lifecycle" }
 jetbrains-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "jetbrains-lifecycle" }
 jetbrains-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "jetbrains-lifecycle" }
+androidx-navigationevent-compose = { module = "androidx.navigationevent:navigationevent-compose", version.ref = "androidx-navigationevent" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

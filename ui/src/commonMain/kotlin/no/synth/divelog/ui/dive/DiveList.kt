@@ -21,7 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.backhandler.BackHandler
+import no.synth.divelog.ui.common.BackHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.Dive
@@ -33,7 +33,8 @@ import no.synth.divelog.ui.format.Format
 @Composable
 fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit, siteName: String? = null, source: String? = null) {
     val hasSite = !siteName.isNullOrBlank()
-    val headline = if (hasSite) siteName!! else Format.date(dive.startEpochSeconds, dive.utcOffsetSeconds)
+    val headline = siteName?.takeIf { it.isNotBlank() }
+        ?: Format.date(dive.startEpochSeconds, dive.utcOffsetSeconds)
     val secondary = buildList {
         dive.number?.let { add("#$it") }
         source?.let { add(it) }

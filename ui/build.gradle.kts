@@ -10,6 +10,9 @@ kotlin {
     // compilation must run on a JDK 25 toolchain (and the desktop app runs on 25).
     jvmToolchain(25)
 
+    // SettingsStore and CloudGit are expect/actual classes, still Beta in Kotlin.
+    compilerOptions { freeCompilerArgs.add("-Xexpect-actual-classes") }
+
     jvm {
         // Emit Java 17 bytecode anyway; the toolchain only sets the compiler JDK.
         // The Android target keeps the AGP default jvmTarget, which the dexer
@@ -40,7 +43,7 @@ kotlin {
             implementation(compose.foundation)
             implementation(compose.material3)
             implementation(compose.ui)
-            implementation("org.jetbrains.compose.ui:ui-backhandler:${libs.versions.composeMultiplatform.get()}")
+            implementation(libs.androidx.navigationevent.compose)
             implementation(compose.materialIconsExtended)
             implementation(project(":core:model"))
             implementation(project(":core:db"))

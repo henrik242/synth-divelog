@@ -29,7 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.backhandler.BackHandler
+import no.synth.divelog.ui.common.BackHandler
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.Tag
 import no.synth.divelog.core.model.units.UnitSystem
