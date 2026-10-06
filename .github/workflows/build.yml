@@ -69,7 +69,7 @@ jobs:
           name: android-debug-apk
           path: app/android/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-	  archive: false
+          archive: false
 
   ios:
     name: iOS frameworks
@@ -137,3 +137,4 @@ jobs:
           path: app/desktop/build/compose/binaries/main/dmg/*.dmg
           if-no-files-found: error
           archive: false
+
