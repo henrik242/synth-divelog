@@ -6,8 +6,8 @@ composeMultiplatform = "1.12.1"
 sqldelight = "2.4.0"
 
 # Android SDK levels
-android-compileSdk = "37"
-android-targetSdk = "37"
+android-compileSdk = "36"
+android-targetSdk = "36"
 android-minSdk = "33"
 
 # AndroidX (android target only)
