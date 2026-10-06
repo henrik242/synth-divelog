@@ -16,7 +16,25 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        // A committed debug keystore so every build (local and the ephemeral CI runners)
+        // signs with the same certificate. Without it AGP generates a fresh debug key per
+        // machine/run and installs over an earlier build fail with
+        // INSTALL_FAILED_UPDATE_INCOMPATIBLE. Debug-only; a Play Store release uses its own key.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            // Separate app id so the debug build installs alongside a release build.
+            applicationIdSuffix = ".debug"
+            signingConfig = signingConfigs.getByName("debug")
+        }
         getByName("release") {
             isMinifyEnabled = false
         }
