@@ -1,10 +1,14 @@
-# Suunto download: real-device test guide (M9)
+# Suunto download: real-device test guide
 
-How to validate the Suunto USB download against the real dongle. Everything here
-is written from the protocol spec and covered by synthetic unit tests; **none of it
-has touched hardware yet.** This guide is the checklist for the first real capture.
+How to validate the Suunto USB download against the real cable.
 
-## What is verified vs what needs the dongle
+**Status:** the **HelO2 (D9 family)** download is verified end to end on hardware
+(full download over the original Suunto cable), driven from the app's "Add dives"
+flow and the desktop `suuntoCapture` tool. The **Zoop / old-Vyper family** is
+implemented and unit-tested but **not yet verified against hardware** - this guide
+is mainly the checklist for that first Vyper capture.
+
+## What is verified vs what needs hardware
 
 Verified by unit tests (`./gradlew :core:divecomputer:jvmTest`):
 
@@ -15,115 +19,71 @@ Verified by unit tests (`./gradlew :core:divecomputer:jvmTest`):
   wrap (`SuuntoVyperTest`).
 - Depth/temperature parsing from delta-feet samples against a hand-built memory
   image (`SuuntoVyperTest`).
-- D9/HelO2 packet framing, `ReadMemory` (with paging) and `GetVersion`
-  (`SuuntoD9LinkTest`).
+- D9/HelO2 packet framing, `ReadMemory` (paging) and `GetVersion`; the dive
+  directory walk and the HelO2 record/profile parser.
 - Family selection -> serial params + protocol + parser (`SuuntoFamilyTest`).
 
-Needs the dongle (unverified):
+Still needs a Zoop/Vyper on the cable:
 
-- The whole transport/timing layer: baud, odd parity, the half-duplex RTS/DTR
-  dance and echo discard. This is the classic flaky part.
-- The Vyper header offsets (model `0x24`, write pointer `0x51`), the exact per-dive
-  head layout, the sample interval, and the per-dive **date/time** (so
+- The Vyper header offsets (model `0x24`, write pointer `0x51`), the per-dive head
+  layout, the sample interval, and the per-dive **date/time** (so
   `startEpochSeconds` is 0 for now and identity uses a content fingerprint).
-- The D9 dive directory and profile format (not implemented).
+- The Vyper transport timing (2400 8O1 half-duplex, RTS/DTR, echo discard).
 
-## Hardware
-
-- A **Suunto "old" USB interface cable** (rotating connector, red alignment dot).
-  Chipset is usually FTDI (VID `0x0403` / PID `0x6001`); some are Prolific PL2303
-  (VID `0x067B`). Both are handled by usb-serial-for-android's default prober.
-- A **USB-OTG / USB-C host adapter** for the phone (the test Samsung S25 exposes a
-  USB-C host port; reach it over adb per `memory/test-device.md`).
-- A **Suunto Zoop** first (old Vyper family, 2400 8O1 half-duplex), then a
-  **HelO2** (D9 family, 9600 8N1) once the D9 parser exists.
-- Put the computer in PC/transfer mode if the model requires it, and seat it
-  firmly in the cradle (these cables are contact-fussy).
-
-## Android app wiring
-
-The pieces are in place; the download screen needs to call them (the UI is owned by
-the main session, so this is the integration recipe, not committed UI code):
-
-1. Manifest: declare USB host.
-
-   ```xml
-   <uses-feature android:name="android.hardware.usb.host" />
-   ```
-
-2. Enumerate adapters:
-
-   ```kotlin
-   val candidates = UsbSerialDevices.available(context)   // UsbSerialCandidate list
-   val cable = candidates.firstOrNull { it.looksLikeSuuntoCable } ?: candidates.first()
-   ```
-
-3. Get the USB permission (system dialog). Register a receiver for a private action,
-   then:
-
-   ```kotlin
-   if (!UsbSerialDevices.hasPermission(context, cable)) {
-       UsbSerialDevices.requestPermission(context, cable, "no.synth.divelog.USB_PERMISSION")
-       // wait for the broadcast; check UsbManager.EXTRA_PERMISSION_GRANTED
-   }
-   ```
-
-   To auto-grant on attach instead, add an `intent-filter` for
-   `android.hardware.usb.action.USB_DEVICE_ATTACHED` with a `device_filter.xml`
-   listing the VID/PID.
-
-4. Pick the family, open the transport with its serial params, download, parse:
-
-   ```kotlin
-   val family = SuuntoFamily.VYPER   // Zoop; SuuntoFamily.D9 for HelO2 (parser pending)
-   val transport = UsbSerialDevices.transportFor(context, cable, family.serialParams)
-   val recording = RecordingTransport(transport) { System.currentTimeMillis() }
-   recording.open()
-   val protocol = family.protocol(recording)
-   val raw = protocol.download(knownFingerprint = null)
-   val parser = family.parser()!!   // null for D9 until implemented
-   val dives = raw.map { parser.parse(it) }
-   // Always save recording.transcript().toText() - it is the ground truth.
-   recording.close()
-   ```
-
-   This mirrors the Bluetooth path (`DownloadViewModel`), which picks
-   `ShearwaterPetrelProtocol` vs `ShearwaterPredatorProtocol`; here `SuuntoFamily`
-   picks Vyper vs D9. Reuse `RecordingTransport` so a failed attempt still yields a
-   transcript to debug with.
-
-## Expected serial parameters
+## Serial parameters (verified for HelO2; spec for Vyper)
 
 | Family | Baud | Frame | Duplex | Lines |
 |---|---|---|---|---|
-| Vyper / Zoop | 2400 | 8O1 | half | DTR high; RTS set to send, clear to receive; echo discarded |
-| HelO2 / D9 | 9600 | 8N1 | full | DTR high; no RTS toggling |
+| Vyper / Zoop | 2400 | 8O1 | half | DTR high; RTS high to transmit, low to receive; cable **echoes** sent bytes (discarded) |
+| HelO2 / D9 | 9600 | 8N1 | half | DTR high; RTS high to transmit, low to receive; **no echo**; reply window ~6-10 ms after the write |
 
-Vyper timing (from the spec, tune against the capture): ~200 ms to let the UART
-drain before clearing RTS, ~400 ms after clearing before reading, ~500 ms receive
-timeout. These are `SuuntoVyperProtocol.SERIAL_PARAMS.txSettleMs` / `rxSettleMs`.
+The HelO2 turnaround has no echo to sync on, so the RTS-to-receive switch must land
+in a narrow window; `SuuntoD9Link` jitters the settle and retries. See
+[docs/protocol/suunto-helo2.md](docs/protocol/suunto-helo2.md).
 
-## Capturing and feeding back
+## Hardware
 
-Every download should run through `RecordingTransport`; save the transcript the way
-the Bluetooth path does (under `files/captures/`). Pull it with:
+- A **Suunto USB interface cable** (rotating connector). Chipset is usually FTDI
+  (VID `0x0403` / PID `0x6001`); some are Prolific PL2303 (VID `0x067B`). Both are
+  handled by usb-serial-for-android's default prober.
+- Android needs a **USB-OTG / USB-C host adapter**; the test Samsung S25 has a
+  USB-C host port (reach it over adb per `memory/test-device.md`).
+- Put the computer in PC/transfer mode if the model requires it, and seat it firmly
+  (these cables are contact-fussy).
+- On **macOS** use the `cu.*` port, not `tty.*` (the dial-in node blocks on open).
+
+The download itself is wired into the shared **Add dives** flow (pick the computer
+and the port); no manual wiring needed.
+
+## Desktop capture tool (easiest first capture)
+
+The Suunto cable plugs straight into a Mac/PC USB port (no OTG), and jSerialComm has
+a mature serial stack, so the desktop is the least flaky place for a first capture.
 
 ```sh
-adb exec-out run-as no.synth.divelog cat files/captures/<name>.transcript.txt
+# List the ports (run with no cable to see the names):
+./gradlew :app:desktop:suuntoCapture
+
+# Auto-pick a usbserial-* port, old-Vyper family:
+./gradlew :app:desktop:suuntoCapture --args="VYPER"
+
+# Or name the port explicitly, HelO2/D9 family:
+./gradlew :app:desktop:suuntoCapture --args="cu.usbserial-XXXX D9"
 ```
 
-Replay it offline against the protocol with `ReplayTransport` (strictWrites = false),
-exactly like `PredatorCaptureRegressionTest`, and turn it into a committed
-regression fixture once the decoded dives match the device's own log screens
-(dive number, max depth, average depth, duration, date/time).
+It opens the port through a `RecordingTransport`, runs the download, prints the
+decoded dives, and saves the raw transcript to
+`~/.synth-divelog/suunto-capture-<ts>.transcript.txt` - even on failure, so a flaky
+attempt still leaves something to debug. `SuuntoCapture.kt` (in `app/desktop`) is
+the reference for the raw API and has extra diagnostic modes.
 
-## First-capture checklist
+## First Vyper capture checklist
 
 1. Does the cable enumerate, and is the VID/PID what we expect?
 2. Does a single `0x05` read of address `0x24` return a plausible model byte?
 3. Does the write pointer at `0x51` fall inside `0x71`..`0x2000`?
-4. Does the full ring dump round-trip (no CRC errors, no timeouts)? If it is flaky,
-   adjust the RTS/DTR settle timings first.
+4. Does the full ring dump round-trip (no CRC errors, no timeouts)? If flaky, adjust
+   the RTS/DTR settle timings first.
 5. Do the extracted dive count and the newest dive's max depth / duration match the
    device screen? If depths are off by a constant factor, re-check feet-vs-metric
    and the delta sign. If the oldest dive is missing leading head bytes, revisit the
@@ -131,32 +91,6 @@ regression fixture once the decoded dives match the device's own log screens
 6. Capture the per-dive date/time bytes so `SuuntoVyperParser` can set a real
    `startEpochSeconds`.
 
-## Desktop (easiest first capture)
-
-The Suunto cable plugs straight into a Mac/PC USB port (no OTG adapter), and
-jSerialComm has a mature serial stack, so the desktop is the least flaky place to
-get the first real capture. There is a ready-made command-line tool for it:
-
-```sh
-# List the ports (run with no dongle to see what names look like):
-./gradlew :app:desktop:suuntoCapture
-
-# Capture, letting it auto-pick a usbserial-* port, Zoop/old-Vyper family:
-./gradlew :app:desktop:suuntoCapture --args="VYPER"
-
-# Or name the port explicitly (from the list above):
-./gradlew :app:desktop:suuntoCapture --args="cu.usbserial-XXXX VYPER"
-```
-
-It opens the port with the family's serial params through a `RecordingTransport`,
-runs the download, prints the decoded dives (number, max depth, duration, sample
-count) and always saves the raw transcript to
-`~/.synth-divelog/suunto-capture-<ts>.transcript.txt` - even on failure, so a
-flaky attempt still leaves something to debug. Feed that transcript back the same
-way as the Bluetooth captures: replay it offline with `ReplayTransport`
-(strictWrites = false) and promote it to a committed regression fixture once the
-decoded dives match the device's own log screens.
-
-`SuuntoCapture.kt` (in `app/desktop`) is also the reference for the raw API:
-`JSerialCommTransport.availablePortNames()` / `.byName(name, params)`, then the
-same `SuuntoFamily.protocol(...)` / `.parser()` calls the Android path uses.
+Replay a transcript offline with `ReplayTransport` (strictWrites = false), like
+`PredatorCaptureRegressionTest`, and promote it to a committed regression fixture
+once the decoded dives match the device's own log screens.
