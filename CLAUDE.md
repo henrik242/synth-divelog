@@ -15,7 +15,7 @@ per-target entry point.
 | `:core:divecomputer` | Transport interface, protocols, parsers (pure common). |
 | `:core:transport` | `expect`/`actual` transports: jSerialComm (jvm), USB-serial + classic-BT RFCOMM (android). |
 | `:core:formats` | File formats (Subsurface XML, UDDF, MacDive XML, git-tree) over a neutral `DiveLog`. |
-| `:core:gas` | Diving calculators (partial-pressure gas blender with real-gas Z, tank buoyancy), pure common. Shown under the Tools tab. |
+| `:core:gas` | Diving calculators (partial-pressure gas blender with real-gas Z, tank buoyancy, MOD/END), pure common. Shown under the Tools tab. |
 | `:ui` | Shared Compose Multiplatform screens; also hosts `LogbookIo`, cloud sync, serial-download orchestration. |
 | `:app:android`, `:app:desktop`, `iosApp/` | Per-platform entry points. |
 
