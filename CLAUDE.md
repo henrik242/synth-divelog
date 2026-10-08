@@ -1,7 +1,7 @@
 # Synth Divelog - working notes
 
-A Kotlin Multiplatform dive log (`no.synth.divelog`) with its own pure-Kotlin
-dive-computer stack. Targets Android, desktop (JVM) and iOS from one codebase.
+Kotlin Multiplatform dive log (`no.synth.divelog`) with its own pure-Kotlin
+dive-computer stack, for Android, desktop (JVM) and iOS.
 
 ## Architecture
 
@@ -18,13 +18,12 @@ per-target entry point.
 | `:ui` | Shared Compose Multiplatform screens; also hosts `LogbookIo`, cloud sync, serial-download orchestration. |
 | `:app:android`, `:app:desktop`, `iosApp/` | Per-platform entry points. |
 
-**Keep Android/JVM APIs out of `:core:model`, `:core:divecomputer`, `:core:formats` and `:ui` commonMain.** Shared modules declare a `jvm()` target so common tests run on the JVM.
+- **Keep Android/JVM APIs out of `:core:model`, `:core:divecomputer`, `:core:formats` and `:ui` commonMain.** Shared modules declare a `jvm()` target so common tests run on the JVM.
+- Storage uses fixed integer units: depth mm, pressure mbar, temperature mK, duration s, gas permille.
+- Each downloaded dive keeps its raw blob plus a format id, so it can be re-parsed after a parser fix.
+- A dive computer's serial line settings live in its protocol's `SERIAL_PARAMS` (`SerialParams`), applied by the platform transport.
 
-Storage uses fixed integer units: depth mm, pressure mbar, temperature mK,
-duration s, gas permille. The raw download blob is kept so a record can be
-re-parsed after a parser fix.
-
-## Conventions (project-specific)
+## Conventions
 
 - **Never use the Kotlin `!!` operator.** Use `?.`/`?:`/`let`/local-val smart-casts, or `requireNotNull(x){...}`. Remove any `!!` you touch.
 - No emojis or em-dashes in commits or code comments; plain ASCII hyphens. Terse commit messages (subject line when possible).
@@ -35,6 +34,7 @@ re-parsed after a parser fix.
 - **Desktop map** uses MapLibre Compose (`org.maplibre.compose`), which renders through the Java FFM API: the jvm build/run need **JDK 25** (`jvmToolchain(25)`) and `--enable-native-access=ALL-UNNAMED`. The map is one commonMain composable in `ui/.../sites/SiteLocationMap.kt`.
 - **macOS serial:** use the `cu.*` port, not `tty.*` (the dial-in node blocks on open under jSerialComm).
 - **Shearwater Petrel/Predator** speak classic Bluetooth SPP (a serial port), not BLE. On macOS the paired device appears as a `cu.*` port.
+- **Suunto HelO2 (Vyper2 family)** ignores a command sent less than ~500 ms after its previous reply; `txIdleMs = 600` handles it. When a serial download is flaky, check per-command timing before blaming the cable. Details in `docs/protocol/suunto-helo2.md`.
 - **DB migrations:** SQLDelight `.sqm` files bump `Schema.version`; Android/iOS drivers auto-migrate, the jvm `DriverFactory` tracks `PRAGMA user_version` by hand. Add a `.sqm` when changing the schema.
 
 ## Build and test
@@ -44,6 +44,7 @@ re-parsed after a parser fix.
 ./gradlew :app:android:assembleDebug  # Android debug APK
 ./gradlew :app:desktop:run            # desktop app (needs JDK 25 for the map)
 ./gradlew :ui:compileKotlinIosSimulatorArm64   # iOS compile check
+./gradlew :app:desktop:suuntoCapture --args="VYPER2 proto <port>"   # Suunto download on real hardware
 ```
 
 There is no `compileDebugKotlinAndroid` task on `:ui`; use the app assemble task
