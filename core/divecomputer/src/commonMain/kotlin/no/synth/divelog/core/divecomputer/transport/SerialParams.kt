@@ -42,8 +42,18 @@ data class SerialParams(
     val txIdleMs: Long = 0,
     /** Milliseconds to let the interface power up after setting the lines, before use. */
     val powerUpMs: Long = 0,
-    /** Milliseconds to let the UART drain before switching RTS to receive. */
+    /**
+     * Extra milliseconds before switching RTS to receive. The transport already waits
+     * until the written bytes have had time to leave the UART ([wireTimeMs] from the start
+     * of the write, plus 2 ms), so this only adds to that.
+     */
     val txSettleMs: Long = 0,
     /** Milliseconds to wait after switching RTS to receive before the reply is expected. */
     val rxSettleMs: Long = 0,
-)
+) {
+    /** Milliseconds [byteCount] bytes take on the wire at these settings, rounded up. */
+    fun wireTimeMs(byteCount: Int): Long {
+        val bitsPerByte = 1 + dataBits + (if (parity == Parity.NONE) 0 else 1) + stopBits
+        return (byteCount.toLong() * bitsPerByte * 1000 + baudRate - 1) / baudRate
+    }
+}

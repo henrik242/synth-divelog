@@ -19,9 +19,12 @@ split.
   gap is only the attempts that follow a timed-out one). This is the same for 8-byte and
   full 0x78-byte pages, so it is a gap after the reply, not a command period. The
   reference driver sleeps 600 ms before every packet for the same reason.
-- **Turnaround:** with the gap in place a fixed switch works: RTS high, write, switch RTS
-  to receive once the command is on the wire (bytes x 10 bits / 9600 baud, plus ~2 ms),
-  read. The reply starts ~20 ms after the command and a full page takes ~170 ms. No echo
+- **Turnaround:** RTS high, write, switch RTS to receive as soon as the command is on
+  the wire (bytes x 10 bits / 9600 baud from the start of the write, plus ~2 ms), read.
+  The reply starts ~20 ms after the command ends and a full page takes ~170 ms. Do not
+  add a settle on top: jSerialComm's `writeBytes` already returns after the bytes are
+  out, and an extra 10 ms put the switch on top of the reply start and garbled its first
+  bytes in about one exchange in four. No echo
   is involved. The earlier unreliability came from sending commands back to back, not
   from the turnaround timing.
 - **Throughput:** a full ring read is ~270 pages at ~0.75 s each, about 3.5 minutes. An

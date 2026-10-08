@@ -94,8 +94,9 @@ class SuuntoVyper2Protocol(
          * cable does not echo. Measured on a HelO2: the device ignores a command that comes
          * less than ~500 ms after its previous reply (every read failed at 450 ms, none at
          * 500 ms or more), so the line is kept quiet for 600 ms before each command. The
-         * reply starts ~20 ms after the command, so RTS switches to receive a fixed 10 ms
-         * after the write, once the command (at most ~7 ms on the wire) is out.
+         * reply starts ~20 ms after the command ends, so RTS must switch to receive as soon
+         * as the command is out (the transport's drain wait, no extra settle): an added
+         * 10 ms garbled the start of about one reply in four.
          */
         val SERIAL_PARAMS = SerialParams(
             baudRate = 9600,
@@ -108,7 +109,6 @@ class SuuntoVyper2Protocol(
             discardsEcho = false,
             txIdleMs = 600,
             powerUpMs = 100,
-            txSettleMs = 10,
         )
     }
 }

@@ -29,6 +29,13 @@ class SuuntoFamilyTest {
     }
 
     @Test
+    fun wireTimeCountsStartParityAndStopBits() {
+        // 7 bytes x 10 bits at 9600 baud = 7.3 ms; 9 bytes x 11 bits (8O1) at 2400 = 41.3 ms.
+        assertEquals(8, SuuntoFamily.VYPER2.serialParams.wireTimeMs(7))
+        assertEquals(42, SuuntoFamily.VYPER.serialParams.wireTimeMs(9))
+    }
+
+    @Test
     fun protocolAndParserMatchTheFamily() {
         val transport = FakeSuuntoVyperDevice(SyntheticVyper.squareDiveImage().memory)
         assertTrue(SuuntoFamily.VYPER.protocol(transport) is SuuntoVyperProtocol)

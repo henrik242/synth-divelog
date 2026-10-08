@@ -57,7 +57,13 @@ class JSerialCommTransport(
         if (params.halfDuplex) {
             runCatching { port.flushIOBuffers() } // drop stale/spurious bytes before this command
             setRts(params.rtsTransmitHigh) // drive the line to transmit
+            val start = nowMs()
             writeAll(data)
+            // Switch as soon as the bytes are out: some devices reply within ~20 ms, and a
+            // late switch garbles the start of the reply. writeBytes usually returns after
+            // the bytes are on the wire already, so this wait is mostly a no-op.
+            val drained = start + params.wireTimeMs(data.size) + TX_DRAIN_MARGIN_MS - nowMs()
+            if (drained > 0) sleep(drained)
             if (params.txSettleMs > 0) sleep(params.txSettleMs)
             setRts(!params.rtsTransmitHigh) // switch the line to receive
             if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
@@ -137,6 +143,7 @@ class JSerialCommTransport(
 
     companion object {
         private const val ECHO_TIMEOUT_MS = 500L
+        private const val TX_DRAIN_MARGIN_MS = 2L
         private const val WRITE_TIMEOUT_MS = 2_000
         private const val PORT_READ_TIMEOUT_MS = 100
 

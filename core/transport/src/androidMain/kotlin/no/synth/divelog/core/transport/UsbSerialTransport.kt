@@ -51,7 +51,13 @@ class UsbSerialTransport(
         try {
             if (params.halfDuplex) {
                 port.rts = params.rtsTransmitHigh // drive the line to transmit
+                val start = System.currentTimeMillis()
                 port.write(data, WRITE_TIMEOUT_MS)
+                // The USB write returns once the adapter has the bytes, not once they are on
+                // the wire; switch as soon as they are out, since a late switch garbles the
+                // start of a fast reply.
+                val drained = start + params.wireTimeMs(data.size) + TX_DRAIN_MARGIN_MS - System.currentTimeMillis()
+                if (drained > 0) sleep(drained)
                 if (params.txSettleMs > 0) sleep(params.txSettleMs)
                 port.rts = !params.rtsTransmitHigh // switch the line to receive
                 if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
@@ -121,5 +127,6 @@ class UsbSerialTransport(
     companion object {
         private const val WRITE_TIMEOUT_MS = 2_000
         private const val ECHO_TIMEOUT_MS = 500
+        private const val TX_DRAIN_MARGIN_MS = 2L
     }
 }
