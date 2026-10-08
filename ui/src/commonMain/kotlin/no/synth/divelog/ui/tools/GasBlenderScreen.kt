@@ -1,12 +1,17 @@
 package no.synth.divelog.ui.tools
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.Surface
+import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -17,7 +22,6 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -148,7 +152,7 @@ fun GasBlenderScreen(state: GasBlenderState) {
                     Icons.Filled.Warning,
                     if (overLimit) "O2 + He is over 100 %" else "Not possible with the selected gases",
                 )
-                Tone.NEUTRAL -> {}
+                Tone.NEUTRAL, Tone.STEPS -> {}
             }
         }
 
@@ -209,14 +213,16 @@ private fun PlanView(plan: BlendPlan) {
         }
     }
 
-    Section(if (plan.ok) "Steps" else "Closest attempt") {
+    // The recipe stands out on its own background; a failed plan's steps are only a reference,
+    // so they stay neutral and dimmed and do not read as something to follow.
+    Section(
+        if (plan.ok) "Steps" else "Closest attempt",
+        if (plan.ok) Tone.STEPS else Tone.NEUTRAL,
+        if (plan.ok) Icons.Filled.FormatListNumbered else null,
+    ) {
         if (plan.steps.isEmpty()) Text("Nothing to do: the cylinder already holds the target.")
-        // A failed plan's steps are only a reference; dim them so they do not read as a recipe.
-        Column(Modifier.alpha(if (plan.ok) 1f else 0.6f)) {
-            plan.steps.forEachIndexed { i, step ->
-                if (i > 0) HorizontalDivider()
-                StepItem(i + 1, step)
-            }
+        Column(Modifier.alpha(if (plan.ok) 1f else 0.6f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            plan.steps.forEachIndexed { i, step -> StepItem(i + 1, step) }
         }
     }
 }
@@ -244,30 +250,37 @@ private fun StatusLine(icon: ImageVector, text: String) {
 
 @Composable
 private fun StepItem(number: Int, step: BlendStep) {
-    Row(Modifier.padding(vertical = 8.dp)) {
-        Text("$number", Modifier.width(28.dp), style = MaterialTheme.typography.titleMedium)
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            val (title, change) = when (step) {
-                is BlendStep.Drain -> (if (step.toBar <= 0) "Drain completely" else "Drain to ${Format.oneDecimal(step.toBar)} bar") to
-                    "-${Format.oneDecimal(step.fromBar - step.toBar)} bar"
-                is BlendStep.Add -> (if (step.topUp) "Top up with ${step.gas.name}" else "Add ${step.gas.name}") to
-                    "+${Format.oneDecimal(step.addedBar)} bar, ${Format.oneDecimal(step.litres)} L"
+    Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(
+                Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("$number", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleMedium)
             }
-            Text(title, fontWeight = FontWeight.SemiBold)
-            Text(
-                "${Format.oneDecimal(step.fromBar)} → ${Format.oneDecimal(step.toBar)} bar ($change)",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
-                "${mixLabel(step.mixBefore)} → ${mixLabel(step.mixAfter)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                val (title, change) = when (step) {
+                    is BlendStep.Drain -> (if (step.toBar <= 0) "Drain completely" else "Drain to ${Format.oneDecimal(step.toBar)} bar") to
+                        "-${Format.oneDecimal(step.fromBar - step.toBar)} bar"
+                    is BlendStep.Add -> (if (step.topUp) "Top up with ${step.gas.name}" else "Add ${step.gas.name}") to
+                        "+${Format.oneDecimal(step.addedBar)} bar, ${Format.oneDecimal(step.litres)} L"
+                }
+                Text(title, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "${Format.oneDecimal(step.fromBar)} → ${Format.oneDecimal(step.toBar)} bar ($change)",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "${mixLabel(step.mixBefore)} → ${mixLabel(step.mixAfter)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
 
-private enum class Tone { NEUTRAL, GOOD, BAD }
+private enum class Tone { NEUTRAL, GOOD, BAD, STEPS }
 
 @Composable
 private fun Section(title: String, tone: Tone = Tone.NEUTRAL, icon: ImageVector? = null, content: @Composable () -> Unit) {
@@ -275,6 +288,7 @@ private fun Section(title: String, tone: Tone = Tone.NEUTRAL, icon: ImageVector?
         Tone.NEUTRAL -> CardDefaults.elevatedCardColors()
         Tone.GOOD -> CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
         Tone.BAD -> CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+        Tone.STEPS -> CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
     }
     ElevatedCard(Modifier.fillMaxWidth(), colors = colors) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
