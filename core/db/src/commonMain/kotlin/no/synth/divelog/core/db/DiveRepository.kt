@@ -132,7 +132,9 @@ class DiveRepository(private val db: DiveDatabase) {
         }
         if (duplicate != null) return ImportDecision.Duplicate(duplicate.id)
 
-        val overlaps = dives.selectOverlappingDives(incoming.endEpochSeconds, incoming.startEpochSeconds)
+        // A dive without a duration still falls inside a dive that spans its start.
+        val end = maxOf(incoming.endEpochSeconds, incoming.startEpochSeconds + 1)
+        val overlaps = dives.selectOverlappingDives(end, incoming.startEpochSeconds)
             .executeAsList()
         // One computer cannot log two dives at once: an overlapping dive that already has a
         // record from this computer is this dive, e.g. from another logbook of the same diver.

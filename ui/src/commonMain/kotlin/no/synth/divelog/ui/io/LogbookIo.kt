@@ -1,5 +1,15 @@
 package no.synth.divelog.ui.io
 
+import no.synth.divelog.core.db.ImportDecision
+import no.synth.divelog.core.db.ImportResult
+import no.synth.divelog.core.divecomputer.DiveLogParser
+import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.shearwater.PredatorDump
+import no.synth.divelog.core.divecomputer.shearwater.PredatorParser
+import no.synth.divelog.core.divecomputer.suunto.SuuntoVyper2Dump
+import no.synth.divelog.core.divecomputer.suunto.SuuntoVyper2Parser
+import no.synth.divelog.core.divecomputer.suunto.SuuntoVyperDump
+import no.synth.divelog.core.divecomputer.suunto.SuuntoVyperParser
 import no.synth.divelog.core.formats.ComputerEntry
 import no.synth.divelog.core.formats.DiveEntry
 import no.synth.divelog.core.formats.DiveFormat
@@ -10,10 +20,6 @@ import no.synth.divelog.core.formats.SiteRef
 import no.synth.divelog.core.formats.SubsurfaceXml
 import no.synth.divelog.core.formats.TankEntry
 import no.synth.divelog.core.formats.UddfFormat
-import no.synth.divelog.core.db.ImportResult
-import no.synth.divelog.core.divecomputer.RawDive
-import no.synth.divelog.core.divecomputer.shearwater.PredatorDump
-import no.synth.divelog.core.divecomputer.shearwater.PredatorParser
 import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.IncomingDive
@@ -78,11 +84,33 @@ class LogbookIo(private val container: AppContainer) {
     }
 
     /**
+     * Import a picked file: a Shearwater Cloud database export, or one of the text formats
+     * (see [importMessage]). Returns a user-facing summary.
+     */
+    fun importFileMessage(bytes: ByteArray, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): String {
+        if (!isSqliteFile(bytes)) return importMessage(bytes.decodeToString(), onProgress)
+        val export = runCatching { readShearwaterCloudExport(bytes) }
+            .getOrElse { return "Not a Shearwater Cloud export: ${it.message ?: it::class.simpleName}" }
+        return importShearwaterCloud(export, onProgress)
+    }
+
+    internal fun importShearwaterCloud(
+        export: ShearwaterCloudExport,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): String {
+        val read = ShearwaterCloudDives.read(export)
+        if (read.dives.isEmpty()) return "No dives found in the Shearwater Cloud export"
+        val counts = importItems(read.dives.map { ImportItem(it.entry, it.parsed) }, "shearwater-cloud", autoMerge = true, onProgress)
+        val unreadable = if (read.unreadable > 0) ", ${read.unreadable} unreadable" else ""
+        return "Imported ${counts.imported}, merged ${counts.merged}, skipped ${counts.skipped}$unreadable (Shearwater Cloud)"
+    }
+
+    /**
      * Detect and import file [text], returning a user-facing summary. [onProgress] is
      * called per dive with the running count and the total so a caller can show progress.
      */
     fun importMessage(text: String, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): String {
-        val format = detect(text) ?: return "Unrecognized file (expected Subsurface XML, UDDF or MacDive XML)"
+        val format = detect(text) ?: return "Unrecognized file (expected Subsurface XML, UDDF, MacDive XML or a Shearwater Cloud database)"
         val counts = import(format, text, onProgress)
         return "Imported ${counts.imported}, merged ${counts.merged}, skipped ${counts.skipped} (${format.displayName})"
     }
@@ -107,24 +135,36 @@ class LogbookIo(private val container: AppContainer) {
         // repeat dives), so attach it to the existing dive rather than duplicating it.
         importLog(format.read(text), format.id, autoMerge = true, onProgress = onProgress)
 
+    /** A logbook entry to import, with its computer log already parsed when the source keeps it raw. */
+    private class ImportItem(val entry: DiveEntry, val parsed: IncomingDive? = null)
+
     private fun importLog(
         log: DiveLog,
         formatId: String,
         autoMerge: Boolean = false,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): ImportCounts = importItems(log.dives.map { ImportItem(it) }, formatId, autoMerge, onProgress)
+
+    private fun importItems(
+        items: List<ImportItem>,
+        formatId: String,
+        autoMerge: Boolean,
+        onProgress: (done: Int, total: Int) -> Unit,
     ): ImportCounts {
-        val total = log.dives.size
+        val total = items.size
         var processed = 0
         var imported = 0
         var merged = 0
         var skipped = 0
-        for (entry in log.dives) {
+        for (item in items) {
+            val entry = item.entry
             val fingerprint = "import:$formatId:${entry.startEpochSeconds}:${entry.number ?: 0}:${entry.maxDepthMm ?: 0}"
             val primary = entry.computers.firstOrNull { it.samples.isNotEmpty() } ?: entry.computers.firstOrNull()
             // Resolve the device from this dive's computer so the same dive logged on two
             // computers merges into one dive that keeps both records.
             val deviceId = importDeviceId(primary?.model, primary?.serial)
-            val incoming = IncomingDive(
+            // A raw computer log is kept as is, so it can be re-parsed like a download.
+            val incoming = item.parsed?.copy(deviceId = deviceId, number = entry.number ?: item.parsed.number) ?: IncomingDive(
                 deviceId = deviceId,
                 number = entry.number,
                 startEpochSeconds = entry.startEpochSeconds,
@@ -140,6 +180,17 @@ class LogbookIo(private val container: AppContainer) {
                 samples = primary?.samples ?: emptyList(),
                 events = primary?.events ?: emptyList(),
             )
+            // A copy that names no computer adds no profile of its own: when the dive is
+            // already logged, it only fills in that dive's gaps.
+            val unknownComputer = ComputerNames.split(primary?.model).second == ComputerNames.UNKNOWN && primary?.serial == null
+            val candidate = container.dives.classify(incoming) as? ImportDecision.MergeCandidate
+            if (unknownComputer && candidate != null) {
+                applyMetadata(candidate.diveId, entry)
+                skipped++
+                processed++
+                onProgress(processed, total)
+                continue
+            }
             when (val result = container.dives.import(incoming) { autoMerge }) {
                 is ImportResult.SkippedDuplicate -> {
                     // Already logged (e.g. downloaded): still take what this copy adds, such as
@@ -357,11 +408,10 @@ class LogbookIo(private val container: AppContainer) {
      * Returns the number of records re-parsed.
      */
     fun reparseAll(): Int {
-        val parser = PredatorParser()
         var count = 0
         for (dive in container.dives.allDives()) {
             for (record in container.dives.recordsForDive(dive.id)) {
-                if (record.rawFormatId !in REPARSEABLE_FORMATS) continue
+                val parser = parserFor(record.rawFormatId) ?: continue
                 val raw = container.dives.rawData(record.id) ?: continue
                 val incoming = runCatching {
                     parser.parse(RawDive(record.fingerprint, raw, record.rawFormatId))
@@ -374,7 +424,13 @@ class LogbookIo(private val container: AppContainer) {
     }
 
     companion object {
-        private val REPARSEABLE_FORMATS = setOf(PredatorDump.FORMAT_ID, PredatorParser.PETREL_FORMAT_ID)
+        /** The parser for a stored raw log's format, or null for logs kept without one (file imports). */
+        private fun parserFor(formatId: String): DiveLogParser? = when (formatId) {
+            PredatorDump.FORMAT_ID, PredatorParser.PETREL_FORMAT_ID, PredatorParser.PNF_FORMAT_ID -> PredatorParser()
+            SuuntoVyper2Dump.FORMAT_ID -> SuuntoVyper2Parser()
+            SuuntoVyperDump.FORMAT_ID -> SuuntoVyperParser()
+            else -> null
+        }
 
         fun formats(): List<DiveFormat> = listOf(SubsurfaceXml(), UddfFormat(), MacDiveXml())
 

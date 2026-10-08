@@ -161,4 +161,13 @@ class DiveImportTest {
         dives.reparseRecord(created.recordId, incoming(deviceId = petrel, start = 10_000, fingerprint = "a").copy(gases = listOf(GasMix(o2Permille = 300, hePermille = 0))))
         assertEquals(1, gas.tanksForDive(created.diveId).size)
     }
+
+    @Test
+    fun aDiveWithoutADurationStillOverlapsTheDiveItFallsIn() {
+        val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel"))
+        val other = devices.add(Device(vendor = "Suunto", model = "HelO2"))
+        dives.import(incoming(deviceId = petrel, start = 10_000, duration = 3_000, fingerprint = "a")) { false }
+        val zero = incoming(deviceId = other, start = 10_000, duration = 0, fingerprint = "b")
+        assertTrue(dives.classify(zero) is ImportDecision.MergeCandidate)
+    }
 }

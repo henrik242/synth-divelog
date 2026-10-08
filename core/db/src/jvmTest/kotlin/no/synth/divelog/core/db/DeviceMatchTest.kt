@@ -74,4 +74,13 @@ class DeviceMatchTest {
         assertEquals(mapOf(download to 2L), devices.diveCounts())
         assertEquals(noName, all.single { it.model == "Unknown computer" }.id)
     }
+
+    @Test
+    fun withoutASerialPicksTheOneComputerThatHasNoneEither() {
+        devices.getOrCreate(Device(vendor = "", model = "Shearwater", serial = "AAAA0001"))
+        devices.getOrCreate(Device(vendor = "", model = "Shearwater", serial = "AAAA0002"))
+        val plain = devices.getOrCreate(Device(vendor = "", model = "Shearwater"))
+        assertEquals(plain, devices.getOrCreate(Device(vendor = "", model = "Shearwater")))
+        assertEquals(3, devices.all().size)
+    }
 }

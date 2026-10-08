@@ -103,4 +103,31 @@ class UddfFormatTest {
         val read = UddfFormat().read(UddfFormat().write(DiveLog(listOf(dive)))).dives.single().tanks
         assertEquals(dive.tanks.map { it.copy(workingPressureMbar = null) }, read)
     }
+
+    @Test
+    fun roundTripsTheDiveComputer() {
+        val dive = DiveEntry(
+            startEpochSeconds = 1_700_000_000,
+            durationSeconds = 3_000,
+            computers = listOf(ComputerEntry(model = "Suunto HelO2", serial = "94803", maxDepthMm = 20_000)),
+        )
+        val read = UddfFormat().read(UddfFormat().write(DiveLog(listOf(dive)))).dives.single().computers.single()
+        assertEquals("Suunto HelO2", read.model)
+        assertEquals("94803", read.serial)
+    }
+
+    @Test
+    fun takesTheComputersOwnNameNotItsShopsOrMakers() {
+        val xml = """<uddf version="3.2.1"><diver><owner id="o"><equipment>
+            <divecomputer id="dc"><name>Suunto ZOOP</name><manufacturer id="m"><name>Suunto</name></manufacturer>
+            <serialnumber>123</serialnumber><purchase><shop><name>Some Shop</name></shop></purchase></divecomputer>
+            </equipment></owner></diver><profiledata><repetitiongroup><dive>
+            <informationbeforedive><datetime>2020-01-01T10:00:00</datetime></informationbeforedive>
+            <informationafterdive><diveduration>1800.0</diveduration><equipmentused><link ref="dc"/></equipmentused></informationafterdive>
+            </dive></repetitiongroup></profiledata></uddf>"""
+        val dive = UddfFormat().read(xml).dives.single()
+        assertEquals(1_800, dive.durationSeconds)
+        assertEquals("Suunto ZOOP", dive.computers.single().model)
+        assertEquals("123", dive.computers.single().serial)
+    }
 }

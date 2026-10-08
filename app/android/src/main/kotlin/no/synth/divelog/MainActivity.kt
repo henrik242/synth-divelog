@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
                 var dataVersion by remember { mutableIntStateOf(0) }
                 var unitSystem by remember { mutableStateOf(settings.unitSystem) }
 
-                // Picks a file and reads its text; the shared app runs the import and shows progress.
+                // Picks a file and reads it; the shared app runs the import and shows progress.
                 val pickImportFile = rememberImportFilePick(context)
 
                 SynthDivelogApp(
@@ -155,7 +155,7 @@ class MainActivity : ComponentActivity() {
  * file is read off the main thread.
  */
 @Composable
-private fun rememberImportFilePick(context: Context): suspend () -> String? {
+private fun rememberImportFilePick(context: Context): suspend () -> ByteArray? {
     val pending = remember { mutableStateOf<CompletableDeferred<android.net.Uri?>?>(null) }
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -172,7 +172,7 @@ private fun rememberImportFilePick(context: Context): suspend () -> String? {
             null
         } else {
             withContext(Dispatchers.IO) {
-                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             }
         }
     }

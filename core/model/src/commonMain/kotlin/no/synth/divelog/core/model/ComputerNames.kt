@@ -32,7 +32,8 @@ object ComputerNames {
      */
     fun split(name: String?): Pair<String, String> {
         val trimmed = name?.trim().orEmpty()
-        if (trimmed.isEmpty()) return "" to UNKNOWN
+        // Logbooks name a missing computer "Unknown: Dummy computer" and the like.
+        if (trimmed.isEmpty() || trimmed.startsWith("Unknown", ignoreCase = true)) return "" to UNKNOWN
         for ((prefix, vendor) in VENDORS) {
             if (trimmed.length > prefix.length && trimmed.startsWith("$prefix ", ignoreCase = true)) {
                 return vendor to trimmed.substring(prefix.length).trim()

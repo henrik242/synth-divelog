@@ -11,14 +11,21 @@ import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
 
 /**
- * Parses the older Predator log format shared by the Predator and Petrel 1.
+ * Parses the older Predator log format shared by the Predator and Petrel 1, and the
+ * record form Shearwater Cloud stores dives in.
  *
- * Layout: a 128-byte opening block, a run of fixed-size sample records, then a
+ * Block layout: a 128-byte opening block, a run of fixed-size sample records, then a
  * 128-byte closing block. The Predator stores 16-byte samples; the Petrel 1 stores
  * 32-byte records whose first 16 bytes hold the same fields (the rest is extra data
  * we ignore). The sample stride is chosen from the raw dive's format id. Depths are
  * tenths of a metre or foot per the opening block's units flag; temperature is a
  * signed whole degree Celsius. Field offsets were confirmed against real captures.
+ *
+ * Record layout ([PNF_FORMAT_ID]): a stream of 32-byte records, each led by a type
+ * byte. Opening (0x10) and closing (0x20) records are the first 32 bytes of those
+ * blocks with byte 0 replaced by the type; a sample record (0x01) is the type byte
+ * followed by the sample fields, so they sit one byte later. The closing record holds
+ * the duration in seconds. Confirmed against 302 Shearwater Cloud dives.
  */
 class PredatorParser(
     private val sampleIntervalSeconds: Int = DEFAULT_SAMPLE_INTERVAL_SECONDS,
@@ -27,31 +34,18 @@ class PredatorParser(
 
     override fun parse(raw: RawDive): IncomingDive {
         val d = raw.data
-        if (d.size < 2 * BLOCK) {
-            throw ProtocolException("Predator record too small: ${d.size} bytes")
-        }
-        val sampleStride = if (raw.formatId == PETREL_FORMAT_ID) PETREL_SAMPLE_STRIDE else SAMPLE_SIZE
+        val layout = if (raw.formatId == PNF_FORMAT_ID) recordLayout(d) else blockLayout(d, raw.formatId)
+        val header = layout.header
+        val imperial = header[UNITS_OFFSET].toInt() == 1
+        val number = be16(header, NUMBER_OFFSET)
+        val startEpoch = be32(header, START_TIME_OFFSET)
+        val durationSeconds = layout.durationSeconds
 
-        val imperial = d[UNITS_OFFSET].toInt() == 1
-        val number = be16(d, NUMBER_OFFSET)
-        val startEpoch = be32(d, START_TIME_OFFSET)
-
-        // The closing block is the first 128-aligned block (after the opening one)
-        // that starts with the close marker. A ring-extracted Predator dive ends
-        // exactly at its closing block, but a Petrel's per-dive blob carries one or
-        // more trailing blocks after it, so assuming the last block is the closer
-        // reads the close marker as a 0xFFFE depth sample and padding as duration.
-        val closingBlockStart = closingBlockOffset(d)
-        val durationSeconds = be16(d, closingBlockStart + CLOSE_DURATION_OFFSET) * 60
-
-        val sampleRegionEnd = closingBlockStart
         val samples = ArrayList<Sample>()
         val events = ArrayList<Event>()
         var previousGas: Pair<Int, Int>? = null
 
-        var offset = BLOCK
-        var index = 0
-        while (offset + SAMPLE_SIZE <= sampleRegionEnd) {
+        for ((index, offset) in layout.sampleOffsets.withIndex()) {
             val time = index * sampleIntervalSeconds
             val depthMm = toMillimetres(be16(d, offset + S_DEPTH), imperial)
             // The sample temperature follows the dive's unit flag: Fahrenheit for
@@ -84,8 +78,6 @@ class PredatorParser(
                 previousGas = gas
             }
 
-            offset += sampleStride
-            index++
         }
 
         // Drop the surface tail the computer keeps recording after surfacing, so the
@@ -131,6 +123,32 @@ class PredatorParser(
         )
     }
 
+    /** Where a layout keeps the opening fields, its samples (each at the sample-field base) and duration. */
+    private class Layout(val header: ByteArray, val sampleOffsets: List<Int>, val durationSeconds: Int)
+
+    private fun blockLayout(d: ByteArray, formatId: String): Layout {
+        if (d.size < 2 * BLOCK) throw ProtocolException("Predator record too small: ${d.size} bytes")
+        val stride = if (formatId == PETREL_FORMAT_ID) PETREL_SAMPLE_STRIDE else SAMPLE_SIZE
+        // The closing block is the first 128-aligned block (after the opening one)
+        // that starts with the close marker. A ring-extracted Predator dive ends
+        // exactly at its closing block, but a Petrel's per-dive blob carries one or
+        // more trailing blocks after it, so assuming the last block is the closer
+        // reads the close marker as a 0xFFFE depth sample and padding as duration.
+        val closing = closingBlockOffset(d)
+        val offsets = generateSequence(BLOCK) { it + stride }.takeWhile { it + SAMPLE_SIZE <= closing }.toList()
+        return Layout(d, offsets, be16(d, closing + CLOSE_DURATION_OFFSET) * 60)
+    }
+
+    private fun recordLayout(d: ByteArray): Layout {
+        val records = (0 until d.size / RECORD).map { it * RECORD }
+        val opening = records.firstOrNull { d[it] == REC_OPENING }
+            ?: throw ProtocolException("Shearwater record log without an opening record")
+        val closing = records.firstOrNull { d[it] == REC_CLOSING }
+        val samples = records.filter { d[it] == REC_SAMPLE }.map { it + 1 }
+        val duration = closing?.let { be24(d, it + REC_CLOSE_DURATION_SECONDS) } ?: 0
+        return Layout(d.copyOfRange(opening, opening + RECORD), samples, duration)
+    }
+
     /**
      * Offset of the dive's closing block: the first block boundary after the
      * opening block whose first two bytes are the close marker. Falls back to the
@@ -160,6 +178,9 @@ class PredatorParser(
         /** Format id for Petrel 1 dives, whose sample records are 32 bytes wide. */
         const val PETREL_FORMAT_ID = "shearwater-petrel-log"
 
+        /** Format id for dives in Shearwater's typed 32-byte record form (Shearwater Cloud). */
+        const val PNF_FORMAT_ID = "shearwater-pnf"
+
         private const val BLOCK = 128
         private const val SAMPLE_SIZE = 16
         private const val PETREL_SAMPLE_STRIDE = 32
@@ -179,6 +200,13 @@ class PredatorParser(
         private const val S_SENSOR0 = 12
         private const val S_TEMP = 13
 
+        // Typed records
+        private const val RECORD = 32
+        private const val REC_SAMPLE = 0x01.toByte()
+        private const val REC_OPENING = 0x10.toByte()
+        private const val REC_CLOSING = 0x20.toByte()
+        private const val REC_CLOSE_DURATION_SECONDS = 6
+
         // Closing block (relative to its start)
         private const val CLOSE_DURATION_OFFSET = 6
         private const val CLOSE_MARKER_HI = 0xFF.toByte()
@@ -189,6 +217,9 @@ class PredatorParser(
 
         private fun be16(d: ByteArray, o: Int): Int =
             ((d[o].toInt() and 0xFF) shl 8) or (d[o + 1].toInt() and 0xFF)
+
+        private fun be24(d: ByteArray, o: Int): Int =
+            ((d[o].toInt() and 0xFF) shl 16) or ((d[o + 1].toInt() and 0xFF) shl 8) or (d[o + 2].toInt() and 0xFF)
 
         private fun be32(d: ByteArray, o: Int): Long {
             var v = 0L

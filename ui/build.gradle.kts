@@ -106,6 +106,8 @@ kotlin {
             implementation(libs.jetbrains.lifecycle.viewmodel.compose)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
+            // Shearwater Cloud exports carry JSON blobs.
+            implementation(libs.kotlinx.serialization.json)
             // Unified Compose map for the dive-site picker and the read-only site map.
             implementation(libs.maplibre.compose)
         }

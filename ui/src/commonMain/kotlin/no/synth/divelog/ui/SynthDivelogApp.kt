@@ -128,7 +128,7 @@ private enum class Section(val label: String, val icon: ImageVector, val selecte
  * [dataVersion] is bumped by the host to trigger a reload after an import.
  *
  * File import is co-located with the download under the Add-dives button. [onPickImportFile],
- * if set, picks and reads a file and returns its text (or null if cancelled); the shared app
+ * if set, picks and reads a file and returns its bytes (or null if cancelled); the shared app
  * then runs the import with a progress dialog. A null value hides the file-import option.
  * Cloud import runs here too, over [cloud], behind the same dialog.
  */
@@ -146,7 +146,7 @@ fun SynthDivelogApp(
     onDownloadProgress: (label: String) -> Unit = {},
     onRecordTranscript: ((transcript: String) -> Unit)? = null,
     onDownloaded: () -> Unit = {},
-    onPickImportFile: (suspend () -> String?)? = null,
+    onPickImportFile: (suspend () -> ByteArray?)? = null,
     onExport: (formatId: String) -> Unit = {},
     onReparse: () -> Unit = {},
     cloudEnabled: Boolean = false,
@@ -275,12 +275,12 @@ fun SynthDivelogApp(
             scope.launch { snackbarHostState.showSnackbar("File import is not available on this device.") }
         } else {
             scope.launch {
-                val text = pick()
-                if (text != null) {
+                val bytes = pick()
+                if (bytes != null) {
                     importProgress = ImportProgress("Reading file", null)
                     val message = withContext(Dispatchers.Default) {
                         runCatching {
-                            logbook.importMessage(text) { done, total -> importProgress = ImportProgress.importing(done, total) }
+                            logbook.importFileMessage(bytes) { done, total -> importProgress = ImportProgress.importing(done, total) }
                         }.getOrElse { "Import failed: ${it.message ?: it::class.simpleName}" }
                     }
                     importProgress = null
@@ -544,7 +544,7 @@ private fun AddDivesChooser(
                         Text("Import from file")
                     }
                     Text(
-                        "Imports Subsurface XML, UDDF and MacDive XML files.",
+                        "Imports Subsurface XML, UDDF, MacDive XML and Shearwater Cloud database files.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

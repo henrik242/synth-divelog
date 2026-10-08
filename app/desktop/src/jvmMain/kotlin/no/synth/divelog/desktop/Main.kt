@@ -60,7 +60,7 @@ fun main() = application {
                     connectionMemory = remember { SettingsConnectionMemory(settings) },
                     onDownloaded = { dataVersion++ },
                     // Pick and read the file off the UI thread; the shared app runs the import.
-                    onPickImportFile = { withContext(Dispatchers.IO) { pickFile(FileDialog.LOAD)?.let { File(it).readText() } } },
+                    onPickImportFile = { withContext(Dispatchers.IO) { pickFile(FileDialog.LOAD)?.let { File(it).readBytes() } } },
                     onExport = { formatId -> exportToFile(logbook, formatId) },
                     onReparse = {
                         val count = logbook.reparseAll()

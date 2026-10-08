@@ -64,7 +64,8 @@ class DeviceRepository(private val db: DiveDatabase) {
      * The stored device that is the same computer as [device], or null. Tried in order:
      * the same download identity (the address); the same serial, unless the vendors
      * differ; the only device with the same vendor and model whose serial does not
-     * contradict [device]'s. Imports and downloads of one computer so share a device.
+     * contradict [device]'s, or, for a [device] without a serial, the only such device
+     * without one. Imports and downloads of one computer so share a device.
      */
     fun findMatch(device: Device): Device? {
         device.bluetoothAddress?.let { address ->
@@ -75,10 +76,13 @@ class DeviceRepository(private val db: DiveDatabase) {
             all.firstOrNull { it.serial == serial && sameVendor(it, device) }?.let { return it }
         }
         val key = ComputerNames.key(device.vendor, device.model)
-        return all.filter {
+        val candidates = all.filter {
             ComputerNames.key(it.vendor, it.model) == key &&
                 (it.serial == null || device.serial == null || it.serial == device.serial)
-        }.singleOrNull()
+        }
+        // With several, a computer without a serial is the one that has none either.
+        return candidates.singleOrNull()
+            ?: candidates.singleOrNull { it.serial == null }.takeIf { device.serial == null }
     }
 
     /**
