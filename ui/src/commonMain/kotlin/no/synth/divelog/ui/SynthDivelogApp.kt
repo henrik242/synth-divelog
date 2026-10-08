@@ -209,9 +209,9 @@ fun SynthDivelogApp(
                             downloadUi = DownloadUiState.Running(fraction, label)
                             onDownloadProgress(label)
                         },
-                        confirmMerge = { review ->
-                            val answer = CompletableDeferred<Boolean>()
-                            downloadUi = DownloadUiState.Reviewing(review) { answer.complete(it) }
+                        reviewMerges = { reviews ->
+                            val answer = CompletableDeferred<Set<Int>>()
+                            downloadUi = DownloadUiState.Reviewing(reviews) { answer.complete(it) }
                             answer.await().also { downloadUi = DownloadUiState.Running(1f, "Importing dives") }
                         },
                     )

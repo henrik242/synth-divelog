@@ -6,7 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
@@ -34,8 +38,11 @@ sealed interface DownloadUiState {
     /** A serial download is running. */
     data class Running(val fraction: Float, val label: String) : DownloadUiState
 
-    /** A downloaded dive overlaps an existing one; [onResolve] attaches it (true) or keeps it separate. */
-    data class Reviewing(val review: MergeReview, val onResolve: (Boolean) -> Unit) : DownloadUiState
+    /**
+     * Downloaded dives overlap existing ones; [onResolve] gets the indices into [reviews]
+     * to attach to their existing dive, the rest are kept separate.
+     */
+    data class Reviewing(val reviews: List<MergeReview>, val onResolve: (Set<Int>) -> Unit) : DownloadUiState
 }
 
 /**
@@ -148,23 +155,76 @@ fun DownloadProgressDialog(state: DownloadUiState.Running, onCancel: () -> Unit)
 }
 
 /**
- * Asks whether a downloaded dive that overlaps an existing one is the same dive from
- * another computer (attach it) or a separate dive (keep it). Shown mid-download, so it
- * has no dismiss: the user must choose before the import continues.
+ * Lists the downloaded dives that overlap an existing dive, each likely the same dive
+ * from another computer. Checked rows are attached to their existing dive, unchecked
+ * ones are kept as separate dives. Shown mid-download, so it has no dismiss: the user
+ * must choose before the import continues.
  */
 @Composable
 fun DownloadReviewDialog(state: DownloadUiState.Reviewing) {
+    var checked by remember(state) { mutableStateOf(state.reviews.indices.toSet()) }
+    val all = checked.size == state.reviews.size
+
     AlertDialog(
         onDismissRequest = {},
-        title = { Text("Merge dive?") },
+        title = { Text("Merge dives?") },
         text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("This download overlaps an existing dive, likely the same dive from another computer.")
-                Text("Incoming:  ${state.review.incomingLabel}", style = MaterialTheme.typography.bodyMedium)
-                Text("Existing:  ${state.review.existingLabel}", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    if (state.reviews.size == 1) {
+                        "This dive overlaps an existing dive, likely the same dive from another computer. " +
+                            "Checked dives are merged into the existing one; unchecked are kept separate."
+                    } else {
+                        "These ${state.reviews.size} dives overlap existing dives, likely the same dives from " +
+                            "another computer. Checked dives are merged into the existing one; unchecked are kept separate."
+                    },
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        checked = if (all) emptySet() else state.reviews.indices.toSet()
+                    },
+                ) {
+                    Checkbox(
+                        checked = all,
+                        onCheckedChange = { checked = if (it) state.reviews.indices.toSet() else emptySet() },
+                    )
+                    Text("Select all", style = MaterialTheme.typography.labelLarge)
+                }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                    itemsIndexed(state.reviews) { i, review ->
+                        fun toggle() {
+                            checked = if (i in checked) checked - i else checked + i
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable { toggle() },
+                        ) {
+                            Checkbox(checked = i in checked, onCheckedChange = { toggle() })
+                            Column {
+                                Text(review.incomingLabel, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "overlaps ${review.existingLabel}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
-        confirmButton = { TextButton(onClick = { state.onResolve(true) }) { Text("Merge into existing dive") } },
-        dismissButton = { TextButton(onClick = { state.onResolve(false) }) { Text("Keep as separate dive") } },
+        confirmButton = {
+            TextButton(onClick = { state.onResolve(checked) }) {
+                val separate = state.reviews.size - checked.size
+                Text(
+                    when {
+                        checked.isEmpty() -> "Keep all separate"
+                        separate == 0 -> "Merge all"
+                        else -> "Merge ${checked.size}, keep $separate separate"
+                    },
+                )
+            }
+        },
     )
 }

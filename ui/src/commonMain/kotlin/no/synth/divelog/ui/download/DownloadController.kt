@@ -166,9 +166,10 @@ class DownloadController(
     /**
      * Run the download end to end. Blocking work runs off the main thread. [cancel] is
      * polled during the memory read; [onProgress] reports a 0..1 fraction and a label.
-     * [confirmMerge] is asked for each dive that overlaps an existing one: true attaches
-     * it as another computer on that dive, false keeps it separate. The default keeps
-     * everything separate, so a caller that wants the interactive review passes its own.
+     * [reviewMerges] is asked once with every dive that overlaps an existing one and
+     * returns the indices of those to attach as another computer on that dive; the rest
+     * are kept separate. The default keeps everything separate, so a caller that wants
+     * the interactive review passes its own.
      */
     suspend fun download(
         type: DiveComputerType,
@@ -178,7 +179,7 @@ class DownloadController(
         amount: DownloadAmount = DownloadAmount.NewOnly,
         portDescriptor: String? = null,
         recordTo: ((transcript: String) -> Unit)? = null,
-        confirmMerge: suspend (MergeReview) -> Boolean = { false },
+        reviewMerges: suspend (List<MergeReview>) -> Set<Int> = { emptySet() },
     ): String = withContext(Dispatchers.Default) {
         onProgress(0f, "Connecting to the dive computer")
         val opened = serialPorts.open(portId, type.serialParams)
@@ -244,7 +245,7 @@ class DownloadController(
             if (portDescriptor != null) {
                 device.bluetoothAddress?.let { connectionMemory.remember(it, portDescriptor) }
             }
-            importRaws(raws, type.parser(), deviceId, confirmMerge)
+            importRaws(raws, type.parser(), deviceId, reviewMerges)
         } finally {
             if (recording != null) {
                 runCatching { recordTo(recording.transcript().toText()) }
@@ -255,24 +256,40 @@ class DownloadController(
 
     /**
      * Parse and import raw dives for a device, counting new, merged and already-stored.
-     * A dive that overlaps an existing one is held for [confirmMerge] before it is
-     * attached to that dive or kept as a separate one.
+     * Every dive is classified first, so the dives that overlap an existing one go to
+     * [reviewMerges] in one batch before anything is imported.
      */
     private suspend fun importRaws(
         raws: List<RawDive>,
         parser: DiveLogParser,
         deviceId: Long,
-        confirmMerge: suspend (MergeReview) -> Boolean,
+        reviewMerges: suspend (List<MergeReview>) -> Set<Int>,
     ): String {
+        val classified = raws.mapNotNull { raw ->
+            runCatching { parser.parse(raw) }.getOrNull()?.copy(deviceId = deviceId)
+                ?.let { it to container.dives.classify(it) }
+        }
+        // Positions in [classified] of the dives that overlap an existing one.
+        val candidates = classified.indices.filter { classified[it].second is ImportDecision.MergeCandidate }
+        val toMerge = if (candidates.isEmpty()) {
+            emptySet()
+        } else {
+            val reviews = candidates.map { i ->
+                val (incoming, decision) = classified[i]
+                reviewFor(incoming, (decision as ImportDecision.MergeCandidate).diveId)
+            }
+            val approved = reviewMerges(reviews)
+            candidates.filterIndexed { n, _ -> n in approved }.toSet()
+        }
+
         var imported = 0
         var merged = 0
         var skipped = 0
-        for (raw in raws) {
-            val incoming = runCatching { parser.parse(raw) }.getOrNull()?.copy(deviceId = deviceId) ?: continue
-            when (val decision = container.dives.classify(incoming)) {
+        classified.forEachIndexed { i, (incoming, decision) ->
+            when (decision) {
                 is ImportDecision.Duplicate -> skipped++
                 is ImportDecision.MergeCandidate ->
-                    if (confirmMerge(reviewFor(incoming, decision.diveId))) {
+                    if (i in toMerge) {
                         container.dives.attachToDive(incoming, decision.diveId)
                         merged++
                     } else {
@@ -309,7 +326,7 @@ class DownloadController(
     private fun summary(imported: Int, merged: Int, skipped: Int, noRaws: Boolean): String {
         val parts = buildList {
             if (imported > 0) add("imported $imported new dive${plural(imported)}")
-            if (merged > 0) add("merged $merged into an existing dive")
+            if (merged > 0) add("merged $merged into existing dive${plural(merged)}")
             if (skipped > 0) add("skipped $skipped already in the logbook")
         }
         return when {
