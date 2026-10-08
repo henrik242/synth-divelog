@@ -4,15 +4,19 @@ import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 
 /**
- * A test [Transport] that answers the D9-family ReadMemory and GetVersion commands
+ * A test [Transport] that answers the Vyper2-family ReadMemory and GetVersion commands
  * from an in-memory image, validating framing and CRC the way a real device would.
- * Drives the protocol end to end without a serial line; this cable does not echo, so
- * no echo is modelled.
+ * Drives the protocol end to end without a serial line; the line echo is the
+ * transport's business, so none is modelled.
  */
-class FakeSuuntoD9Device(
+class FakeSuuntoVyper2Device(
     private val memory: ByteArray,
     private val version: ByteArray = byteArrayOf(0x15, 0x00, 0x01, 0x04),
 ) : Transport {
+    /** Number of ReadMemory commands answered. */
+    var memoryReads = 0
+        private set
+
     private var out = ByteArray(0)
     private var outPos = 0
 
@@ -26,12 +30,13 @@ class FakeSuuntoD9Device(
                 require(data.size == 7) { "expected a 7-byte read command, got ${data.size}" }
                 val address = ((data[3].toInt() and 0xFF) shl 8) or (data[4].toInt() and 0xFF)
                 val count = data[5].toInt() and 0xFF
-                val reply = byteArrayOf(0x05, data[1], data[2], data[3], data[4], data[5]) +
+                memoryReads++
+                val reply = byteArrayOf(0x05, 0x00, (3 + count).toByte(), data[3], data[4], data[5]) +
                     memory.copyOfRange(address, address + count)
                 out = SuuntoCrc.appended(reply)
             }
             0x0F.toByte() -> {
-                out = SuuntoCrc.appended(byteArrayOf(0x0F, 0x00, 0x00) + version)
+                out = SuuntoCrc.appended(byteArrayOf(0x0F, 0x00, 0x04) + version)
             }
             else -> throw IllegalArgumentException("unexpected command 0x${(data[0].toInt() and 0xFF).toString(16)}")
         }

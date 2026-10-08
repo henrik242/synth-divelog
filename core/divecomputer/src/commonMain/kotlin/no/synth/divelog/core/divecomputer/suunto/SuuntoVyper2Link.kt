@@ -5,35 +5,28 @@ import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 
 /**
- * Command layer for the newer Suunto D9 family (HelO2, Vyper2, Cobra2/3, Vyper Air
- * and the D-series). A packet exchange at 9600 8N1; the line is half-duplex with RTS
- * direction control handled by the transport, not here (see SERIAL_PARAMS). Unlike
- * the old family the proper cable does not echo sent bytes.
+ * Command layer for the Suunto Vyper2 family (HelO2, Vyper2, Cobra2/3, Vyper Air).
+ * A packet exchange at 9600 8N1; the line is half-duplex with RTS
+ * direction control handled by the transport, not here (see SERIAL_PARAMS).
  *
  * A request is `[command] [lenHi] [lenLo] [params...] [crc]`, where the 16-bit
  * length counts the parameter bytes and the CRC is the XOR of every preceding
- * byte. The reply echoes the command and the request framing, appends the
- * requested data, and ends with its own CRC:
+ * byte. The reply repeats the command and the request parameters, appends the
+ * requested data, and ends with its own CRC; its length field counts the
+ * parameters plus the data:
  *
  *     ReadMemory  -> 05 00 03 addrHi addrLo count crc
- *                 <- 05 00 03 addrHi addrLo count <count bytes> crc   (count 1..0x78)
+ *                 <- 05 00 (3+count) addrHi addrLo count <count bytes> crc   (count 1..0x78)
  *     GetVersion  -> 0F 00 00 crc
- *                 <- 0F 00 00 <4 version bytes> crc
+ *                 <- 0F 00 04 <4 version bytes> crc
  */
-class SuuntoD9Link(
+class SuuntoVyper2Link(
     private val transport: Transport,
     private val timeoutMs: Long = 3_000,
-    /**
-     * Set when the transport syncs the half-duplex turnaround by reading the sent bytes
-     * back (see [SerialParams.echoSync]). The turnaround is then deterministic, so the
-     * resend loop drops to a few attempts instead of many. Off by default: the transport
-     * uses the fixed-settle turnaround and the full resend loop, exactly as before.
-     */
-    private val echoSync: Boolean = false,
 ) {
     /** Read [count] bytes (1..[MAX_PAGE]) from the 16-bit [address]. */
     fun readMemory(address: Int, count: Int): ByteArray {
-        require(count in 1..MAX_PAGE) { "D9 page read is 1..$MAX_PAGE bytes, got $count" }
+        require(count in 1..MAX_PAGE) { "Vyper2 page read is 1..$MAX_PAGE bytes, got $count" }
         val params = byteArrayOf(
             ((address ushr 8) and 0xFF).toByte(),
             (address and 0xFF).toByte(),
@@ -70,25 +63,24 @@ class SuuntoD9Link(
         // Reply = command + 2 length bytes + echoed params + data + crc.
         val replyLen = 3 + params.size + expectedDataLen + 1
 
-        // The half-duplex turnaround on this cable is timing-sensitive and has no echo
-        // to sync on, so a reply can be missed or clipped. Resend and reread, letting the
-        // transport's write jitter vary the turnaround phase, until a reply validates.
-        // The transport flushes its input at the start of each write, so a late or partial
-        // reply from a missed attempt is cleared before the next one; no separate drain
-        // (which could swallow a reply that arrives just after the window).
-        val tries = if (echoSync) ECHO_SYNC_RETRIES else MAX_TURNAROUND_RETRIES
+        // The transport keeps the line quiet before each write and flushes stale input, so a
+        // missed or clipped reply is rare; a few attempts cover it.
         var lastError = "no reply"
-        repeat(tries) {
+        repeat(MAX_TRIES) {
             transport.write(request)
             val reply = readReply(replyLen)
-            when {
-                reply == null -> lastError = "no reply"
-                reply[0] != command -> lastError = "bad echo 0x${hex(reply[0])}"
-                reply[reply.size - 1] != SuuntoCrc.xor(reply, 0, reply.size - 1) -> lastError = "CRC mismatch"
+            lastError = when {
+                reply == null -> "no reply"
+                reply[0] != command -> "bad header 0x${hex(reply[0])}"
+                (u16be(reply, 1) != replyLen - 4) -> "bad length ${u16be(reply, 1)}"
+                // The reply repeats the request parameters (address and count for a read),
+                // so a stale reply to another request cannot pass as this one.
+                !params.indices.all { reply[3 + it] == params[it] } -> "parameter mismatch"
+                reply[reply.size - 1] != SuuntoCrc.xor(reply, 0, reply.size - 1) -> "CRC mismatch"
                 else -> return reply.copyOfRange(0, reply.size - 1)
             }
         }
-        throw ProtocolException("D9: no valid reply to 0x${hex(command)} after $tries tries ($lastError)")
+        throw ProtocolException("Vyper2: no valid reply to 0x${hex(command)} after $MAX_TRIES tries ($lastError)")
     }
 
     /**
@@ -111,6 +103,9 @@ class SuuntoD9Link(
         return buffer
     }
 
+    private fun u16be(data: ByteArray, offset: Int): Int =
+        ((data[offset].toInt() and 0xFF) shl 8) or (data[offset + 1].toInt() and 0xFF)
+
     private fun hex(b: Byte): String = (b.toInt() and 0xFF).toString(16).padStart(2, '0')
 
     companion object {
@@ -118,8 +113,7 @@ class SuuntoD9Link(
         private const val VERSION_LEN = 4
         private const val CMD_READ = 0x05.toByte()
         private const val CMD_VERSION = 0x0F.toByte()
-        private const val MAX_TURNAROUND_RETRIES = 60
-        private const val ECHO_SYNC_RETRIES = 4
+        private const val MAX_TRIES = 4
         private const val REPLY_TIMEOUT_MS = 500L
     }
 }

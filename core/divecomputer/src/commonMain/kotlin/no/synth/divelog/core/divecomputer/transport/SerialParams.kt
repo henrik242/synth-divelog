@@ -11,8 +11,8 @@ enum class Parity { NONE, ODD, EVEN }
  *
  * [halfDuplex] marks a line where transmit and receive share one pair, so the
  * transport flips direction with RTS around each write. Both Suunto families are
- * half-duplex but with opposite RTS polarity (see [rtsTransmitHigh]) and only the
- * old Vyper family echoes the sent bytes back (see [discardsEcho]).
+ * half-duplex with RTS high to transmit; only the old Vyper family echoes the sent
+ * bytes back (see [discardsEcho]).
  */
 data class SerialParams(
     val baudRate: Int,
@@ -31,29 +31,19 @@ data class SerialParams(
     /**
      * On a [halfDuplex] line, whether the cable echoes the bytes we send so the
      * transport must read and drop them. True for the old single-wire Vyper cable;
-     * false for the D9 family, whose RTS direction control leaves no echo.
+     * false for the Vyper2 family, whose cable does not echo.
      */
     val discardsEcho: Boolean = true,
     /**
-     * On a [halfDuplex] line, sync the transmit-to-receive turnaround by reading the sent
-     * bytes back off the wire instead of waiting a fixed settle: the read blocks until the
-     * command is physically out, so the RTS switch to receive lands deterministically and
-     * the reply read succeeds first try. Off by default and only worth enabling when the
-     * cable actually reflects the sent bytes under this transport; when off the fixed
-     * settle path ([txSettleMs]/[txJitterMs]) is used unchanged.
+     * Minimum quiet time on the line before each write, counted from the last byte received
+     * or the last write. Some devices ignore a command that follows their previous reply too
+     * closely.
      */
-    val echoSync: Boolean = false,
+    val txIdleMs: Long = 0,
     /** Milliseconds to let the interface power up after setting the lines, before use. */
     val powerUpMs: Long = 0,
     /** Milliseconds to let the UART drain before switching RTS to receive. */
     val txSettleMs: Long = 0,
-    /**
-     * Extra random milliseconds (0..[txJitterMs]) added to [txSettleMs] on each write.
-     * The D9 cable gives no echo to sync the turnaround on, and the FTDI latency timer
-     * makes a fixed delay land in or out of the reply window depending on phase; jitter
-     * lets retries sample different phases so one lands in the window.
-     */
-    val txJitterMs: Long = 0,
     /** Milliseconds to wait after switching RTS to receive before the reply is expected. */
     val rxSettleMs: Long = 0,
 )

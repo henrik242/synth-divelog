@@ -18,8 +18,8 @@ class SuuntoFamilyTest {
     }
 
     @Test
-    fun d9FamilyUsesHalfDuplex9600NoneNoEcho() {
-        val p = SuuntoFamily.D9.serialParams
+    fun vyper2FamilyUsesHalfDuplex9600NoneNoEcho() {
+        val p = SuuntoFamily.VYPER2.serialParams
         assertEquals(9600, p.baudRate)
         assertEquals(Parity.NONE, p.parity)
         assertTrue(p.halfDuplex)
@@ -33,7 +33,7 @@ class SuuntoFamilyTest {
         val transport = FakeSuuntoVyperDevice(SyntheticVyper.squareDiveImage().memory)
         assertTrue(SuuntoFamily.VYPER.protocol(transport) is SuuntoVyperProtocol)
         assertNotNull(SuuntoFamily.VYPER.parser())
-        assertTrue(SuuntoFamily.D9.protocol(transport) is SuuntoD9Protocol)
-        assertNotNull(SuuntoFamily.D9.parser())
+        assertTrue(SuuntoFamily.VYPER2.protocol(transport) is SuuntoVyper2Protocol)
+        assertNotNull(SuuntoFamily.VYPER2.parser())
     }
 }

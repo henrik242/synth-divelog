@@ -10,7 +10,7 @@ stack. One codebase runs on Android, desktop (JVM) and iOS.
 
 - **Download from dive computers** over the shared "Add dives" flow:
   - Shearwater **Predator** and **Petrel 1** over classic Bluetooth (verified on the real devices).
-  - Suunto **Zoop/Vyper** and **HelO2/D9** over the USB cable (HelO2 verified on hardware).
+  - Suunto **Zoop/Vyper** and **HelO2/Vyper2** over the USB cable (HelO2 verified on hardware).
   - Incremental "new dives only" or a chosen amount; long downloads survive backgrounding via an Android foreground service.
 - **File import/export**: Subsurface XML, UDDF and MacDive XML. Import shows progress, skips duplicates, and auto-merges copies of the same dive (e.g. one logged on two computers), keeping the richer site/buddies/notes/tags.
 - **Subsurface cloud** sync (git over HTTPS), import and export.
@@ -48,7 +48,7 @@ Download protocols, written against real hardware, live in
 [Petrel 1](docs/protocol/shearwater-petrel1.md),
 [Suunto serial](docs/protocol/suunto-serial.md),
 [Zoop/Vyper](docs/protocol/suunto-zoop.md),
-[HelO2/D9](docs/protocol/suunto-helo2.md)).
+[HelO2/Vyper2](docs/protocol/suunto-helo2.md)).
 
 ## Toolchain
 

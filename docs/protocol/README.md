@@ -18,7 +18,7 @@ a guess to be confirmed against the next capture.
 | [shearwater-petrel1.md](shearwater-petrel1.md) | Petrel 1 download: dive manifest, per-dive compressed reads, the compression scheme. Reuses the Predator log format. |
 | [suunto-serial.md](suunto-serial.md) | Suunto USB cable, chipsets, and the two Suunto protocol families. USB/desktop transports implemented; the HelO2 download is verified on the real cable. |
 | [suunto-zoop.md](suunto-zoop.md) | Zoop / old-Vyper family serial protocol. Implemented and unit-tested; **unverified against hardware.** |
-| [suunto-helo2.md](suunto-helo2.md) | HelO2 / D9 family serial protocol. Framing, ReadMemory and the dive parser implemented; verified on hardware (full download). |
+| [suunto-helo2.md](suunto-helo2.md) | HelO2 / Vyper2 family serial protocol. Framing, incremental download and the HelO2 parser implemented; verified on hardware (full download). |
 
 ## How to read a field offset
 

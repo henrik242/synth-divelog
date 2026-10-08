@@ -30,7 +30,6 @@ xmlutil = "1.0.2.1"
 # Wired serial transports (M9)
 usbSerialForAndroid = "3.11.0"
 jserialcomm = "2.11.4"
-jna = "5.19.1"
 
 # Git client for cloud sync (jvm + android)
 jgit = "7.8.0.202609011348-r"
@@ -54,7 +53,6 @@ xmlutil-core = { module = "io.github.pdvrieze.xmlutil:core", version.ref = "xmlu
 # Wired serial transports (M9): USB-serial on Android, jSerialComm on desktop
 usbserial-android = { module = "com.github.mik3y:usb-serial-for-android", version.ref = "usbSerialForAndroid" }
 jserialcomm = { module = "com.fazecast:jSerialComm", version.ref = "jserialcomm" }
-jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 
 # Git client (cloud sync on jvm + android)
 jgit = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }

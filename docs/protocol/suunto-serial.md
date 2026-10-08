@@ -25,15 +25,16 @@ implementation.
 | Family | Line params | Members (relevant) | Doc |
 |---|---|---|---|
 | Old "Vyper" family | 2400 8O1, half-duplex | Spyder, Stinger, Mosquito, **Vyper (original)**, Vytec, Cobra, Gekko, **Zoop** | [suunto-zoop.md](suunto-zoop.md) |
-| Newer "D9" family | 9600 8N1, full-duplex | Vyper2, Cobra2, Cobra3, **Vyper Air**, **HelO2**, D9/D6/D4/D9tx/D6i/D4i | [suunto-helo2.md](suunto-helo2.md) |
+| Newer "Vyper2" family | 9600 8N1, half-duplex | Vyper2, Cobra2, Cobra3, **Vyper Air**, **HelO2** | [suunto-helo2.md](suunto-helo2.md) |
 
 Mapping for the two targets:
 - **Zoop -> old Vyper family.**
-- **HelO2 -> newer D9 family.**
+- **HelO2 -> newer Vyper2 family.**
 - Note: **Vyper Air is in the HelO2 family, not Zoop's**, despite the shared name.
   Implementing the old-Vyper protocol unlocks Vyper/Gekko/Vytec/Cobra/Stinger/
-  Mosquito; implementing the D9 protocol unlocks Vyper Air, Vyper2, Cobra2/3 and
-  the whole D-series.
+  Mosquito; the Vyper2 protocol covers Vyper Air, Vyper2, Cobra2/3 and HelO2.
+- The D-series (D9/D6/D4 and successors) is a third, related protocol and is not
+  implemented.
 
 ## Android USB-host feasibility
 
@@ -63,13 +64,13 @@ Proven approach: Android USB Host Mode (USB-OTG), no root, no kernel drivers.
   Predator.
 - iOS: not applicable (no USB host), skipped.
 
-All of the above compiles; none is exercised against the real dongle yet. See
-`SUUNTO-TESTING.md` at the repo root.
+The HelO2 download is verified on the real cable on desktop; the old-Vyper family
+is not yet. See `SUUNTO-TESTING.md` at the repo root.
 
 ## Suggested milestone split
 
 Two sub-tasks, not one, because the protocols differ:
 1. **USB transport + old-Vyper (Zoop)** first - it exercises the hardest path
    (half-duplex RTS/DTR, odd parity). Harder transport, simpler data model.
-2. **D9 (HelO2)** - simpler transport (9600 8N1 full-duplex), richer parser
-   (trimix, multiple gases, deco).
+2. **Vyper2 (HelO2)** - 9600 8N1 half-duplex with a 600 ms quiet gap per command,
+   richer parser (trimix, multiple gases, deco).

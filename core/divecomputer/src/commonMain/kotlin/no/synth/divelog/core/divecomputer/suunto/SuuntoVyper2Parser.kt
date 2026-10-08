@@ -9,8 +9,8 @@ import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
 
 /**
- * Parses one D9-family dive record into an [IncomingDive]. The record is the dive
- * data [SuuntoD9Dump] hands over, i.e. the bytes after the four byte prev/next head.
+ * Parses one Vyper2-family dive record into an [IncomingDive]. The record is the dive
+ * data [SuuntoVyper2Dump] hands over, i.e. the bytes after the four byte prev/next head.
  *
  * Only the HelO2 (model 0x15) field and profile layout is implemented; other models
  * in the family place the same fields at different offsets. [model] selects the
@@ -38,14 +38,14 @@ import no.synth.divelog.core.model.Sample
  * events, not as dive-level attributes. Deco stop depth and time are not in this
  * format, so deco shows only as events at state changes.
  */
-class SuuntoD9Parser(
+class SuuntoVyper2Parser(
     private val model: Int = HELO2,
 ) : DiveLogParser {
-    override val formatId: String = SuuntoD9Dump.FORMAT_ID
+    override val formatId: String = SuuntoVyper2Dump.FORMAT_ID
 
     override fun parse(raw: RawDive): IncomingDive {
         if (model != HELO2) {
-            throw ProtocolException("D9 parser only implements the HelO2 layout; model 0x${model.toString(16)} is unwired")
+            throw ProtocolException("Vyper2 parser only implements the HelO2 layout; model 0x${model.toString(16)} is unwired")
         }
         val d = raw.data
         requireSize(d, DATETIME_OFFSET + 7)
@@ -120,7 +120,7 @@ class SuuntoD9Parser(
         requireSize(d, config + 1)
         val nparams = d[config].toInt() and 0xFF
         if (nparams == 0 || nparams > MAX_PARAMS) {
-            throw ProtocolException("D9: invalid sample parameter count $nparams")
+            throw ProtocolException("Vyper2: invalid sample parameter count $nparams")
         }
 
         val params = ArrayList<SampleParam>(nparams)
@@ -133,7 +133,7 @@ class SuuntoD9Parser(
             val size = when (type) {
                 PARAM_DEPTH, PARAM_PRESSURE -> 2
                 PARAM_TEMPERATURE -> 1
-                else -> throw ProtocolException("D9: unknown sample type 0x${type.toString(16)}")
+                else -> throw ProtocolException("Vyper2: unknown sample type 0x${type.toString(16)}")
             }
             params += SampleParam(type, interval, divisor, size)
         }
@@ -148,7 +148,7 @@ class SuuntoD9Parser(
         requireSize(d, profile + 5)
 
         val intervalSeconds = d[INTERVAL_SAMPLE_OFFSET].toInt() and 0xFF
-        if (intervalSeconds == 0) throw ProtocolException("D9: invalid sample interval")
+        if (intervalSeconds == 0) throw ProtocolException("Vyper2: invalid sample interval")
 
         val samples = ArrayList<Sample>()
         val events = ArrayList<Event>()
@@ -165,7 +165,7 @@ class SuuntoD9Parser(
 
             for (p in params) {
                 if (p.interval == 0 || nsamples % p.interval != 0) continue
-                if (offset + p.size > d.size) throw ProtocolException("D9: profile truncated")
+                if (offset + p.size > d.size) throw ProtocolException("Vyper2: profile truncated")
                 when (p.type) {
                     PARAM_DEPTH -> depthMm = u16le(d, offset) * 1000 / p.divisor
                     PARAM_PRESSURE -> {
@@ -291,7 +291,7 @@ class SuuntoD9Parser(
     }
 
     private fun requireSize(d: ByteArray, min: Int) {
-        if (d.size < min) throw ProtocolException("D9 record too small: ${d.size} bytes, need $min")
+        if (d.size < min) throw ProtocolException("Vyper2 record too small: ${d.size} bytes, need $min")
     }
 
     private fun u16le(d: ByteArray, offset: Int): Int =

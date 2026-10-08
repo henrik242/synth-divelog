@@ -3,10 +3,10 @@ package no.synth.divelog.core.divecomputer.suunto
 import no.synth.divelog.core.divecomputer.RawDive
 
 /**
- * Walks the newer Suunto D9 family profile ring and splits it into one raw blob
+ * Walks the Suunto Vyper2 family profile ring and splits it into one raw blob
  * per dive, newest first.
  *
- * Memory facts for this family (HelO2, Vyper Air, Vyper2, Cobra2/3, D-series):
+ * Memory facts for this family (HelO2, Vyper Air, Vyper2, Cobra2/3):
  *
  * - The profile lives in a ring buffer spanning [RB_PROFILE_BEGIN]..[RB_PROFILE_END).
  *   An eight byte directory header at [HEADER_OFFSET] holds four little-endian 16-bit
@@ -25,8 +25,8 @@ import no.synth.divelog.core.divecomputer.RawDive
  * The record data handed to the parser excludes the four byte prev/next head, so
  * parser offsets are relative to the first real data byte.
  */
-object SuuntoD9Dump {
-    const val FORMAT_ID = "suunto-d9-log"
+object SuuntoVyper2Dump {
+    const val FORMAT_ID = "suunto-vyper2-log"
 
     const val HEADER_OFFSET = 0x0190
     const val HEADER_SIZE = 8
@@ -39,7 +39,7 @@ object SuuntoD9Dump {
     /** Four byte prev/next head in front of each dive record. */
     private const val RECORD_HEAD = 4
 
-    private val ringSize get() = RB_PROFILE_END - RB_PROFILE_BEGIN
+    val ringSize get() = RB_PROFILE_END - RB_PROFILE_BEGIN
 
     /**
      * Extract dives newest-first from [ring], the raw bytes of
@@ -48,43 +48,58 @@ object SuuntoD9Dump {
      */
     fun extract(ring: ByteArray, header: ByteArray): List<RawDive> {
         require(ring.size == ringSize) { "ring must be $ringSize bytes, got ${ring.size}" }
-        require(header.size >= HEADER_SIZE) { "header must be at least $HEADER_SIZE bytes" }
+        val dives = ArrayList<RawDive>()
+        walk(header, read = { start, size -> recordAt(start, size, ring) }) { dives += it; true }
+        return dives
+    }
 
+    /**
+     * Bytes of the ring that hold dives according to [header]: the span from `begin`
+     * to `end`, or the whole ring when `begin` is corrupt. Zero when the header is
+     * unusable.
+     */
+    fun usedBytes(header: ByteArray): Int {
+        require(header.size >= HEADER_SIZE) { "header must be at least $HEADER_SIZE bytes" }
         val last = u16le(header, 0)
         val count = u16le(header, 2)
         val end = u16le(header, 4)
         val begin = u16le(header, 6)
+        if (!inRing(last) || !inRing(end)) return 0
+        return if (inRing(begin)) ringDistance(begin, end, full = count > 0) else ringSize
+    }
 
-        if (!inRing(last) || !inRing(end)) return emptyList()
-
+    /**
+     * Follow the dive chain backward from the newest dive. Each record is fetched with
+     * [read] (ring start address and size, wrapping at the ring end), in order and
+     * contiguously going back from `end`, so a caller can read the device lazily.
+     * [onDive] gets each complete dive, newest first, and returns false to stop.
+     */
+    fun walk(header: ByteArray, read: (start: Int, size: Int) -> ByteArray, onDive: (RawDive) -> Boolean) {
         // Bytes still to account for. A valid begin gives an exact budget; a corrupt
         // one forces a whole-ring scan that terminates on the first broken record.
-        var remaining = if (inRing(begin)) ringDistance(begin, end, full = count > 0) else ringSize
-
-        val dives = ArrayList<RawDive>()
-        var current = last
-        var previous = end
+        var remaining = usedBytes(header)
+        var current = u16le(header, 0)
+        var previous = u16le(header, 4)
         while (remaining > 0) {
             val size = ringDistance(current, previous, full = true)
-            if (size < RECORD_HEAD || size > remaining) break
+            if (size < RECORD_HEAD || size > remaining) return
             remaining -= size
 
-            val record = recordAt(current, size, ring)
+            val record = read(current, size)
             val prev = u16le(record, 0)
             val next = u16le(record, 2)
-            if (!inRing(prev) || !inRing(next)) break
-            if (next != previous && next != current) break
+            if (!inRing(prev) || !inRing(next)) return
+            if (next != previous && next != current) return
 
             // next == current marks an incomplete dive, which is skipped.
             if (next != current) {
                 val data = record.copyOfRange(RECORD_HEAD, record.size)
-                dives += RawDive(fingerprint(data), data, FORMAT_ID)
+                if (!onDive(RawDive(fingerprint(data), data, FORMAT_ID))) return
             }
 
             previous = current
             current = prev
         }
-        return dives
     }
 
     /** Device serial as decimal digits, two per byte (e.g. 0x5E -> "94"). */
@@ -93,19 +108,12 @@ object SuuntoD9Dump {
 
     /** Model name for the version id byte, or a hex fallback. */
     fun modelName(modelByte: Int): String = when (modelByte) {
-        0x0E -> "D9"
-        0x0F -> "D6"
         0x10 -> "Vyper2"
         0x11 -> "Cobra2"
-        0x12 -> "D4"
         0x13 -> "Vyper Air"
         0x14 -> "Cobra3"
         0x15 -> "HelO2"
-        0x19 -> "D4i"
-        0x1A -> "D6i"
-        0x1B -> "D9tx"
-        0x1C -> "DX"
-        else -> "D9-family (0x${modelByte.toString(16)})"
+        else -> "Vyper2-family (0x${modelByte.toString(16)})"
     }
 
     private fun inRing(address: Int): Boolean = address in RB_PROFILE_BEGIN until RB_PROFILE_END
@@ -126,7 +134,7 @@ object SuuntoD9Dump {
     }
 
     /** Copy [size] bytes starting at ring address [start], wrapping at the ring end. */
-    private fun recordAt(start: Int, size: Int, ring: ByteArray): ByteArray {
+    fun recordAt(start: Int, size: Int, ring: ByteArray): ByteArray {
         val out = ByteArray(size)
         var idx = start - RB_PROFILE_BEGIN
         for (i in 0 until size) {

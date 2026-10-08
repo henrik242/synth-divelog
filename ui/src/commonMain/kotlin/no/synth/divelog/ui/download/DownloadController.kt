@@ -12,8 +12,8 @@ import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.divecomputer.shearwater.PredatorParser
 import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPetrelProtocol
 import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPredatorProtocol
-import no.synth.divelog.core.divecomputer.suunto.SuuntoD9Parser
-import no.synth.divelog.core.divecomputer.suunto.SuuntoD9Protocol
+import no.synth.divelog.core.divecomputer.suunto.SuuntoVyper2Parser
+import no.synth.divelog.core.divecomputer.suunto.SuuntoVyper2Protocol
 import no.synth.divelog.core.divecomputer.suunto.SuuntoFamily
 import no.synth.divelog.core.divecomputer.suunto.SuuntoVyperParser
 import no.synth.divelog.core.divecomputer.suunto.SuuntoVyperProtocol
@@ -51,12 +51,12 @@ enum class DiveComputerType(
         protocolFactory = { SuuntoVyperProtocol(it) },
         parserFactory = { SuuntoVyperParser() },
     ),
-    SUUNTO_D9(
-        displayName = "Suunto HelO2 / D9",
-        serialParams = SuuntoFamily.D9.serialParams,
-        identityKey = "usb-serial:suunto-d9",
-        protocolFactory = { SuuntoD9Protocol(it) },
-        parserFactory = { SuuntoD9Parser() },
+    SUUNTO_VYPER2(
+        displayName = "Suunto HelO2 / Vyper2",
+        serialParams = SuuntoFamily.VYPER2.serialParams,
+        identityKey = "usb-serial:suunto-vyper2",
+        protocolFactory = { SuuntoVyper2Protocol(it) },
+        parserFactory = { SuuntoVyper2Parser() },
     ),
     SHEARWATER_PETREL(
         displayName = "Shearwater Petrel",

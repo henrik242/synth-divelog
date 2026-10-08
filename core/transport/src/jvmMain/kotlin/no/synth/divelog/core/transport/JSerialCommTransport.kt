@@ -11,14 +11,15 @@ import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 /**
  * Desktop wired serial [Transport] over jSerialComm, the JVM counterpart to the
  * Android [UsbSerialTransport]. Same contract: it applies the protocol's line
- * settings and, for the half-duplex old Suunto Vyper family, holds DTR high, flips
- * RTS around each write and discards the line echo.
+ * settings and, on a half-duplex line, holds DTR high, keeps the line quiet before
+ * each write, flips RTS around it and discards the line echo where there is one.
  */
 class JSerialCommTransport(
     private val port: SerialPort,
     private val params: SerialParams,
 ) : Transport {
     private var open = false
+    private var lastActivityMs = 0L
 
     override fun open() {
         port.setComPortParameters(params.baudRate, params.dataBits, stopBitsConst(params.stopBits), parityConst(params.parity))
@@ -41,22 +42,26 @@ class JSerialCommTransport(
 
     override fun write(data: ByteArray) {
         if (!open) throw TransportClosedException()
+        if (params.txIdleMs > 0) {
+            val wait = lastActivityMs + params.txIdleMs - nowMs()
+            if (wait > 0) sleep(wait)
+        }
+        try {
+            writeTurnaround(data)
+        } finally {
+            lastActivityMs = nowMs()
+        }
+    }
+
+    private fun writeTurnaround(data: ByteArray) {
         if (params.halfDuplex) {
             runCatching { port.flushIOBuffers() } // drop stale/spurious bytes before this command
             setRts(params.rtsTransmitHigh) // drive the line to transmit
             writeAll(data)
-            if (params.echoSync) {
-                // Read the sent bytes back as the turnaround sync: this blocks until the
-                // command is physically on the wire, so the switch to receive is deterministic.
-                readEcho(data.size)
-                setRts(!params.rtsTransmitHigh) // switch the line to receive
-            } else {
-                val settle = params.txSettleMs + if (params.txJitterMs > 0) (0..params.txJitterMs).random() else 0
-                if (settle > 0) sleep(settle)
-                setRts(!params.rtsTransmitHigh) // switch the line to receive
-                if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
-                if (params.discardsEcho) discardEcho(data.size)
-            }
+            if (params.txSettleMs > 0) sleep(params.txSettleMs)
+            setRts(!params.rtsTransmitHigh) // switch the line to receive
+            if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
+            if (params.discardsEcho) discardEcho(data.size)
         } else {
             writeAll(data)
         }
@@ -74,6 +79,7 @@ class JSerialCommTransport(
             if (n < 0) throw TransportException("Serial read error on ${port.systemPortName}")
             if (n > 0) {
                 tmp.copyInto(buffer, offset, 0, n)
+                lastActivityMs = nowMs()
                 return n
             }
             if (nowMs() >= deadline) throw TransportTimeoutException()
@@ -98,24 +104,6 @@ class JSerialCommTransport(
             val n = port.readBytes(scratch, count - dropped)
             if (n <= 0) break
             dropped += n
-        }
-    }
-
-    /**
-     * Read [count] echoed bytes back as the transmit-to-receive turnaround sync. Bounded by
-     * a deadline so a missing or short echo cannot hang: if the cable does not reflect the
-     * bytes under this transport, this returns after the timeout and we fall back to reading
-     * the reply directly. Unlike [discardEcho] it keeps waiting across empty reads until the
-     * deadline, because the echo is the signal we are blocking on, not noise to drop.
-     */
-    private fun readEcho(count: Int) {
-        val scratch = ByteArray(count)
-        var got = 0
-        val deadline = nowMs() + ECHO_TIMEOUT_MS
-        while (got < count && nowMs() < deadline) {
-            val n = port.readBytes(scratch, count - got)
-            if (n < 0) break
-            got += n
         }
     }
 

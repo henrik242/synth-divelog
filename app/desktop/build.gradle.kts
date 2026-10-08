@@ -25,7 +25,6 @@ kotlin {
             implementation(project(":ui"))
             implementation(libs.sqldelight.driver.sqlite)
             implementation(libs.jserialcomm)
-            implementation(libs.jna)
             implementation(libs.kotlinx.coroutines.core)
             // Provides Dispatchers.Main on desktop (the AWT event thread), which the
             // MapLibre Compose map needs to deliver its engine callbacks.
@@ -66,7 +65,7 @@ compose.desktop {
 }
 
 // Command-line Suunto capture tool, for bringing up the USB dongle before there is
-// a desktop download UI. Run: ./gradlew :app:desktop:suuntoCapture --args="<port> [VYPER|D9]"
+// a desktop download UI. Run: ./gradlew :app:desktop:suuntoCapture --args="[VYPER|VYPER2] [proto] [port]"
 tasks.register<JavaExec>("suuntoCapture") {
     group = "application"
     description = "Capture a Suunto dive download over the USB serial dongle"

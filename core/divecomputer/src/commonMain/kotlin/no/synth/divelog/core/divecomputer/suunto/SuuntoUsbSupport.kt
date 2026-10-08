@@ -26,23 +26,23 @@ enum class SuuntoFamily(
         exampleModels = "Zoop, Vyper, Vytec, Cobra, Gekko, Stinger, Mosquito",
     ),
 
-    /** Newer full-duplex 9600 8N1 family: HelO2, Vyper Air, Vyper2, Cobra2/3, D-series. */
-    D9(
-        displayName = "HelO2 / D9 (new family)",
-        serialParams = SuuntoD9Protocol.SERIAL_PARAMS,
-        exampleModels = "HelO2, Vyper Air, Vyper2, Cobra2/3, D9/D6/D4",
+    /** Newer half-duplex 9600 8N1 family: Vyper2, Cobra2, Cobra3, Vyper Air, HelO2. */
+    VYPER2(
+        displayName = "HelO2 / Vyper2 (new family)",
+        serialParams = SuuntoVyper2Protocol.SERIAL_PARAMS,
+        exampleModels = "HelO2, Vyper Air, Vyper2, Cobra2/3",
     ),
     ;
 
     /** Build the download protocol for this family over an already-opened [transport]. */
     fun protocol(transport: Transport, timeoutMs: Long = 3_000): DiveComputerProtocol = when (this) {
         VYPER -> SuuntoVyperProtocol(transport, timeoutMs)
-        D9 -> SuuntoD9Protocol(transport, timeoutMs)
+        VYPER2 -> SuuntoVyper2Protocol(transport, timeoutMs)
     }
 
     /** Parser for the raw dives this family's protocol produces, or null if none yet. */
     fun parser(): DiveLogParser? = when (this) {
         VYPER -> SuuntoVyperParser()
-        D9 -> SuuntoD9Parser()
+        VYPER2 -> SuuntoVyper2Parser()
     }
 }

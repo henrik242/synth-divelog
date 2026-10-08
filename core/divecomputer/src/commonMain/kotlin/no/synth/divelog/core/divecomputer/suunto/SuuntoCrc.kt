@@ -3,7 +3,7 @@ package no.synth.divelog.core.divecomputer.suunto
 /**
  * The checksum both Suunto serial families use: a single byte that is the XOR of
  * every preceding byte of the packet. Shared by the old Vyper family and the
- * newer D9 family.
+ * Vyper2 family.
  */
 internal object SuuntoCrc {
     fun xor(data: ByteArray, from: Int = 0, to: Int = data.size): Byte {

@@ -12,14 +12,14 @@ import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 /**
  * A wired USB-serial [Transport] for Android USB host mode, backed by
  * usb-serial-for-android. It applies the protocol's line settings (baud, parity,
- * stop bits) and drives the line-control signals the old Suunto Vyper family needs.
+ * stop bits) and drives the line-control signals the half-duplex Suunto families need.
  *
  * Half-duplex handling ([SerialParams.halfDuplex]): DTR is held high the whole
- * session to power the interface; RTS flips the line direction. Each [write] sets
- * RTS to transmit, lets the UART drain, clears RTS to receive, and then drops the
- * bytes the shared line echoes back, so the protocol layer only sees the device's
- * reply. A full-duplex line (the D9 family) leaves RTS alone and reads nothing back
- * after a write.
+ * session to power the interface; RTS flips the line direction. Each [write] waits
+ * out [SerialParams.txIdleMs], sets RTS to transmit, lets the UART drain, clears RTS
+ * to receive, and drops the bytes the line echoes back when [SerialParams.discardsEcho]
+ * is set, so the protocol layer only sees the device's reply. A full-duplex line
+ * leaves RTS alone and reads nothing back after a write.
  *
  * Construct it with an opened [UsbDeviceConnection] from `UsbManager` once the user
  * has granted the USB device permission; see [UsbSerialDevices].
@@ -30,6 +30,7 @@ class UsbSerialTransport(
     private val params: SerialParams,
 ) : Transport {
     private var open = false
+    private var lastActivityMs = 0L
 
     override fun open() {
         port.open(connection)
@@ -43,27 +44,25 @@ class UsbSerialTransport(
 
     override fun write(data: ByteArray) {
         if (!open) throw TransportClosedException()
+        if (params.txIdleMs > 0) {
+            val wait = lastActivityMs + params.txIdleMs - System.currentTimeMillis()
+            if (wait > 0) sleep(wait)
+        }
         try {
             if (params.halfDuplex) {
                 port.rts = params.rtsTransmitHigh // drive the line to transmit
                 port.write(data, WRITE_TIMEOUT_MS)
-                if (params.echoSync) {
-                    // Read the sent bytes back as the turnaround sync: this blocks until the
-                    // command is physically on the wire, so the switch to receive is deterministic.
-                    readEcho(data.size)
-                    port.rts = !params.rtsTransmitHigh // switch the line to receive
-                } else {
-                    val settle = params.txSettleMs + if (params.txJitterMs > 0) (0..params.txJitterMs).random() else 0
-                    if (settle > 0) sleep(settle)
-                    port.rts = !params.rtsTransmitHigh // switch the line to receive
-                    if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
-                    if (params.discardsEcho) discardEcho(data.size)
-                }
+                if (params.txSettleMs > 0) sleep(params.txSettleMs)
+                port.rts = !params.rtsTransmitHigh // switch the line to receive
+                if (params.rxSettleMs > 0) sleep(params.rxSettleMs)
+                if (params.discardsEcho) discardEcho(data.size)
             } else {
                 port.write(data, WRITE_TIMEOUT_MS)
             }
         } catch (e: Exception) {
             throw TransportException("USB serial write failed", e)
+        } finally {
+            lastActivityMs = System.currentTimeMillis()
         }
     }
 
@@ -76,6 +75,7 @@ class UsbSerialTransport(
             throw TransportException("USB serial read failed", e)
         }
         if (n <= 0) throw TransportTimeoutException()
+        lastActivityMs = System.currentTimeMillis()
         if (tmp !== buffer) tmp.copyInto(buffer, offset, 0, n)
         return n
     }
@@ -97,23 +97,6 @@ class UsbSerialTransport(
             val n = runCatching { port.read(scratch, ECHO_TIMEOUT_MS) }.getOrDefault(0)
             if (n <= 0) break
             dropped += n
-        }
-    }
-
-    /**
-     * Read [count] echoed bytes back as the transmit-to-receive turnaround sync. Bounded by
-     * a deadline so a missing or short echo cannot hang: if the cable does not reflect the
-     * bytes under this transport, this returns after the timeout and we fall back to reading
-     * the reply directly.
-     */
-    private fun readEcho(count: Int) {
-        val scratch = ByteArray(count)
-        var got = 0
-        val deadline = System.currentTimeMillis() + ECHO_TIMEOUT_MS
-        while (got < count && System.currentTimeMillis() < deadline) {
-            val n = runCatching { port.read(scratch, ECHO_TIMEOUT_MS) }.getOrDefault(0)
-            if (n <= 0) break
-            got += n
         }
     }
 

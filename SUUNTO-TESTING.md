@@ -2,7 +2,7 @@
 
 How to validate the Suunto USB download against the real cable.
 
-**Status:** the **HelO2 (D9 family)** download is verified end to end on hardware
+**Status:** the **HelO2 (Vyper2 family)** download is verified end to end on hardware
 (full download over the original Suunto cable), driven from the app's "Add dives"
 flow and the desktop `suuntoCapture` tool. The **Zoop / old-Vyper family** is
 implemented and unit-tested but **not yet verified against hardware** - this guide
@@ -19,8 +19,9 @@ Verified by unit tests (`./gradlew :core:divecomputer:jvmTest`):
   wrap (`SuuntoVyperTest`).
 - Depth/temperature parsing from delta-feet samples against a hand-built memory
   image (`SuuntoVyperTest`).
-- D9/HelO2 packet framing, `ReadMemory` (paging) and `GetVersion`; the dive
-  directory walk and the HelO2 record/profile parser.
+- Vyper2/HelO2 packet framing, `ReadMemory` (paging) and `GetVersion`; the dive
+  directory walk, the incremental backward download and the HelO2 record/profile
+  parser.
 - Family selection -> serial params + protocol + parser (`SuuntoFamilyTest`).
 
 Still needs a Zoop/Vyper on the cable:
@@ -35,10 +36,10 @@ Still needs a Zoop/Vyper on the cable:
 | Family | Baud | Frame | Duplex | Lines |
 |---|---|---|---|---|
 | Vyper / Zoop | 2400 | 8O1 | half | DTR high; RTS high to transmit, low to receive; cable **echoes** sent bytes (discarded) |
-| HelO2 / D9 | 9600 | 8N1 | half | DTR high; RTS high to transmit, low to receive; **no echo**; reply window ~6-10 ms after the write |
+| HelO2 / Vyper2 | 9600 | 8N1 | half | DTR high; RTS high to transmit, low to receive; **no echo**; **600 ms quiet gap before each command** |
 
-The HelO2 turnaround has no echo to sync on, so the RTS-to-receive switch must land
-in a narrow window; `SuuntoD9Link` jitters the settle and retries. See
+The HelO2 ignores a command sent less than ~500 ms after its previous reply, which
+caps a full download at about 3.5 minutes. See
 [docs/protocol/suunto-helo2.md](docs/protocol/suunto-helo2.md).
 
 ## Hardware
@@ -67,15 +68,17 @@ a mature serial stack, so the desktop is the least flaky place for a first captu
 # Auto-pick a usbserial-* port, old-Vyper family:
 ./gradlew :app:desktop:suuntoCapture --args="VYPER"
 
-# Or name the port explicitly, HelO2/D9 family:
-./gradlew :app:desktop:suuntoCapture --args="cu.usbserial-XXXX D9"
+# Or name the port explicitly, HelO2/Vyper2 family, memory dump to a .bin:
+./gradlew :app:desktop:suuntoCapture --args="cu.usbserial-XXXX VYPER2"
+
+# The shared download exactly as the apps run it, with timing and parsed dives:
+./gradlew :app:desktop:suuntoCapture --args="VYPER2 proto cu.usbserial-XXXX"
 ```
 
 It opens the port through a `RecordingTransport`, runs the download, prints the
 decoded dives, and saves the raw transcript to
 `~/.synth-divelog/suunto-capture-<ts>.transcript.txt` - even on failure, so a flaky
-attempt still leaves something to debug. `SuuntoCapture.kt` (in `app/desktop`) is
-the reference for the raw API and has extra diagnostic modes.
+attempt still leaves something to debug. `SuuntoCapture.kt` is in `app/desktop`.
 
 ## First Vyper capture checklist
 
