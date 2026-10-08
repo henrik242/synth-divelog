@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -353,7 +355,9 @@ fun SynthDivelogApp(
             }
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        // Edge-to-edge: the window no longer shrinks for the keyboard, so pad the content by the
+        // keyboard height, less the bottom bar it covers, to keep the end of a form reachable.
+        Box(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
             // Root-level back. Pops one breadcrumb level first (matching the crumbs),
             // then falls through to the section/exit logic.
             BackHandler {
