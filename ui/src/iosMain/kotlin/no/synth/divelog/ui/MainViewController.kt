@@ -49,6 +49,7 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
                     status = "Re-parsed $count dives"
                 }
             },
+            onDownloaded = { dataVersion++ },
             cloudEnabled = true,
             initialCloudEmail = settings.cloudEmail,
             initialCloudPassword = settings.cloudPassword,
@@ -56,15 +57,7 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
                 settings.cloudEmail = email
                 settings.cloudPassword = pass
             },
-            onCloudPull = { email, pass ->
-                scope.launch {
-                    status = runCatching {
-                        val files = cloud.pull(email, pass)
-                        withContext(Dispatchers.Default) { logbook.cloudImportMessage(files) }
-                    }.getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
-                    dataVersion++
-                }
-            },
+            cloud = cloud,
             onCloudPush = { email, pass ->
                 scope.launch {
                     status = runCatching {

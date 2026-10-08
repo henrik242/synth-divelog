@@ -4,9 +4,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.ResetCommand.ResetType
+import org.eclipse.jgit.lib.EmptyProgressMonitor
+import org.eclipse.jgit.lib.NullProgressMonitor
 import org.eclipse.jgit.lib.PersonIdent
+import org.eclipse.jgit.lib.ProgressMonitor
 import org.eclipse.jgit.transport.RefSpec
-import org.eclipse.jgit.transport.URIish
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import java.io.File
 
@@ -17,13 +19,18 @@ import java.io.File
  */
 actual class CloudGit actual constructor(private val workDir: String) {
 
-    actual suspend fun pull(email: String, password: String): Map<String, String> =
+    actual suspend fun pull(
+        email: String,
+        password: String,
+        onProgress: (task: String, fraction: Float?) -> Unit,
+    ): Map<String, String> =
         withContext(Dispatchers.IO) {
             val repo = cloudRepo(email)
             val dir = repoDir(email)
             val creds = UsernamePasswordCredentialsProvider(sanitizeEmail(email), password)
-            ensureRepo(dir, repo, creds).use { git ->
-                syncRemote(git, repo, creds)
+            val monitor = TransferProgress(onProgress)
+            ensureRepo(dir, repo, creds, monitor).use { git ->
+                check(syncRemote(git, repo, creds, monitor)) { "No logbook in the cloud for $email yet" }
                 readTree(dir)
             }
         }
@@ -52,32 +59,43 @@ actual class CloudGit actual constructor(private val workDir: String) {
 
     private fun repoDir(email: String): File = File(workDir, sanitizeEmail(email).ifEmpty { "default" })
 
-    private fun ensureRepo(dir: File, repo: CloudRepo, creds: UsernamePasswordCredentialsProvider): Git {
+    private fun ensureRepo(
+        dir: File,
+        repo: CloudRepo,
+        creds: UsernamePasswordCredentialsProvider,
+        monitor: ProgressMonitor = NullProgressMonitor.INSTANCE,
+    ): Git {
         if (File(dir, ".git").isDirectory) return Git.open(dir)
         dir.mkdirs()
+        // The cloud creates the repository with the account, so a failed clone is a real
+        // error (credentials, network); clear the partial copy and report it.
         return try {
             Git.cloneRepository()
                 .setURI(repo.url)
                 .setDirectory(dir)
                 .setCredentialsProvider(creds)
                 .setCloneAllBranches(true)
+                .setProgressMonitor(monitor)
                 .call()
         } catch (e: Exception) {
-            // A new account has no stored repository yet; start a local one wired
-            // to the remote and create the branch on the first push.
-            val git = Git.init().setDirectory(dir).setInitialBranch(repo.branch).call()
-            git.remoteAdd().setName("origin").setUri(URIish(repo.url)).call()
-            git
+            dir.deleteRecursively()
+            throw e
         }
     }
 
-    private fun syncRemote(git: Git, repo: CloudRepo, creds: UsernamePasswordCredentialsProvider) {
-        try {
-            git.fetch().setRemote("origin").setCredentialsProvider(creds).call()
-        } catch (e: Exception) {
-            return // offline or empty remote: keep the local copy as is
-        }
-        val remote = git.repository.findRef("refs/remotes/origin/${repo.branch}") ?: return
+    /**
+     * Fetch and move the working copy to the remote branch. Fetch errors propagate, so
+     * a pull never reads, and a push never overwrites, a stale copy. Returns false when
+     * the account's branch does not exist in the cloud yet.
+     */
+    private fun syncRemote(
+        git: Git,
+        repo: CloudRepo,
+        creds: UsernamePasswordCredentialsProvider,
+        monitor: ProgressMonitor = NullProgressMonitor.INSTANCE,
+    ): Boolean {
+        git.fetch().setRemote("origin").setCredentialsProvider(creds).setProgressMonitor(monitor).call()
+        val remote = git.repository.findRef("refs/remotes/origin/${repo.branch}") ?: return false
         val hasLocal = git.repository.findRef("refs/heads/${repo.branch}") != null
         git.checkout()
             .setName(repo.branch)
@@ -85,6 +103,7 @@ actual class CloudGit actual constructor(private val workDir: String) {
             .apply { if (!hasLocal) setStartPoint("origin/${repo.branch}") }
             .call()
         git.reset().setMode(ResetType.HARD).setRef(remote.name).call()
+        return true
     }
 
     private fun readTree(dir: File): Map<String, String> {
@@ -104,6 +123,32 @@ actual class CloudGit actual constructor(private val workDir: String) {
             val file = File(dir, path)
             file.parentFile?.mkdirs()
             file.writeText(content)
+        }
+    }
+
+    /** Relays JGit's per-task progress as a fraction, once per whole percent. */
+    private class TransferProgress(private val onProgress: (String, Float?) -> Unit) : EmptyProgressMonitor() {
+        private var task = ""
+        private var total = 0
+        private var done = 0
+        private var shown = -1
+
+        override fun beginTask(title: String, totalWork: Int) {
+            task = title
+            total = totalWork
+            done = 0
+            shown = -1
+            onProgress(title, if (totalWork > 0) 0f else null)
+        }
+
+        override fun update(completed: Int) {
+            if (total <= 0) return
+            done += completed
+            val percent = done * 100 / total
+            if (percent != shown) {
+                shown = percent
+                onProgress(task, done.toFloat() / total)
+            }
         }
     }
 

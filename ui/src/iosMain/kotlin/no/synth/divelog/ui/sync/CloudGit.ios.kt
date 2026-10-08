@@ -6,7 +6,11 @@ package no.synth.divelog.ui.sync
  * serial download is Android-only.
  */
 actual class CloudGit actual constructor(workDir: String) {
-    actual suspend fun pull(email: String, password: String): Map<String, String> =
+    actual suspend fun pull(
+        email: String,
+        password: String,
+        onProgress: (task: String, fraction: Float?) -> Unit,
+    ): Map<String, String> =
         throw UnsupportedOperationException(CLOUD_UNAVAILABLE)
 
     actual suspend fun push(email: String, password: String, files: Map<String, String>): Unit =

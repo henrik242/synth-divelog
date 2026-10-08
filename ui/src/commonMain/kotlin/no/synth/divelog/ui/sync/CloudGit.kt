@@ -12,7 +12,12 @@ package no.synth.divelog.ui.sync
  * Android-only.
  */
 expect class CloudGit(workDir: String) {
-    suspend fun pull(email: String, password: String): Map<String, String>
+    /** [onProgress] gets the transfer step ("Receiving objects") and its fraction, if known. */
+    suspend fun pull(
+        email: String,
+        password: String,
+        onProgress: (task: String, fraction: Float?) -> Unit = { _, _ -> },
+    ): Map<String, String>
     suspend fun push(email: String, password: String, files: Map<String, String>)
 }
 

@@ -130,9 +130,33 @@ class GitLogFormatTest {
     @Test
     fun laysOutFilesLikeTheCloudRepo() {
         val tree = format.write(sampleLog())
-        assertTrue(tree.keys.any { it == "2025/10/26-Sun=10=46=22/Dive-872" }, "dive path: ${tree.keys}")
+        assertTrue(tree.keys.any { it == "2025/10/26-Sun-10=46=22/Dive-872" }, "dive path: ${tree.keys}")
         assertTrue(tree.keys.any { it.startsWith("01-Divesites/Site-") }, "site path: ${tree.keys}")
         assertTrue(tree.keys.any { it.endsWith("/Divecomputer-001") }, "dc path: ${tree.keys}")
+    }
+
+    @Test
+    fun readsTheCloudsDiveDirectoryNames() {
+        // Reuse a written dive's blobs under the directory names the cloud uses: the plain
+        // "DD-Wkd-hh=mm=ss", the "~<hash>" a second dive at the same second gets, and the
+        // "DD-Wkd=hh=mm=ss" early builds of this app wrote.
+        val written = format.write(sampleLog())
+        val dive = written.entries.first { it.key.substringAfterLast('/').startsWith("Dive-") }.value
+        val computer = written.entries.first { it.key.endsWith("/Divecomputer-001") }.value
+        val tree = mapOf(
+            "00-Subsurface" to "version 3\n",
+            "2015/09/24-Thu-13=40=00/Dive-594" to dive,
+            "2015/09/24-Thu-13=40=00/Divecomputer" to computer,
+            "2015/09/24-Thu-13=40=00~82f171c/Dive-595" to dive,
+            "2015/09/24-Thu-13=40=00~82f171c/Divecomputer" to computer,
+            "2015/09/25-Fri=10=00=00/Dive-596" to dive,
+            "2015/09/25-Fri=10=00=00/Divecomputer" to computer,
+        )
+        val dives = format.read(tree).dives
+        assertEquals(listOf(594, 595, 596), dives.map { it.number }.sortedBy { it })
+        val sameSecond = dives.filter { it.number == 594 || it.number == 595 }.map { it.startEpochSeconds }.distinct()
+        assertEquals(1, sameSecond.size)
+        assertTrue(dives.all { d -> d.computers.single().samples.isNotEmpty() })
     }
 
     @Test

@@ -355,11 +355,11 @@ class GitLogFormat {
 
     private fun diveDirName(wc: kotlinx.datetime.LocalDateTime): String {
         val weekday = WEEKDAYS[LocalDate(wc.year, wc.month.ordinal + 1, wc.day).dayOfWeek.ordinal]
-        return "${p2(wc.day)}-$weekday=${p2(wc.hour)}=${p2(wc.minute)}=${p2(wc.second)}"
+        return "${p2(wc.day)}-$weekday-${p2(wc.hour)}=${p2(wc.minute)}=${p2(wc.second)}"
     }
 
     private fun epochOf(year: Int, month: Int, diveDir: String): Long {
-        val m = DIVE_DIR.find(diveDir)!!
+        val m = requireNotNull(DIVE_DIR.find(diveDir)) { "not a dive directory: $diveDir" }
         val day = m.groupValues[1].toInt()
         val h = m.groupValues[2].toInt()
         val mi = m.groupValues[3].toInt()
@@ -486,7 +486,9 @@ class GitLogFormat {
         const val SITES_DIR = "01-Divesites"
         const val ZERO_C_MK = 273_150
         val WEEKDAYS = arrayOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-        val DIVE_DIR = Regex("^(\\d{2})-[A-Za-z]{3}=(\\d{2})=(\\d{2})=(\\d{2})$")
+        // "07-Sun-13=08=10", with "~<hash>" appended when two dives share a start time.
+        // Early builds of this app wrote "07-Sun=13=08=10"; accept that too.
+        val DIVE_DIR = Regex("^(\\d{2})-[A-Za-z]{3}[-=](\\d{2})=(\\d{2})=(\\d{2})(~[0-9a-f]+)?$")
         val YEAR = Regex("^\\d{4}$")
         val MONTH = Regex("^\\d{2}$")
     }

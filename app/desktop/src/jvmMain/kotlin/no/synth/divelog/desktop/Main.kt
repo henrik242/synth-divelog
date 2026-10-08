@@ -74,13 +74,7 @@ fun main() = application {
                         settings.cloudEmail = email
                         settings.cloudPassword = pass
                     },
-                    onCloudPull = { email, pass ->
-                        scope.launch {
-                            status = runCatching { logbook.cloudImportMessage(cloud.pull(email, pass)) }
-                                .getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
-                            dataVersion++
-                        }
-                    },
+                    cloud = cloud,
                     onCloudPush = { email, pass ->
                         scope.launch {
                             status = runCatching {

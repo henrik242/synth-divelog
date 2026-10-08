@@ -100,6 +100,7 @@ import no.synth.divelog.ui.settings.ComputersScreen
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
 import no.synth.divelog.ui.stats.StatisticsSection
+import no.synth.divelog.ui.sync.CloudGit
 import no.synth.divelog.ui.tools.GasBlenderState
 import no.synth.divelog.ui.tools.ModEndState
 import no.synth.divelog.ui.tools.TankBuoyancyState
@@ -128,6 +129,7 @@ private enum class Section(val label: String, val icon: ImageVector, val selecte
  * File import is co-located with the download under the Add-dives button. [onPickImportFile],
  * if set, picks and reads a file and returns its text (or null if cancelled); the shared app
  * then runs the import with a progress dialog. A null value hides the file-import option.
+ * Cloud import runs here too, over [cloud], behind the same dialog.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -150,7 +152,7 @@ fun SynthDivelogApp(
     initialCloudEmail: String = "",
     initialCloudPassword: String = "",
     onCloudConfigChange: (email: String, pass: String) -> Unit = { _, _ -> },
-    onCloudPull: (email: String, pass: String) -> Unit = { _, _ -> },
+    cloud: CloudGit? = null,
     onCloudPush: (email: String, pass: String) -> Unit = { _, _ -> },
     onExit: () -> Unit = {},
     statusMessage: String? = null,
@@ -271,16 +273,40 @@ fun SynthDivelogApp(
             scope.launch {
                 val text = pick()
                 if (text != null) {
-                    importProgress = ImportProgress(0, 0)
+                    importProgress = ImportProgress("Reading file", null)
                     val message = withContext(Dispatchers.Default) {
                         runCatching {
-                            logbook.importMessage(text) { done, total -> importProgress = ImportProgress(done, total) }
+                            logbook.importMessage(text) { done, total -> importProgress = ImportProgress.importing(done, total) }
                         }.getOrElse { "Import failed: ${it.message ?: it::class.simpleName}" }
                     }
                     importProgress = null
                     onDownloaded()
                     snackbarHostState.showSnackbar(message)
                 }
+            }
+        }
+    }
+
+    // Cloud import: download the logbook, then import it, behind the same progress dialog.
+    val onCloudImport: (email: String, pass: String) -> Unit = { email, pass ->
+        val client = cloud
+        if (client == null) {
+            scope.launch { snackbarHostState.showSnackbar("Cloud import is not available on this device.") }
+        } else {
+            scope.launch {
+                importProgress = ImportProgress("Connecting to the cloud", null)
+                val message = runCatching {
+                    val files = client.pull(email, pass) { task, fraction ->
+                        importProgress = ImportProgress("Downloading: $task", fraction)
+                    }
+                    importProgress = ImportProgress("Reading the logbook", null)
+                    withContext(Dispatchers.Default) {
+                        logbook.cloudImportMessage(files) { done, total -> importProgress = ImportProgress.importing(done, total) }
+                    }
+                }.getOrElse { "Cloud import failed: ${it.message ?: it::class.simpleName}" }
+                importProgress = null
+                onDownloaded()
+                snackbarHostState.showSnackbar(message)
             }
         }
     }
@@ -477,8 +503,8 @@ fun SynthDivelogApp(
                     initialPassword = initialCloudPassword,
                     onConfirm = { email, pass ->
                         onCloudConfigChange(email, pass)
-                        onCloudPull(email, pass)
                         cloudImportOpen = false
+                        onCloudImport(email, pass)
                     },
                     onDismiss = { cloudImportOpen = false },
                 )
@@ -529,10 +555,15 @@ private fun AddDivesChooser(
     )
 }
 
-/** The running count while a file import is applied. */
-private data class ImportProgress(val done: Int, val total: Int)
+/** The current step of a file or cloud import; [fraction] is null while the size is unknown. */
+private data class ImportProgress(val step: String, val fraction: Float?) {
+    companion object {
+        fun importing(done: Int, total: Int) =
+            if (total > 0) ImportProgress("Importing $done of $total", done.toFloat() / total) else ImportProgress("Importing", null)
+    }
+}
 
-/** Modal progress while a file import runs; determinate once the dive count is known. */
+/** Modal progress while an import runs; determinate once the step's size is known. */
 @Composable
 private fun ImportProgressDialog(progress: ImportProgress) {
     AlertDialog(
@@ -540,12 +571,10 @@ private fun ImportProgressDialog(progress: ImportProgress) {
         title = { Text("Importing dives") },
         text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(if (progress.total > 0) "Importing ${progress.done} of ${progress.total}" else "Reading file")
-                if (progress.total > 0) {
-                    LinearProgressIndicator(
-                        progress = { progress.done.toFloat() / progress.total },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                Text(progress.step)
+                val fraction = progress.fraction
+                if (fraction != null) {
+                    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
                 } else {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }

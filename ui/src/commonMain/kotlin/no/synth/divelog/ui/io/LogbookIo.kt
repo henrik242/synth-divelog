@@ -85,9 +85,13 @@ class LogbookIo(private val container: AppContainer) {
     }
 
     /** Import the files pulled from the cloud git repo, returning a user-facing summary. */
-    fun cloudImportMessage(files: Map<String, String>): String {
+    fun cloudImportMessage(
+        files: Map<String, String>,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): String {
         val log = GitLogFormat().read(files)
-        val counts = importLog(log, "subsurface-cloud", "Subsurface cloud")
+        if (log.dives.isEmpty()) return "No dives found in the cloud logbook (${files.size} files)"
+        val counts = importLog(log, "subsurface-cloud", "Subsurface cloud", onProgress = onProgress)
         return "Pulled: imported ${counts.imported}, skipped ${counts.skipped}"
     }
 

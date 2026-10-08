@@ -115,17 +115,7 @@ class MainActivity : ComponentActivity() {
                         settings.cloudEmail = email
                         settings.cloudPassword = pass
                     },
-                    onCloudPull = { email, pass ->
-                        scope.launch(Dispatchers.IO) {
-                            val message = runCatching {
-                                logbook.cloudImportMessage(cloud.pull(email, pass))
-                            }.getOrElse { "Pull failed: ${it.message ?: it::class.simpleName}" }
-                            dataVersion++
-                            withContext(Dispatchers.Main) {
-                                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
+                    cloud = cloud,
                     onCloudPush = { email, pass ->
                         scope.launch(Dispatchers.IO) {
                             val message = runCatching {
