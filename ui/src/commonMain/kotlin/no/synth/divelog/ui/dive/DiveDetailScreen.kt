@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,7 +32,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,7 +79,7 @@ fun DiveDetailScreen(
     val buddies = remember(diveId, reloadKey) { container.buddies.buddiesForDive(diveId) }
     val tags = remember(diveId, reloadKey) { container.tags.tagsForDive(diveId) }
 
-    // Previous/next follow the order of the list the user came from (index-1 / index+1).
+    // Previous/next step through [orderedDiveIds] (index-1 / index+1).
     val index = orderedDiveIds.indexOf(diveId)
     val prevId = if (index > 0) orderedDiveIds[index - 1] else null
     val nextId = if (index >= 0 && index < orderedDiveIds.lastIndex) orderedDiveIds[index + 1] else null
@@ -154,8 +163,23 @@ fun DiveDetailScreen(
         )
     }
 
+    // Left/right arrow keys (desktop, hardware keyboards) do the same as the arrow buttons.
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(diveId) { focus.requestFocus() }
+    val keyModifier = Modifier.focusRequester(focus).focusable().onKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+        val target = when (event.key) {
+            Key.DirectionLeft -> prevId
+            Key.DirectionRight -> nextId
+            else -> null
+        }
+        target?.let(onNavigate)
+        target != null
+    }
+
     Column(
-        Modifier.fillMaxSize().then(swipeModifier).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        Modifier.fillMaxSize().then(keyModifier).then(swipeModifier).verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(

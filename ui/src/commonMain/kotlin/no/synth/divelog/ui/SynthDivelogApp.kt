@@ -661,8 +661,9 @@ private fun DivesSection(
                 diveId = currentDive,
                 unitSystem = unitSystem,
                 reloadKey = reloadKey,
-                // Prev/next follow the same filtered, sorted order as the list behind this screen.
-                orderedDiveIds = shown.map { it.id },
+                // Prev/next walk the filtered list behind this screen. It is sorted descending
+                // (newest, deepest, ... first), so reverse it: right goes newer, left older.
+                orderedDiveIds = shown.map { it.id }.asReversed(),
                 onNavigate = { onOpenDiveChange(it) },
                 onOpenDevice = onOpenDevice,
                 onOpenSite = onOpenSite,
