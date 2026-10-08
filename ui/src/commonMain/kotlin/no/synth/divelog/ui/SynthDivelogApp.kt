@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -178,6 +179,9 @@ fun SynthDivelogApp(
     var computersFocusDeviceId by remember { mutableStateOf<Long?>(null) }
     var pendingSiteId by remember { mutableStateOf<Long?>(null) }
     var toolOpen by remember { mutableStateOf<Tool?>(null) }
+    // Actions a screen puts in the top bar beside the breadcrumb (the dive detail's
+    // previous/next and menu); the screen sets them while shown and clears them on leaving.
+    var topBarActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     val blender = remember { GasBlenderState() }
     val tank = remember { TankBuoyancyState() }
     val modEnd = remember { ModEndState() }
@@ -364,6 +368,7 @@ fun SynthDivelogApp(
         topBar = {
             TopAppBar(
                 title = { Breadcrumb(crumbs) },
+                actions = { topBarActions?.invoke(this) },
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -433,6 +438,7 @@ fun SynthDivelogApp(
                     onEditingChange = { editing = it },
                     onOpenDevice = { deviceId -> computersFocusDeviceId = deviceId; computersOpen = true },
                     onOpenSite = { siteId -> pendingSiteId = siteId; section = Section.SITES },
+                    onTopBarActions = { topBarActions = it },
                 )
                 Section.SITES -> SitesSection(
                     container = container,
@@ -596,6 +602,7 @@ private fun DivesSection(
     onEditingChange: (Boolean) -> Unit,
     onOpenDevice: (Long) -> Unit = {},
     onOpenSite: (Long) -> Unit = {},
+    onTopBarActions: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
 ) {
     var reloadKey by remember(dataVersion) { mutableStateOf(0) }
 
@@ -670,6 +677,7 @@ private fun DivesSection(
                 onEdit = { onEditingChange(true) },
                 onChanged = { reloadKey++ },
                 onDeleted = { onOpenDiveChange(null); reloadKey++ },
+                onTopBarActions = onTopBarActions,
             )
         }
         return

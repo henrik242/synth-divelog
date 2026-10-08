@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,7 +31,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +74,7 @@ fun DiveDetailScreen(
     onEdit: () -> Unit = {},
     onChanged: () -> Unit = {},
     onDeleted: () -> Unit = {},
+    onTopBarActions: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
 ) {
     val dive = remember(diveId, reloadKey) { container.dives.getDive(diveId) } ?: run {
         Text("Dive not found", Modifier.padding(16.dp)); return
@@ -184,42 +188,37 @@ fun DiveDetailScreen(
         target != null
     }
 
-    Column(
-        Modifier.fillMaxSize().then(keyModifier).then(swipeModifier).verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(top = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { prevId?.let(onNavigate) }, enabled = prevId != null) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous dive")
-                }
-                Text(
-                    text = dive.number?.let { "Dive #$it" } ?: "Dive",
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                IconButton(onClick = { nextId?.let(onNavigate) }, enabled = nextId != null) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next dive")
-                }
+    // Previous/next and the actions menu sit in the top bar, beside the breadcrumb that
+    // already names the dive.
+    val topBarActions: @Composable RowScope.() -> Unit = {
+        IconButton(onClick = { prevId?.let(onNavigate) }, enabled = prevId != null) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous dive")
+        }
+        IconButton(onClick = { nextId?.let(onNavigate) }, enabled = nextId != null) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next dive")
+        }
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "Dive actions")
             }
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "Dive actions")
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
-                    DropdownMenuItem(text = { Text("Merge in") }, onClick = { menuOpen = false; showMerge = true })
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                        onClick = { menuOpen = false; showDelete = true },
-                    )
-                }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
+                DropdownMenuItem(text = { Text("Merge in") }, onClick = { menuOpen = false; showMerge = true })
+                DropdownMenuItem(
+                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                    onClick = { menuOpen = false; showDelete = true },
+                )
             }
         }
+    }
+    SideEffect { onTopBarActions(topBarActions) }
+    DisposableEffect(Unit) { onDispose { onTopBarActions(null) } }
+
+    Column(
+        Modifier.fillMaxSize().then(keyModifier).then(swipeModifier).verticalScroll(rememberScrollState())
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
 
         if (samples.size >= 2) {
             ElevatedCard(Modifier.fillMaxWidth()) {
