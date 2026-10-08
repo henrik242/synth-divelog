@@ -49,6 +49,7 @@ kotlin {
             implementation(project(":core:db"))
             implementation(project(":core:formats"))
             implementation(project(":core:divecomputer"))
+            implementation(project(":core:gas"))
             implementation(libs.jetbrains.lifecycle.viewmodel)
             implementation(libs.jetbrains.lifecycle.viewmodel.compose)
             implementation(libs.kotlinx.coroutines.core)

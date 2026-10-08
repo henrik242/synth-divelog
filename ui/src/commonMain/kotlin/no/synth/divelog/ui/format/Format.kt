@@ -65,7 +65,7 @@ object Format {
 
     private fun two(v: Int): String = if (v < 10) "0$v" else "$v"
 
-    private fun oneDecimal(v: Double): String {
+    fun oneDecimal(v: Double): String {
         val rounded = kotlin.math.round(v * 10).toLong()
         val whole = rounded / 10
         val frac = kotlin.math.abs(rounded % 10)

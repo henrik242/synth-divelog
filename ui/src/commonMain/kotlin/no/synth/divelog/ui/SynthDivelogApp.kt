@@ -14,12 +14,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Sell
@@ -96,6 +98,9 @@ import no.synth.divelog.ui.settings.ComputersScreen
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
 import no.synth.divelog.ui.stats.StatisticsSection
+import no.synth.divelog.ui.tools.GasBlenderState
+import no.synth.divelog.ui.tools.Tool
+import no.synth.divelog.ui.tools.ToolsSection
 
 private enum class Section(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     DIVES("Dives", Icons.Outlined.Waves, Icons.Filled.Waves),
@@ -103,6 +108,7 @@ private enum class Section(val label: String, val icon: ImageVector, val selecte
     BUDDIES("Buddies", Icons.Outlined.Group, Icons.Filled.Group),
     TAGS("Tags", Icons.Outlined.Sell, Icons.Filled.Sell),
     STATS("Stats", Icons.Outlined.BarChart, Icons.Filled.BarChart),
+    TOOLS("Tools", Icons.Outlined.Build, Icons.Filled.Build),
     SETTINGS("Settings", Icons.Outlined.Settings, Icons.Filled.Settings),
 }
 
@@ -165,6 +171,8 @@ fun SynthDivelogApp(
     var computersOpen by remember { mutableStateOf(false) }
     var computersFocusDeviceId by remember { mutableStateOf<Long?>(null) }
     var pendingSiteId by remember { mutableStateOf<Long?>(null) }
+    var toolOpen by remember { mutableStateOf<Tool?>(null) }
+    val blender = remember { GasBlenderState() }
 
     // A dive's site link sets this: drill straight to that site, deriving its place and
     // country so the breadcrumb and the back steps still work.
@@ -302,6 +310,10 @@ fun SynthDivelogApp(
             }
             if (siteEditing) add(Crumb("Edit"))
         }
+        Section.TOOLS -> buildList {
+            add(Crumb("Tools") { toolOpen = null })
+            toolOpen?.let { add(Crumb(it.label)) }
+        }
         else -> listOf(Crumb(section.label))
     }.let { base ->
         if (!computersOpen) {
@@ -359,6 +371,7 @@ fun SynthDivelogApp(
                     section == Section.SITES && siteOpen != null -> siteOpen = null
                     section == Section.SITES && sitePlace != null -> sitePlace = null
                     section == Section.SITES && siteCountry != null -> siteCountry = null
+                    section == Section.TOOLS && toolOpen != null -> toolOpen = null
                     section != Section.DIVES -> section = Section.DIVES
                     backArmed -> onExit()
                     else -> {
@@ -402,6 +415,7 @@ fun SynthDivelogApp(
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
                 Section.TAGS -> TagsSection(container, unitSystem, dataVersion)
                 Section.STATS -> StatisticsSection(container, unitSystem, dataVersion)
+                Section.TOOLS -> ToolsSection(toolOpen, { toolOpen = it }, blender)
                 Section.SETTINGS -> SettingsSection(
                     container = container,
                     unitSystem = unitSystem,

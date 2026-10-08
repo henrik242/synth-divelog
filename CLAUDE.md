@@ -15,10 +15,11 @@ per-target entry point.
 | `:core:divecomputer` | Transport interface, protocols, parsers (pure common). |
 | `:core:transport` | `expect`/`actual` transports: jSerialComm (jvm), USB-serial + classic-BT RFCOMM (android). |
 | `:core:formats` | File formats (Subsurface XML, UDDF, MacDive XML, git-tree) over a neutral `DiveLog`. |
+| `:core:gas` | Gas calculators (partial-pressure blender with real-gas Z), pure common. Shown under the Tools tab. |
 | `:ui` | Shared Compose Multiplatform screens; also hosts `LogbookIo`, cloud sync, serial-download orchestration. |
 | `:app:android`, `:app:desktop`, `iosApp/` | Per-platform entry points. |
 
-- **Keep Android/JVM APIs out of `:core:model`, `:core:divecomputer`, `:core:formats` and `:ui` commonMain.** Shared modules declare a `jvm()` target so common tests run on the JVM.
+- **Keep Android/JVM APIs out of `:core:model`, `:core:divecomputer`, `:core:formats`, `:core:gas` and `:ui` commonMain.** Shared modules declare a `jvm()` target so common tests run on the JVM.
 - Storage uses fixed integer units: depth mm, pressure mbar, temperature mK, duration s, gas permille.
 - Each downloaded dive keeps its raw blob plus a format id, so it can be re-parsed after a parser fix.
 - A dive computer's serial line settings live in its protocol's `SERIAL_PARAMS` (`SerialParams`), applied by the platform transport.
