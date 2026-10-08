@@ -7,6 +7,15 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// CI checks out a pull request as GitHub's merge commit, which is on no branch; BUILD_GIT_SHA
+// names the pushed commit instead. Unset locally, where HEAD is right.
+val describedGitRef = providers.environmentVariable("BUILD_GIT_SHA")
+    .orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "HEAD"
+
+val gitCommitCount = providers.exec {
+    commandLine("git", "rev-list", "--count", describedGitRef)
+}.standardOutput.asText.map { it.trim().ifEmpty { "0" } }.orElse("0")
+
 kotlin {
     jvm()
 
@@ -51,7 +60,8 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
             packageName = "SynthDivelog"
-            packageVersion = "1.0.0"
+            // jpackage wants MAJOR.MINOR.BUILD with MAJOR > 0; same as the iOS short version.
+            packageVersion = "1.0.${gitCommitCount.get()}"
             // The packaged app also renders the map through the FFM API.
             jvmArgs += "--enable-native-access=ALL-UNNAMED"
             // The SQLite JDBC driver needs java.sql, which the minimized runtime

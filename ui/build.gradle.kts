@@ -1,8 +1,57 @@
+import java.time.LocalDate
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kmp.library)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
+}
+
+// CI checks out a pull request as GitHub's merge commit, which is on no branch; BUILD_GIT_SHA
+// names the pushed commit instead. Unset locally, where HEAD is right.
+val describedGitRef = providers.environmentVariable("BUILD_GIT_SHA")
+    .orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "HEAD"
+
+val gitCommitCount = providers.exec {
+    commandLine("git", "rev-list", "--count", describedGitRef)
+}.standardOutput.asText.map { it.trim().ifEmpty { "0" } }.orElse("0")
+
+val gitShortSha = providers.exec {
+    commandLine("git", "rev-parse", "--short", describedGitRef)
+}.standardOutput.asText.map { it.trim().ifEmpty { "unknown" } }.orElse("unknown")
+
+/** Writes `BuildInfo`: the version string shown in Settings, "<commit count>.<sha> <date>". */
+abstract class GenerateBuildInfoTask : DefaultTask() {
+    @get:Input abstract val commitCount: Property<String>
+    @get:Input abstract val shortSha: Property<String>
+    @get:Input abstract val buildDate: Property<String>
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val dir = outputDir.get().asFile.resolve("no/synth/divelog/ui")
+        dir.mkdirs()
+        dir.resolve("BuildInfo.kt").writeText(
+            """
+            |package no.synth.divelog.ui
+            |
+            |object BuildInfo {
+            |    const val GIT_COMMIT_COUNT = "${commitCount.get()}"
+            |    const val GIT_SHORT_SHA = "${shortSha.get()}"
+            |    const val BUILD_DATE = "${buildDate.get()}"
+            |    const val VERSION_INFO = "${commitCount.get()}.${shortSha.get()} ${buildDate.get()}"
+            |}
+            |
+            """.trimMargin(),
+        )
+    }
+}
+
+val generateBuildInfo = tasks.register<GenerateBuildInfoTask>("generateBuildInfo") {
+    commitCount.set(gitCommitCount)
+    shortSha.set(gitShortSha)
+    buildDate.set(LocalDate.now().toString())
+    outputDir.set(layout.buildDirectory.dir("generated/buildinfo"))
 }
 
 kotlin {
@@ -38,6 +87,9 @@ kotlin {
     }
 
     sourceSets {
+        commonMain {
+            kotlin.srcDir(generateBuildInfo.map { it.outputDir })
+        }
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)

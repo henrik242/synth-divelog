@@ -1,8 +1,23 @@
+import java.time.LocalDate
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
 }
+
+// CI checks out a pull request as GitHub's merge commit, which is on no branch; BUILD_GIT_SHA
+// names the pushed commit instead. Unset locally, where HEAD is right.
+val describedGitRef = providers.environmentVariable("BUILD_GIT_SHA")
+    .orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "HEAD"
+
+val gitCommitCount = providers.exec {
+    commandLine("git", "rev-list", "--count", describedGitRef)
+}.standardOutput.asText.map { it.trim().ifEmpty { "0" } }.orElse("0")
+
+val gitShortSha = providers.exec {
+    commandLine("git", "rev-parse", "--short", describedGitRef)
+}.standardOutput.asText.map { it.trim().ifEmpty { "unknown" } }.orElse("unknown")
 
 android {
     namespace = "no.synth.divelog"
@@ -12,8 +27,8 @@ android {
         applicationId = "no.synth.divelog"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = gitCommitCount.get().toInt()
+        versionName = "${gitCommitCount.get()}.${gitShortSha.get()} ${LocalDate.now()}"
     }
 
     signingConfigs {

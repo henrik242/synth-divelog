@@ -18,10 +18,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.BuildInfo
 import no.synth.divelog.ui.components.CloudCredentialsDialog
 import no.synth.divelog.ui.io.LogbookIo
 
@@ -106,5 +108,12 @@ fun SettingsSection(
         OutlinedButton(onClick = onOpenComputers, modifier = Modifier.fillMaxWidth()) {
             Text("Dive computers")
         }
+
+        Text(
+            BuildInfo.VERSION_INFO,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(16.dp),
+        )
     }
 }
