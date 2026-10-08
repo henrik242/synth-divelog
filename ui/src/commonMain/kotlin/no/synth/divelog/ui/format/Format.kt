@@ -67,8 +67,9 @@ object Format {
 
     fun oneDecimal(v: Double): String {
         val rounded = kotlin.math.round(v * 10).toLong()
-        val whole = rounded / 10
-        val frac = kotlin.math.abs(rounded % 10)
-        return "$whole.$frac"
+        // Sign apart, so -0.2 does not lose it to a whole part of 0.
+        val sign = if (rounded < 0) "-" else ""
+        val abs = kotlin.math.abs(rounded)
+        return "$sign${abs / 10}.${abs % 10}"
     }
 }
