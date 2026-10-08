@@ -16,10 +16,19 @@ class ShearwaterLink(
 ) {
     private val channel = FrameChannel(transport, timeoutMs)
 
+    /**
+     * False until the device has answered once. A desktop Bluetooth serial port only
+     * brings the link up on the first write, which can take several seconds; a reply
+     * that arrives after the timeout would then be read as the answer to the retry,
+     * leaving every later reply one step behind.
+     */
+    private var answered = false
+
     /** Send a command payload and return the response payload (command byte first). */
     fun exchange(payload: ByteArray): ByteArray {
         channel.writeFrame(wrap(payload))
-        val frame = channel.readFrame(timeoutMs)
+        val frame = channel.readFrame(if (answered) timeoutMs else maxOf(timeoutMs, CONNECT_TIMEOUT_MS))
+        answered = true
         return unwrap(frame, requestCommand = payload.firstOrNull())
     }
 
@@ -53,6 +62,7 @@ class ShearwaterLink(
 
     companion object {
         const val HEADER_LEN = 4
+        const val CONNECT_TIMEOUT_MS = 10_000L
         private const val REQUEST_HI = 0xFF.toByte()
         private const val REQUEST_LO = 0x01.toByte()
         private const val RESPONSE_HI = 0x01.toByte()

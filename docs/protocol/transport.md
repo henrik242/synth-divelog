@@ -20,6 +20,13 @@ on this.
 - The Android `BluetoothSocket` input stream has **no read timeout**. A reader
   thread drains it into a queue and reads wait with a deadline
   (`BluetoothRfcommTransport`).
+- **Desktop macOS:** opening a paired device's `/dev/cu.*` node does not bring the
+  Bluetooth link up (macOS 27: the port opens instantly, all modem lines high, and no
+  connection is ever attempted). The desktop instead runs the bundled
+  `rfcomm-bridge` helper (`app/desktop/native/rfcomm-bridge.swift`), which opens the
+  device's SPP channel through IOBluetooth and relays it over stdin/stdout;
+  `MacRfcommTransport` drives it. Connecting takes ~3 s, so `ShearwaterLink` waits up
+  to 10 s for the first reply. Verified on a Petrel 1, 2026-10-08.
 - For a future wired (USB/serial) transport the line settings are **115200 8N1,
   no flow control**, read timeout ~3000 ms. Baud is irrelevant over RFCOMM.
 

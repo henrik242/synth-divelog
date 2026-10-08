@@ -59,9 +59,38 @@ compose.desktop {
             modules("java.sql")
             macOS {
                 iconFile.set(project.file("packaging/AppIcon.icns"))
+                // The bundled rfcomm-bridge talks to paired Bluetooth dive computers.
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>NSBluetoothAlwaysUsageDescription</key>
+                        <string>Synth Divelog connects to paired Bluetooth dive computers to download dives.</string>
+                    """.trimIndent()
+                }
             }
         }
+        // Bundled helper binaries (the macOS Bluetooth serial bridge); see buildRfcommBridge.
+        nativeDistributions.appResourcesRootDir.set(layout.buildDirectory.dir("appResources"))
     }
+}
+
+// The macOS Bluetooth serial bridge: opens a paired device's RFCOMM channel and relays it
+// over stdin/stdout, since the /dev/cu.* nodes no longer bring the link up. Built into the
+// app resources, where MacRfcommTransport.locateBridge() finds it at runtime.
+val rfcommBridge = layout.buildDirectory.file("appResources/macos/rfcomm-bridge")
+val buildRfcommBridge by tasks.registering(Exec::class) {
+    description = "Compile the macOS Bluetooth serial bridge"
+    val source = file("native/rfcomm-bridge.swift")
+    val output = rfcommBridge.get().asFile
+    onlyIf { System.getProperty("os.name").startsWith("Mac") }
+    inputs.file(source)
+    outputs.file(output)
+    doFirst { output.parentFile.mkdirs() }
+    commandLine("swiftc", "-O", "-framework", "IOBluetooth", source.absolutePath, "-o", output.absolutePath)
+}
+tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(buildRfcommBridge) }
+tasks.withType<JavaExec>().configureEach {
+    dependsOn(buildRfcommBridge)
+    systemProperty("synth.rfcommBridge", rfcommBridge.get().asFile.absolutePath)
 }
 
 // Command-line Suunto capture tool, for bringing up the USB dongle before there is
@@ -74,4 +103,15 @@ tasks.register<JavaExec>("suuntoCapture") {
     classpath = jvmMain.runtimeDependencyFiles + jvmMain.output.allOutputs
     mainClass.set("no.synth.divelog.desktop.SuuntoCaptureKt")
     standardInput = System.`in`
+}
+
+// Command-line Shearwater download over Bluetooth, to test the link without the app.
+// Run: ./gradlew :app:desktop:shearwaterCapture --args="[PETREL|PREDATOR] [name or address] [dive count]"
+tasks.register<JavaExec>("shearwaterCapture") {
+    group = "application"
+    description = "Download the latest Shearwater dives over Bluetooth and print them"
+    val jvmMain = kotlin.jvm().compilations.getByName("main")
+    dependsOn(jvmMain.compileTaskProvider)
+    classpath = jvmMain.runtimeDependencyFiles + jvmMain.output.allOutputs
+    mainClass.set("no.synth.divelog.desktop.ShearwaterCaptureKt")
 }

@@ -33,7 +33,7 @@ per-target entry point.
 
 - **Desktop map** uses MapLibre Compose (`org.maplibre.compose`), which renders through the Java FFM API: the jvm build/run need **JDK 25** (`jvmToolchain(25)`) and `--enable-native-access=ALL-UNNAMED`. The map is one commonMain composable in `ui/.../sites/SiteLocationMap.kt`.
 - **macOS serial:** use the `cu.*` port, not `tty.*` (the dial-in node blocks on open under jSerialComm).
-- **Shearwater Petrel/Predator** speak classic Bluetooth SPP (a serial port), not BLE. On macOS the paired device appears as a `cu.*` port.
+- **Shearwater Petrel/Predator** speak classic Bluetooth SPP (a serial port), not BLE. On macOS the paired device's `cu.*` node no longer brings the link up; the desktop connects through the bundled Swift helper `app/desktop/native/rfcomm-bridge.swift` (`MacRfcommTransport`). Test without the app: `./gradlew :app:desktop:shearwaterCapture --args="PETREL 3"`.
 - **Suunto HelO2 (Vyper2 family)** ignores a command sent less than ~500 ms after its previous reply; `txIdleMs = 600` handles it. When a serial download is flaky, check per-command timing before blaming the cable. Details in `docs/protocol/suunto-helo2.md`.
 - **DB migrations:** SQLDelight `.sqm` files bump `Schema.version`; Android/iOS drivers auto-migrate, the jvm `DriverFactory` tracks `PRAGMA user_version` by hand. Add a `.sqm` when changing the schema.
 
