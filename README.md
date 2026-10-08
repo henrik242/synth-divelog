@@ -3,7 +3,8 @@
 A dive log for Android, desktop and iOS that downloads straight from your dive
 computer.
 
-Licence: [MPL-2.0](LICENSE)
+Licence: [GPL-2.0-or-later](LICENSE). Files derived from Subsurface are GPL-2.0-only
+and say so in their header.
 
 ## Features
 
