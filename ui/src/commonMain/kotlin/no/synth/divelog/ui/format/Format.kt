@@ -63,6 +63,23 @@ object Format {
         return "${oneDecimal(t.value)} ${t.unit}"
     }
 
+    /** "Air", "Oxygen", "EAN32" or, with helium or below 21 % O2, "18/45" and "10/0". */
+    fun gasName(o2Permille: Int, hePermille: Int): String {
+        fun pct(permille: Int) = oneDecimal(permille / 10.0).removeSuffix(".0")
+        return when {
+            hePermille > 0 || o2Permille < 210 -> "${pct(o2Permille)}/${pct(hePermille)}"
+            o2Permille == 210 -> "Air"
+            o2Permille == 1_000 -> "Oxygen"
+            else -> "EAN${pct(o2Permille)}"
+        }
+    }
+
+    /** "210 bar" or "3046 psi". */
+    fun pressure(mbar: Int, system: UnitSystem): String {
+        val p = Units.pressure(mbar, system)
+        return "${kotlin.math.round(p.value).toLong()} ${p.unit}"
+    }
+
     private fun two(v: Int): String = if (v < 10) "0$v" else "$v"
 
     fun oneDecimal(v: Double): String {

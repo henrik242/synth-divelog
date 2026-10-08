@@ -9,6 +9,7 @@ import kotlin.math.roundToLong
 import kotlin.time.Instant
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType as DiveEventType
+import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.Sample
 
 /**
@@ -91,9 +92,10 @@ class GitLogFormat {
     private fun eventLine(ev: Event): String {
         val b = StringBuilder("event ").append(clock(ev.timeOffsetSeconds))
         b.append(" name=").append(quote(eventName(ev.type)))
-        if (ev.type == DiveEventType.GAS_SWITCH && ev.value != null) {
-            val o2 = ((ev.value!! shr 8) and 0xFF).toInt()
-            val he = (ev.value!! and 0xFF).toInt()
+        val gasValue = ev.value
+        if (ev.type == DiveEventType.GAS_SWITCH && gasValue != null) {
+            val o2 = GasSwitch.o2Percent(gasValue)
+            val he = GasSwitch.hePercent(gasValue)
             b.append(" o2=").append(o2).append(".0%")
             if (he > 0) b.append(" he=").append(he).append(".0%")
         }
@@ -312,7 +314,7 @@ class GitLogFormat {
         val value = if (type == DiveEventType.GAS_SWITCH) {
             val o2 = Regex("\\bo2=([0-9.]+)").find(rest)?.groupValues?.get(1)?.toDoubleOrNull()?.toInt() ?: 0
             val he = Regex("\\bhe=([0-9.]+)").find(rest)?.groupValues?.get(1)?.toDoubleOrNull()?.toInt() ?: 0
-            ((o2 shl 8) or he).toLong()
+            GasSwitch.value(o2, he)
         } else {
             null
         }
@@ -330,7 +332,8 @@ class GitLogFormat {
             workingPressureMbar = kv["workpressure"]?.let { mbar(it) },
             startPressureMbar = kv["start"]?.let { mbar(it) },
             endPressureMbar = kv["end"]?.let { mbar(it) },
-            o2Permille = kv["o2"]?.let { FormatUnits.percentToPermille(it) },
+            // The cloud leaves O2 out for air.
+            o2Permille = kv["o2"]?.let { FormatUnits.percentToPermille(it) } ?: AIR_O2_PERMILLE,
             hePermille = kv["he"]?.let { FormatUnits.percentToPermille(it) },
         )
     }
@@ -500,6 +503,7 @@ class GitLogFormat {
     private companion object {
         const val SITES_DIR = "01-Divesites"
         const val SETTINGS_FILE = "00-Subsurface"
+        const val AIR_O2_PERMILLE = 210
         const val ZERO_C_MK = 273_150
         val WEEKDAYS = arrayOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
         // "07-Sun-13=08=10", with "~<hash>" appended when two dives share a start time.

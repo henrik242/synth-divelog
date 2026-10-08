@@ -7,6 +7,7 @@ import nl.adaptivity.xmlutil.xmlStreaming
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType as DiveEventType
 import no.synth.divelog.core.model.GasMix
+import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.Sample
 
 /**
@@ -299,8 +300,8 @@ class MacDiveXml : DiveFormat {
 
     private fun gasDescriptor(value: Long?): String {
         val v = value ?: 0L
-        val o2 = ((v shr 8) and 0xFF).toInt()
-        val he = (v and 0xFF).toInt()
+        val o2 = GasSwitch.o2Percent(v)
+        val he = GasSwitch.hePercent(v)
         return when {
             he > 0 -> "Trimix $o2/$he"
             o2 == 21 -> "Air"
@@ -341,7 +342,7 @@ class MacDiveXml : DiveFormat {
                 o2 = descriptor.drop(3).trim().toIntOrNull() ?: 21
             else -> descriptor.toIntOrNull()?.let { o2 = it }
         }
-        return ((o2 shl 8) or he).toLong()
+        return GasSwitch.value(o2, he)
     }
 
     private class Gas(
@@ -418,18 +419,22 @@ class MacDiveXml : DiveFormat {
         val events: MutableList<EventBuilder> = mutableListOf(),
     ) {
         fun build(): DiveEntry {
-            val tanks = gases.mapIndexed { i, g ->
-                TankEntry(
-                    index = i,
-                    volumeMl = g.volumeMl,
-                    workingPressureMbar = g.workingPressureMbar,
-                    startPressureMbar = g.startPressureMbar,
-                    endPressureMbar = g.endPressureMbar,
-                    o2Permille = g.o2Permille,
-                    hePermille = g.hePermille,
-                )
-            }
-            val gasMixes = gases.filter { it.o2Permille != null }
+            // MacDive writes 0 for anything unknown, and pads with all-zero placeholder gases.
+            fun known(v: Int?) = v?.takeIf { it > 0 }
+            val tanks = gases
+                .filter { g -> listOf(g.o2Permille, g.volumeMl, g.startPressureMbar, g.endPressureMbar).any { known(it) != null } }
+                .mapIndexed { i, g ->
+                    TankEntry(
+                        index = i,
+                        volumeMl = known(g.volumeMl),
+                        workingPressureMbar = known(g.workingPressureMbar),
+                        startPressureMbar = known(g.startPressureMbar),
+                        endPressureMbar = known(g.endPressureMbar),
+                        o2Permille = known(g.o2Permille),
+                        hePermille = g.hePermille,
+                    )
+                }
+            val gasMixes = gases.filter { (it.o2Permille ?: 0) > 0 }
                 .map { GasMix(o2Permille = it.o2Permille ?: 0, hePermille = it.hePermille ?: 0) }
                 .distinct()
             val builtSamples = samples.map { it.build() }

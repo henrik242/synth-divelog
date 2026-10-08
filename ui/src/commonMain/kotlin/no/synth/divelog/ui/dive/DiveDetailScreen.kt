@@ -1,6 +1,7 @@
 package no.synth.divelog.ui.dive
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,10 +30,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -41,14 +44,15 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import no.synth.divelog.core.model.Device
+import no.synth.divelog.core.model.GasMix
+import no.synth.divelog.core.model.Tank
 import no.synth.divelog.core.model.units.UnitSystem
+import no.synth.divelog.core.model.units.Units
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.format.Format
 import no.synth.divelog.ui.sites.SiteLocationMap
@@ -78,6 +82,9 @@ fun DiveDetailScreen(
     val site = remember(diveId, reloadKey) { dive.siteId?.let { container.sites.site(it) } }
     val buddies = remember(diveId, reloadKey) { container.buddies.buddiesForDive(diveId) }
     val tags = remember(diveId, reloadKey) { container.tags.tagsForDive(diveId) }
+    val gases = remember(diveId, reloadKey) {
+        container.gases.tanksForDive(diveId).map { t -> tankLabel(t, t.gasMixId?.let { container.gases.gasMix(it) }, unitSystem) }
+    }
 
     // Previous/next step through [orderedDiveIds] (index-1 / index+1).
     val index = orderedDiveIds.indexOf(diveId)
@@ -261,6 +268,7 @@ fun DiveDetailScreen(
                 SummaryRow("Max depth", Format.depth(dive.maxDepthMm, unitSystem))
                 SummaryRow("Avg depth", Format.depth(dive.meanDepthMm, unitSystem))
                 SummaryRow("Water temp", Format.temperature(dive.waterTempMk, unitSystem))
+                SummaryRow("Gases", if (gases.isEmpty()) "-" else gases.joinToString("\n"))
                 // Source shows the selected computer and links to it in Settings so its
                 // nickname can be edited. Imported-from-file records have no device to open.
                 val sourceDeviceId = selectedRecord?.deviceId
@@ -328,4 +336,20 @@ private fun SummaryRow(label: String, value: String, onClick: (() -> Unit)? = nu
             modifier = Modifier.padding(start = 16.dp),
         )
     }
+}
+
+/** "EAN32 · 12 L · 210 → 60 bar", leaving out what the tank does not record. */
+private fun tankLabel(tank: Tank, gas: GasMix?, system: UnitSystem): String {
+    val start = tank.startPressureMbar
+    val end = tank.endPressureMbar
+    val pressures = when {
+        start != null && end != null ->
+            "${Units.pressure(start, system).value.roundToInt()} → ${Format.pressure(end, system)}"
+        else -> (start ?: end)?.let { Format.pressure(it, system) }
+    }
+    return listOfNotNull(
+        gas?.let { Format.gasName(it.o2Permille, it.hePermille) } ?: "Unknown gas",
+        tank.volumeMl?.let { "${Format.oneDecimal(it / 1000.0).removeSuffix(".0")} L" },
+        pressures,
+    ).joinToString(" · ")
 }

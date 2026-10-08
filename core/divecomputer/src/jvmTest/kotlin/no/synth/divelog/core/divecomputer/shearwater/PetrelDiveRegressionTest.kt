@@ -46,6 +46,8 @@ class PetrelDiveRegressionTest {
         assertEquals(279_150, dive.waterTempMk) // 6 C
         assertEquals(182, dive.samples.size) // trailing surface samples dropped
         assertEquals("petrel-584", dive.fingerprint)
+        // Dived on nitrox 30 throughout.
+        assertEquals(listOf(300 to 0), dive.gases.map { it.o2Permille to it.hePermille })
     }
 
     @Test

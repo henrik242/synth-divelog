@@ -5,6 +5,8 @@ import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
+import no.synth.divelog.core.model.GasMix
+import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
 
@@ -78,7 +80,7 @@ class PredatorParser(
 
             val gas = o2 to he
             if (o2 > 0 && gas != previousGas) {
-                events += Event(timeOffsetSeconds = time, type = EventType.GAS_SWITCH, value = encodeGas(o2, he))
+                events += Event(timeOffsetSeconds = time, type = EventType.GAS_SWITCH, value = GasSwitch.value(o2, he))
                 previousGas = gas
             }
 
@@ -123,6 +125,9 @@ class PredatorParser(
             fingerprint = raw.fingerprint,
             samples = samples,
             events = events,
+            // Every mix the samples report is announced by a switch, the first one included.
+            gases = events.filter { it.type == EventType.GAS_SWITCH }.mapNotNull { it.value }.distinct()
+                .map { GasMix(o2Permille = GasSwitch.o2Percent(it) * 10, hePermille = GasSwitch.hePercent(it) * 10) },
         )
     }
 
@@ -198,6 +203,5 @@ class PredatorParser(
         private fun fahrenheitToMilliKelvin(fahrenheit: Int): Int =
             (fahrenheit - 32) * 5_000 / 9 + 273_150
 
-        private fun encodeGas(o2: Int, he: Int): Long = (o2.toLong() shl 8) or he.toLong()
     }
 }

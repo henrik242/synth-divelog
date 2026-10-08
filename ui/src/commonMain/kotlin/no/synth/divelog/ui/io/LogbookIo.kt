@@ -141,15 +141,20 @@ class LogbookIo(private val container: AppContainer) {
                 events = primary?.events ?: emptyList(),
             )
             when (val result = container.dives.import(incoming) { autoMerge }) {
-                is ImportResult.SkippedDuplicate -> skipped++
+                is ImportResult.SkippedDuplicate -> {
+                    // Already logged (e.g. downloaded): still take what this copy adds, such as
+                    // the site, buddies or tank sizes, without replacing anything.
+                    container.dives.record(result.existingRecordId)?.let { applyMetadata(it.diveId, entry) }
+                    skipped++
+                }
                 is ImportResult.CreatedDive -> {
-                    applyMetadata(result.diveId, entry, isNew = true)
+                    applyMetadata(result.diveId, entry)
                     attachExtraComputers(result.diveId, entry)
                     imported++
                 }
                 is ImportResult.AttachedToDive -> {
                     // Fill any metadata the existing dive was missing from this copy.
-                    applyMetadata(result.diveId, entry, isNew = false)
+                    applyMetadata(result.diveId, entry)
                     attachExtraComputers(result.diveId, entry)
                     merged++
                 }
@@ -174,9 +179,9 @@ class LogbookIo(private val container: AppContainer) {
      * Apply a dive's file metadata, keeping whatever the dive already has and only filling
      * the gaps. On a merge (the same dive imported twice, e.g. from two computers) this means
      * site, buddies, notes, rating and the rest are taken from whichever copy actually has
-     * them. Tanks are added for a new dive only, so a merge does not duplicate them.
+     * them. Tanks merge by gas (see [mergeTanks]).
      */
-    private fun applyMetadata(diveId: Long, entry: DiveEntry, isNew: Boolean) {
+    private fun applyMetadata(diveId: Long, entry: DiveEntry) {
         val dive = container.dives.getDive(diveId) ?: return
         val currentBuddies = container.buddies.buddiesForDive(diveId)
         val currentTags = container.tags.tagsForDive(diveId)
@@ -239,22 +244,53 @@ class LogbookIo(private val container: AppContainer) {
             container.tags.linkToDive(diveId, container.tags.getOrCreate(name))
         }
 
-        // Tanks belong to the dive; add them for a new dive only so a merge does not duplicate.
-        if (isNew) {
-            for (tank in entry.tanks) {
-                val o2 = tank.o2Permille
-                val gasId = if (o2 != null) container.gases.getOrCreateGasMix(o2, tank.hePermille ?: 0) else null
+        mergeTanks(diveId, entry)
+    }
+
+    /**
+     * The log's tanks onto the dive: each matches an unclaimed tank of the same gas, filling
+     * in the size and pressures it lacks (a downloaded dive knows its gases but not its
+     * tanks); the rest are added. A log with gases but no tanks adds the gases.
+     */
+    private fun mergeTanks(diveId: Long, entry: DiveEntry) {
+        val incoming = entry.tanks.ifEmpty {
+            entry.gasMixes.mapIndexed { i, g -> TankEntry(index = i, o2Permille = g.o2Permille, hePermille = g.hePermille) }
+        }
+        if (incoming.isEmpty()) return
+        val existing = container.gases.tanksForDive(diveId).toMutableList()
+        fun gasOf(t: Tank) = t.gasMixId?.let { container.gases.gasMix(it) }?.let { it.o2Permille to it.hePermille }
+        val gasesOnDive = existing.mapNotNull { gasOf(it) }.toMutableSet()
+        var nextIndex = (existing.maxOfOrNull { it.index } ?: -1) + 1
+        for (t in incoming) {
+            // Some logs carry 0xFF "unknown" bytes as a mix (255 %); that is no gas at all.
+            val gas = t.o2Permille?.let { it to (t.hePermille ?: 0) }
+                ?.takeIf { (o2, he) -> o2 in 1..1_000 && he in 0..1_000 && o2 + he <= 1_000 }
+            val bare = t.volumeMl == null && t.startPressureMbar == null && t.endPressureMbar == null
+            // A tank that only names a gas adds nothing once the dive has that gas.
+            if (bare && (gas == null || gas in gasesOnDive)) continue
+            val match = existing.firstOrNull { gasOf(it) == gas }
+            if (match != null) {
+                existing.remove(match)
+                val filled = match.copy(
+                    volumeMl = match.volumeMl ?: t.volumeMl,
+                    workingPressureMbar = match.workingPressureMbar ?: t.workingPressureMbar,
+                    startPressureMbar = match.startPressureMbar ?: t.startPressureMbar,
+                    endPressureMbar = match.endPressureMbar ?: t.endPressureMbar,
+                )
+                if (filled != match) container.gases.updateTank(filled)
+            } else {
                 container.gases.addTank(
                     Tank(
                         diveId = diveId,
-                        index = tank.index,
-                        volumeMl = tank.volumeMl,
-                        workingPressureMbar = tank.workingPressureMbar,
-                        startPressureMbar = tank.startPressureMbar,
-                        endPressureMbar = tank.endPressureMbar,
-                        gasMixId = gasId,
+                        index = nextIndex++,
+                        volumeMl = t.volumeMl,
+                        workingPressureMbar = t.workingPressureMbar,
+                        startPressureMbar = t.startPressureMbar,
+                        endPressureMbar = t.endPressureMbar,
+                        gasMixId = gas?.let { (o2, he) -> container.gases.getOrCreateGasMix(o2, he) },
                     ),
                 )
+                gas?.let { gasesOnDive.add(it) }
             }
         }
     }

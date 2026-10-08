@@ -5,6 +5,8 @@ import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
+import no.synth.divelog.core.model.GasMix
+import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
 
@@ -32,11 +34,9 @@ import no.synth.divelog.core.model.Sample
  * a flat stream: each tick emits the parameters whose interval divides the tick,
  * with occasional event groups flagged by a running marker index.
  *
- * Gaps left as TODO because [IncomingDive] has no field for them: gas-mix O2/He
- * percentages and dive mode are parsed (needed to resolve gas switches and the
- * active mix) but can only surface through [Sample.activeGasIndex] and gas-switch
- * events, not as dive-level attributes. Deco stop depth and time are not in this
- * format, so deco shows only as events at state changes.
+ * The mixes used become [IncomingDive.gases]; dive mode is parsed (to resolve gas
+ * switches) but not surfaced. Deco stop depth and time are not in this format, so deco
+ * shows only as events at state changes.
  */
 class SuuntoVyper2Parser(
     private val model: Int = HELO2,
@@ -75,6 +75,7 @@ class SuuntoVyper2Parser(
             fingerprint = raw.fingerprint,
             samples = profile.samples,
             events = profile.events,
+            gases = gasesUsed(gas, profile.samples),
         )
     }
 
@@ -88,6 +89,13 @@ class SuuntoVyper2Parser(
         val day = d[p + 6].toInt() and 0xFF
         return civilToEpochSeconds(year, month, day, hour, minute, second)
     }
+
+    /** The mixes the dive breathed (the initial one, then each switched to), in order. */
+    private fun gasesUsed(gas: GasInfo, samples: List<Sample>): List<GasMix> =
+        (listOf(gas.initialIndex) + samples.mapNotNull { it.activeGasIndex })
+            .distinct()
+            .filter { it in gas.oxygen.indices && gas.oxygen[it] > 0 }
+            .map { GasMix(o2Permille = gas.oxygen[it] * 10, hePermille = gas.helium[it] * 10) }
 
     /** O2/He percentages per mix plus the initial mix index. */
     private class GasInfo(val oxygen: IntArray, val helium: IntArray, val mode: Int, val initialIndex: Int)
@@ -261,7 +269,7 @@ class SuuntoVyper2Parser(
                     val idx = findGasMix(gas, o2, 0)
                     if (idx >= 0) {
                         gasIndex = idx
-                        events += Event(time, EventType.GAS_SWITCH, value = o2.toLong())
+                        events += Event(time, EventType.GAS_SWITCH, value = GasSwitch.value(o2, gas.helium[idx]))
                     }
                     offset += 2
                 }
@@ -273,7 +281,7 @@ class SuuntoVyper2Parser(
                     val idx = type and 0x0F
                     if (idx in gas.oxygen.indices && o2 == gas.oxygen[idx] && he == gas.helium[idx]) {
                         gasIndex = idx
-                        events += Event(time, EventType.GAS_SWITCH, value = o2.toLong())
+                        events += Event(time, EventType.GAS_SWITCH, value = GasSwitch.value(o2, gas.helium[idx]))
                     }
                     offset += 4
                 }

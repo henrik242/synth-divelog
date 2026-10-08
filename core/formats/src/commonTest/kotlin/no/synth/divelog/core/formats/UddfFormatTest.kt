@@ -88,4 +88,19 @@ class UddfFormatTest {
         assertEquals(3, d.computers.single().samples.size)
         assertEquals(35_900, d.maxDepthMm)
     }
+
+    @Test
+    fun roundTripsTanksAndTheirGases() {
+        val dive = DiveEntry(
+            number = 1,
+            startEpochSeconds = 1_700_000_000,
+            durationSeconds = 3_000,
+            tanks = listOf(
+                TankEntry(index = 0, volumeMl = 12_000, startPressureMbar = 210_000, endPressureMbar = 60_000, o2Permille = 320, hePermille = 0),
+                TankEntry(index = 1, volumeMl = 7_000, o2Permille = 500, hePermille = 0),
+            ),
+        )
+        val read = UddfFormat().read(UddfFormat().write(DiveLog(listOf(dive)))).dives.single().tanks
+        assertEquals(dive.tanks.map { it.copy(workingPressureMbar = null) }, read)
+    }
 }

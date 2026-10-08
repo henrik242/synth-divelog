@@ -3,6 +3,7 @@ package no.synth.divelog.core.divecomputer.suunto
 import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.model.EventType
+import no.synth.divelog.core.model.GasSwitch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -47,7 +48,7 @@ class SuuntoVyper2ParserTest {
         val dive = SuuntoVyper2Parser().parse(rawCanonical())
         val switches = dive.events.filter { it.type == EventType.GAS_SWITCH }
         assertEquals(1, switches.size)
-        assertEquals(SyntheticVyper2.GAS1_O2.toLong(), switches[0].value)
+        assertEquals(SyntheticVyper2.GAS1_O2, GasSwitch.o2Percent(requireNotNull(switches[0].value)))
         assertEquals(SyntheticVyper2.GAS_SWITCH_TICK * SyntheticVyper2.INTERVAL, switches[0].timeOffsetSeconds)
         // Active mix flips from 0 to 1 at the switch tick.
         assertEquals(0, dive.samples[0].activeGasIndex)
@@ -61,5 +62,14 @@ class SuuntoVyper2ParserTest {
         assertFailsWith<ProtocolException> {
             SuuntoVyper2Parser(model = 0x1C).parse(rawCanonical()) // DX layout not implemented
         }
+    }
+
+    @Test
+    fun reportsTheGasesBreathedInOrder() {
+        val dive = SuuntoVyper2Parser().parse(rawCanonical())
+        assertEquals(
+            listOf(SyntheticVyper2.GAS0_O2 * 10 to 0, SyntheticVyper2.GAS1_O2 * 10 to 0),
+            dive.gases.map { it.o2Permille to it.hePermille },
+        )
     }
 }

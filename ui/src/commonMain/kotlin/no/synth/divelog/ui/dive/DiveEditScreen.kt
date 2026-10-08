@@ -36,6 +36,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Tag
+import no.synth.divelog.core.model.Tank
+import no.synth.divelog.core.model.UNSAVED_ID
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.components.CountryField
@@ -60,6 +62,7 @@ fun DiveEditScreen(
     val dive = remember(diveId) { container.dives.getDive(diveId) } ?: run { onCancel(); return }
     val originalBuddyIds = remember(diveId) { container.buddies.buddiesForDive(diveId).map { it.id }.toSet() }
     val originalTagIds = remember(diveId) { container.tags.tagsForDive(diveId).map { it.id }.toSet() }
+    val originalTanks = remember(diveId) { container.gases.tanksForDive(diveId) }
 
     // Resolve a site's place and country for the picker detail line and the selected-site card.
     val countriesById = remember(diveId) { container.sites.countries().associateBy { it.id } }
@@ -90,6 +93,34 @@ fun DiveEditScreen(
     var addingSite by remember(diveId) { mutableStateOf(false) }
     var newBuddy by remember(diveId) { mutableStateOf("") }
     var newTag by remember(diveId) { mutableStateOf("") }
+
+    // Tanks autosave like the rest; working pressure is not edited, so it is carried over.
+    fun draftOf(tank: Tank): TankDraft {
+        val gas = tank.gasMixId?.let { container.gases.gasMix(it) }
+        return TankDraft.of(tank, gas?.o2Permille, gas?.hePermille, unitSystem)
+    }
+    val originalDrafts = remember(diveId) { originalTanks.map(::draftOf) }
+    var tankDrafts by remember(diveId) { mutableStateOf(originalDrafts) }
+
+    fun saveTank(index: Int, draft: TankDraft): TankDraft {
+        val kept = originalTanks.firstOrNull { it.id == draft.id }
+        val tank = Tank(
+            id = draft.id ?: UNSAVED_ID,
+            diveId = diveId,
+            index = index,
+            volumeMl = draft.volumeMl(),
+            workingPressureMbar = kept?.workingPressureMbar,
+            startPressureMbar = draft.startMbar(unitSystem),
+            endPressureMbar = draft.endMbar(unitSystem),
+            gasMixId = draft.gas()?.let { (o2, he) -> container.gases.getOrCreateGasMix(o2, he) },
+        )
+        return if (draft.id == null) {
+            draft.copy(id = container.gases.addTank(tank))
+        } else {
+            container.gases.updateTank(tank)
+            draft
+        }
+    }
 
     // Write the dive's own fields; buddy links are written as they are toggled.
     fun persistDive() {
@@ -126,7 +157,8 @@ fun DiveEditScreen(
         notes != originalNotes ||
         selectedSiteId != dive.siteId ||
         buddySelection != originalBuddyIds ||
-        tagSelection != originalTagIds
+        tagSelection != originalTagIds ||
+        tankDrafts.map { it.copy(id = null) } != originalDrafts.map { it.copy(id = null) }
 
     fun undo() {
         number = originalNumber
@@ -138,6 +170,10 @@ fun DiveEditScreen(
         (tagSelection - originalTagIds).forEach { container.tags.unlinkFromDive(diveId, it) }
         (originalTagIds - tagSelection).forEach { container.tags.linkToDive(diveId, it) }
         tagSelection = originalTagIds
+        // Put the tanks back as they were: drop the current ones, re-add the originals.
+        tankDrafts.mapNotNull { it.id }.forEach { container.gases.deleteTank(it) }
+        val restored = originalTanks.map { it.copy(id = container.gases.addTank(it.copy(id = UNSAVED_ID))) }
+        tankDrafts = restored.map(::draftOf)
         persistDive()
     }
 
@@ -285,6 +321,17 @@ fun DiveEditScreen(
                     ) { Text("Add") }
                 }
             }
+
+            TanksEditor(
+                drafts = tankDrafts,
+                unitSystem = unitSystem,
+                onChange = { i, d -> tankDrafts = tankDrafts.toMutableList().also { it[i] = saveTank(i, d) } },
+                onRemove = { i ->
+                    tankDrafts[i].id?.let { container.gases.deleteTank(it) }
+                    tankDrafts = tankDrafts.filterIndexed { j, _ -> j != i }
+                },
+                onAdd = { tankDrafts = tankDrafts + saveTank(tankDrafts.size, TankDraft.blank()) },
+            )
         }
     }
 }

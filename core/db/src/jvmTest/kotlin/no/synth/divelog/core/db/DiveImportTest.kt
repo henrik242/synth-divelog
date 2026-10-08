@@ -2,6 +2,7 @@ package no.synth.divelog.core.db
 
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.EventType
+import no.synth.divelog.core.model.GasMix
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -130,5 +131,34 @@ class DiveImportTest {
         val other = dives.import(incoming(deviceId = predator, start = 10_000, fingerprint = "p")) { true }
         assertTrue(other is ImportResult.AttachedToDive, "was $other")
         assertTrue(first is ImportResult.CreatedDive)
+    }
+
+    @Test
+    fun aDivesGasesBecomeTanksAndASecondComputerAddsOnlyNewOnes() {
+        val gas = GasRepository(db)
+        val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel"))
+        val predator = devices.add(Device(vendor = "Shearwater", model = "Predator"))
+        val ean32 = GasMix(o2Permille = 320, hePermille = 0)
+        val oxygen = GasMix(o2Permille = 1_000, hePermille = 0)
+        val created = dives.import(incoming(deviceId = petrel, start = 10_000, fingerprint = "a").copy(gases = listOf(ean32))) { false }
+        val diveId = (created as ImportResult.CreatedDive).diveId
+        dives.import(incoming(deviceId = predator, start = 10_000, fingerprint = "b").copy(gases = listOf(ean32, oxygen))) { true }
+
+        val tanks = gas.tanksForDive(diveId)
+        assertEquals(listOf(0, 1), tanks.map { it.index })
+        assertEquals(
+            listOf(320 to 0, 1_000 to 0),
+            tanks.map { t -> requireNotNull(t.gasMixId?.let { gas.gasMix(it) }).let { it.o2Permille to it.hePermille } },
+        )
+    }
+
+    @Test
+    fun reparseAddsGasesTheDiveLacks() {
+        val gas = GasRepository(db)
+        val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel"))
+        val created = dives.import(incoming(deviceId = petrel, start = 10_000, fingerprint = "a")) { false } as ImportResult.CreatedDive
+        assertEquals(0, gas.tanksForDive(created.diveId).size)
+        dives.reparseRecord(created.recordId, incoming(deviceId = petrel, start = 10_000, fingerprint = "a").copy(gases = listOf(GasMix(o2Permille = 300, hePermille = 0))))
+        assertEquals(1, gas.tanksForDive(created.diveId).size)
     }
 }

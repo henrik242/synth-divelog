@@ -104,6 +104,8 @@ data class IncomingDive(
     val fingerprint: String,
     val samples: List<Sample> = emptyList(),
     val events: List<Event> = emptyList(),
+    /** Gases breathed, in order of first use. Stored as the dive's tanks. */
+    val gases: List<GasMix> = emptyList(),
 ) {
     val endEpochSeconds: Long get() = startEpochSeconds + durationSeconds
 }

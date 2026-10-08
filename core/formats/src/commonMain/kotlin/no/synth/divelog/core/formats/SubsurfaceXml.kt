@@ -6,6 +6,7 @@ import nl.adaptivity.xmlutil.core.KtXmlWriter
 import nl.adaptivity.xmlutil.xmlStreaming
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType as DiveEventType
+import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.Sample
 
 /**
@@ -132,8 +133,8 @@ class SubsurfaceXml : DiveFormat {
             w.attribute(NS, "name", "", eventName(e.type))
             val gasValue = e.value
             if (e.type == DiveEventType.GAS_SWITCH && gasValue != null) {
-                val o2 = ((gasValue shr 8) and 0xFF).toInt()
-                val he = (gasValue and 0xFF).toInt()
+                val o2 = GasSwitch.o2Percent(gasValue)
+                val he = GasSwitch.hePercent(gasValue)
                 w.attribute(NS, "o2", "", "$o2.0%")
                 if (he > 0) w.attribute(NS, "he", "", "$he.0%")
             }
@@ -240,7 +241,8 @@ class SubsurfaceXml : DiveFormat {
         workingPressureMbar = attr(reader, "workpressure")?.let(FormatUnits::barToMbar),
         startPressureMbar = attr(reader, "start")?.let(FormatUnits::barToMbar),
         endPressureMbar = attr(reader, "end")?.let(FormatUnits::barToMbar),
-        o2Permille = attr(reader, "o2")?.let(FormatUnits::percentToPermille),
+        // Subsurface leaves O2 out for air.
+        o2Permille = attr(reader, "o2")?.let(FormatUnits::percentToPermille) ?: AIR_O2_PERMILLE,
         hePermille = attr(reader, "he")?.let(FormatUnits::percentToPermille),
     )
 
@@ -259,7 +261,7 @@ class SubsurfaceXml : DiveFormat {
         val value = if (type == DiveEventType.GAS_SWITCH) {
             val o2 = attr(reader, "o2")?.let(FormatUnits::leadingNumber)?.toInt() ?: 0
             val he = attr(reader, "he")?.let(FormatUnits::leadingNumber)?.toInt() ?: 0
-            ((o2 shl 8) or he).toLong()
+            GasSwitch.value(o2, he)
         } else {
             null
         }
@@ -366,5 +368,6 @@ class SubsurfaceXml : DiveFormat {
 
     private companion object {
         const val NS = ""
+        const val AIR_O2_PERMILLE = 210
     }
 }

@@ -20,3 +20,15 @@ data class Tank(
     val endPressureMbar: Int? = null,
     val gasMixId: Long? = null,
 )
+
+/**
+ * The value of a [EventType.GAS_SWITCH] event: the new mix's O2 and He percent packed as
+ * `(o2 shl 8) or he`. Every parser and file format reads and writes it this way.
+ */
+object GasSwitch {
+    fun value(o2Percent: Int, hePercent: Int): Long = ((o2Percent shl 8) or hePercent).toLong()
+
+    fun o2Percent(value: Long): Int = ((value shr 8) and 0xFF).toInt()
+
+    fun hePercent(value: Long): Int = (value and 0xFF).toInt()
+}

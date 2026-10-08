@@ -5,8 +5,10 @@ import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.DiveComputerRecord
 import no.synth.divelog.core.model.Event
+import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.Tank
 
 /**
  * Dives and the computer records beneath them, including importing downloads and
@@ -17,6 +19,7 @@ class DiveRepository(private val db: DiveDatabase) {
     private val records = db.recordQueries
     private val samples = db.sampleQueries
     private val events = db.eventQueries
+    private val gases = GasRepository(db)
 
     // --- Dive CRUD ---
 
@@ -164,6 +167,7 @@ class DiveRepository(private val db: DiveDatabase) {
         val diveId = dives.lastInsertRowId().executeAsOne()
         val recordId = insertRecord(incoming, diveId)
         dives.setPrimaryRecord(recordId, diveId)
+        addMissingGases(diveId, incoming.gases)
         ImportResult.CreatedDive(diveId, recordId)
     }
 
@@ -171,6 +175,7 @@ class DiveRepository(private val db: DiveDatabase) {
     fun attachToDive(incoming: IncomingDive, diveId: Long): ImportResult.AttachedToDive =
         db.transactionWithResult {
             val recordId = insertRecord(incoming, diveId)
+            addMissingGases(diveId, incoming.gases)
             ImportResult.AttachedToDive(diveId, recordId)
         }
 
@@ -186,6 +191,23 @@ class DiveRepository(private val db: DiveDatabase) {
                 else importAsNewDive(incoming)
             ImportDecision.NewDive -> importAsNewDive(incoming)
         }
+
+    /**
+     * Give [diveId] a tank for each of [mixes] it does not have yet, after its existing
+     * tanks. Tanks the user or a logbook set up are left as they are.
+     */
+    private fun addMissingGases(diveId: Long, mixes: List<GasMix>) {
+        if (mixes.isEmpty()) return
+        val tanks = gases.tanksForDive(diveId)
+        val have = tanks.mapNotNull { t -> t.gasMixId?.let { gases.gasMix(it) } }
+            .map { it.o2Permille to it.hePermille }.toMutableSet()
+        var index = (tanks.maxOfOrNull { it.index } ?: -1) + 1
+        for (mix in mixes) {
+            if (!have.add(mix.o2Permille to mix.hePermille)) continue
+            val mixId = gases.getOrCreateGasMix(mix.o2Permille, mix.hePermille)
+            gases.addTank(Tank(diveId = diveId, index = index++, gasMixId = mixId))
+        }
+    }
 
     private fun insertRecord(incoming: IncomingDive, diveId: Long): Long {
         records.insertRecord(
@@ -253,6 +275,7 @@ class DiveRepository(private val db: DiveDatabase) {
         insertSamplesAndEvents(recordId, incoming)
 
         val rec = records.selectRecordSummaryById(recordId).executeAsOne()
+        addMissingGases(rec.diveId, incoming.gases)
         val dive = dives.selectDiveById(rec.diveId).executeAsOneOrNull()?.toDomain()
         if (dive != null && dive.primaryComputerRecordId == recordId) {
             updateDive(
