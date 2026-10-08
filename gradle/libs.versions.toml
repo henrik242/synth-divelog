@@ -3,7 +3,7 @@
 agp = "9.4.1"
 kotlin = "2.4.20"
 composeMultiplatform = "1.12.1"
-sqldelight = "2.4.0"
+sqldelight = "2.4.1"
 
 # Android SDK levels
 android-compileSdk = "37"
@@ -18,7 +18,7 @@ androidx-coreKtx = "1.19.1"
 jetbrains-lifecycle = "2.11.0"
 # androidx.navigationevent ships its own KMP targets; replaces the deprecated
 # compose ui-backhandler.
-androidx-navigationevent = "1.1.2"
+androidx-navigationevent = "1.2.0"
 
 # kotlinx -- first referenced in M1; versions re-verified when used
 kotlinx-coroutines = "1.11.0"

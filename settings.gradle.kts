@@ -36,7 +36,7 @@ plugins {
     // Speeds up configuration of toolchains in CI and locally.
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
     // Dependency-update reports for every project: ./gradlew dependencyUpdates
-    id("io.github.ben-manes.versions.settings") version "0.64.0"
+    id("io.github.ben-manes.versions.settings") version "0.65.0"
 }
 
 include(":core:model")
