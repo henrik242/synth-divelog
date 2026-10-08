@@ -86,6 +86,7 @@ class ShearwaterCloudWriterTest {
         assertEquals(dive.notes, back.notes)
         assertEquals(dive.buddies, back.buddies)
         assertEquals("The Wall", back.site?.name)
+        assertEquals("Drøbak", back.site?.place)
         assertEquals("1A2B3C4D", back.computers.single().serial?.uppercase())
         assertEquals(4, back.computers.single().samples.size)
         val tank = back.tanks.single()

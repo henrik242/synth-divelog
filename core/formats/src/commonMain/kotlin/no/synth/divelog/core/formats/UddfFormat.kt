@@ -31,8 +31,10 @@ class UddfFormat : DiveFormat {
     override fun write(log: DiveLog): String {
         val out = StringBuilder()
         val w: XmlWriter = KtXmlWriter(out, isRepairNamespaces = false)
+        w.startDocument("1.0", "UTF-8", null)
         w.startTag(NS, "uddf", "")
-        w.attribute(NS, "version", "", "3.2.1")
+        w.namespaceAttr("", NS)
+        w.attribute(null, "version", "", "3.2.1")
 
         w.startTag(NS, "generator", "")
         text(w, "name", "synth-divelog")
@@ -53,7 +55,7 @@ class UddfFormat : DiveFormat {
             w.startTag(NS, "gasdefinitions", "")
             mixIds.forEach { (gas, id) ->
                 w.startTag(NS, "mix", "")
-                w.attribute(NS, "id", "", id)
+                w.attribute(null, "id", "", id)
                 text(w, "o2", FormatUnits.siFraction(gas.first))
                 text(w, "he", FormatUnits.siFraction(gas.second))
                 w.endTag(NS, "mix", "")
@@ -71,11 +73,11 @@ class UddfFormat : DiveFormat {
             w.startTag(NS, "diver", "")
             if (computerIds.isNotEmpty()) {
                 w.startTag(NS, "owner", "")
-                w.attribute(NS, "id", "", "owner")
+                w.attribute(null, "id", "", "owner")
                 w.startTag(NS, "equipment", "")
                 computerIds.forEach { (key, id) ->
                     w.startTag(NS, "divecomputer", "")
-                    w.attribute(NS, "id", "", id)
+                    w.attribute(null, "id", "", id)
                     key.first?.let { text(w, "name", it) }
                     key.second?.let { text(w, "serialnumber", it) }
                     w.endTag(NS, "divecomputer", "")
@@ -85,7 +87,7 @@ class UddfFormat : DiveFormat {
             }
             buddyIds.forEach { (name, id) ->
                 w.startTag(NS, "buddy", "")
-                w.attribute(NS, "id", "", id)
+                w.attribute(null, "id", "", id)
                 w.startTag(NS, "personal", "")
                 text(w, "firstname", name)
                 w.endTag(NS, "personal", "")
@@ -100,12 +102,21 @@ class UddfFormat : DiveFormat {
             w.startTag(NS, "divesite", "")
             siteIds.values.forEach { (id, site) ->
                 w.startTag(NS, "site", "")
-                w.attribute(NS, "id", "", id)
-                w.attribute(NS, "name", "", fullSiteName(site))
-                if (site.latitude != null && site.longitude != null) {
+                w.attribute(null, "id", "", id)
+                text(w, "name", site.name)
+                val hasPosition = site.latitude != null && site.longitude != null
+                if (site.country != null || site.place != null || hasPosition) {
                     w.startTag(NS, "geography", "")
-                    text(w, "latitude", site.latitude.toString())
-                    text(w, "longitude", site.longitude.toString())
+                    site.country?.let {
+                        w.startTag(NS, "address", "")
+                        text(w, "country", it)
+                        w.endTag(NS, "address", "")
+                    }
+                    site.place?.let { text(w, "location", it) }
+                    if (hasPosition) {
+                        text(w, "latitude", site.latitude.toString())
+                        text(w, "longitude", site.longitude.toString())
+                    }
                     w.endTag(NS, "geography", "")
                 }
                 w.endTag(NS, "site", "")
@@ -166,7 +177,7 @@ class UddfFormat : DiveFormat {
                 switches[s.timeOffsetSeconds]?.let { e ->
                     val (o2, he) = gasOf(e)
                     w.startTag(NS, "switchmix", "")
-                    w.attribute(NS, "ref", "", mixId(o2, he))
+                    w.attribute(null, "ref", "", mixId(o2, he))
                     w.endTag(NS, "switchmix", "")
                 }
                 val stopDepthMm = s.stopDepthMm
@@ -215,7 +226,7 @@ class UddfFormat : DiveFormat {
 
     private fun linkRef(w: XmlWriter, ref: String) {
         w.startTag(NS, "link", "")
-        w.attribute(NS, "ref", "", ref)
+        w.attribute(null, "ref", "", ref)
         w.endTag(NS, "link", "")
     }
 
@@ -224,9 +235,6 @@ class UddfFormat : DiveFormat {
         w.text(value)
         w.endTag(NS, name, "")
     }
-
-    private fun fullSiteName(site: SiteRef): String =
-        listOfNotNull(site.country, site.place, site.name).joinToString(" / ")
 
     // --- Reading ---
 
@@ -254,6 +262,7 @@ class UddfFormat : DiveFormat {
         var computer: ComputerB? = null
         var depth = 0
         var computerDepth = -1
+        var siteDepth = -1
         var buf = StringBuilder()
 
         try {
@@ -265,10 +274,10 @@ class UddfFormat : DiveFormat {
                         when (reader.localName) {
                             "mix" -> mix = MixBuilder(reader.getAttributeValue(null, "id"))
                             "buddy" -> buddy = BuddyBuilder(reader.getAttributeValue(null, "id"))
-                            "site" -> site = SiteBuilder(
-                                reader.getAttributeValue(null, "id"),
-                                reader.getAttributeValue(null, "name"),
-                            )
+                            "site" -> {
+                                site = SiteBuilder(reader.getAttributeValue(null, "id"), reader.getAttributeValue(null, "name"))
+                                siteDepth = depth
+                            }
                             "dive" -> dive = DiveB()
                             "waypoint" -> waypoint = WaypointB()
                             "tankdata" -> tank = TankB()
@@ -293,7 +302,12 @@ class UddfFormat : DiveFormat {
                             "he" -> mix?.he = FormatUnits.siFractionToPermille(t)
                             "mix" -> mix?.let { b -> b.id?.let { mixes[it] = GasMix(o2Permille = b.o2 ?: 0, hePermille = b.he ?: 0) } }
                             "firstname" -> buddy?.name = t
-                            "name" -> if (depth == computerDepth + 1) computer?.name = t.ifEmpty { null }
+                            "name" -> when (depth) {
+                                computerDepth + 1 -> computer?.name = t.ifEmpty { null }
+                                siteDepth + 1 -> site?.name = t.ifEmpty { null }
+                            }
+                            "location" -> site?.place = t.ifEmpty { null }
+                            "country" -> site?.country = t.ifEmpty { null }
                             "serialnumber" -> if (depth == computerDepth + 1) computer?.serial = t.ifEmpty { null }
                             "divecomputer" -> {
                                 computer?.let { c -> c.id?.let { computers[it] = c } }
@@ -303,7 +317,11 @@ class UddfFormat : DiveFormat {
                             "buddy" -> buddy?.let { b -> b.id?.let { buddies[it] = b.name ?: "" } }
                             "latitude" -> site?.lat = t.toDoubleOrNull()
                             "longitude" -> site?.lon = t.toDoubleOrNull()
-                            "site" -> site?.let { b -> b.id?.let { sites[it] = parseSite(b) } }
+                            "site" -> {
+                                site?.let { b -> b.id?.let { sites[it] = parseSite(b) } }
+                                site = null
+                                siteDepth = -1
+                            }
                             "datetime" -> dive?.let { d -> FormatDateTime.fromIso(t).let { (epoch, offset) -> d.epoch = epoch; d.utcOffset = offset } }
                             "divenumber" -> dive?.number = t.toIntOrNull()
                             "depth" -> waypoint?.depthMm = FormatUnits.siMetresToMm(t)
@@ -337,19 +355,30 @@ class UddfFormat : DiveFormat {
         return DiveLog(dives)
     }
 
+    /**
+     * A site from its `<name>` and `<geography>` (`<location>`, `<address><country>`). Files
+     * from earlier versions of this app put "country / place / name" in a name attribute.
+     */
     private fun parseSite(b: SiteBuilder): SiteRef {
-        val name = b.name ?: ""
-        val parts = name.split(" / ")
-        return when (parts.size) {
-            3 -> SiteRef(parts[2], parts[0], parts[1], b.lat, b.lon)
-            2 -> SiteRef(parts[1], parts[0], null, b.lat, b.lon)
-            else -> SiteRef(name, null, null, b.lat, b.lon)
+        val legacy = b.legacyName?.split(" / ").orEmpty()
+        return when {
+            b.name != null || legacy.size < 2 -> SiteRef(b.name ?: b.legacyName ?: "", b.country, b.place, b.lat, b.lon)
+            legacy.size == 2 -> SiteRef(legacy[1], legacy[0], null, b.lat, b.lon)
+            else -> SiteRef(legacy[2], legacy[0], legacy[1], b.lat, b.lon)
         }
     }
 
     private class MixBuilder(val id: String?, var o2: Int? = null, var he: Int? = null)
     private class BuddyBuilder(val id: String?, var name: String? = null)
-    private class SiteBuilder(val id: String?, val name: String?, var lat: Double? = null, var lon: Double? = null)
+    private class SiteBuilder(
+        val id: String?,
+        val legacyName: String?,
+        var name: String? = null,
+        var place: String? = null,
+        var country: String? = null,
+        var lat: Double? = null,
+        var lon: Double? = null,
+    )
     /** Seconds written as "2130" or "2130.0". */
     private fun seconds(text: String): Int? = FormatUnits.leadingNumber(text)?.roundToInt()
 
@@ -452,6 +481,7 @@ class UddfFormat : DiveFormat {
     }
 
     private companion object {
-        const val NS = ""
+        /** Elements are in the UDDF namespace; attributes in none. */
+        const val NS = "http://www.streit.cc/uddf/3.2/"
     }
 }

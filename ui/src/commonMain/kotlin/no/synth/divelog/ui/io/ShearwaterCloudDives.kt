@@ -137,10 +137,17 @@ internal object ShearwaterCloudDives {
             number = entry.number ?: d["DiveNumber"]?.trim()?.toIntOrNull(),
             notes = entry.notes ?: d["Notes"]?.trim()?.ifEmpty { null },
             buddies = entry.buddies.ifEmpty { d["Buddy"].orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() } },
-            site = entry.site ?: site(d),
+            site = mergeSite(entry.site, site(d)),
             tanks = entry.tanks.ifEmpty { tanks },
             gasMixes = entry.gasMixes.ifEmpty { gasProfiles(d) },
         )
+    }
+
+    /** The log's own site, with what it lacks taken from the logbook fields. */
+    private fun mergeSite(own: SiteRef?, fields: SiteRef?): SiteRef? = when {
+        own == null || own.name.isBlank() -> fields ?: own
+        fields == null -> own
+        else -> own.copy(place = own.place ?: fields.place, country = own.country ?: fields.country)
     }
 
     /** "Site" is the site; "Location" the place around it, or the site when that is all there is. */

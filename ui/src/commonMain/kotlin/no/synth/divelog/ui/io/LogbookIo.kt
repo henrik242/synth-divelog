@@ -290,7 +290,7 @@ class LogbookIo(private val container: AppContainer) {
             val richer = incomingSiteScore > currentSiteScore ||
                 (incomingSiteScore == currentSiteScore && incomingExtra > currentExtra)
             if (dive.siteId == null || richer) {
-                val siteId = container.sites.getOrCreateSite(s.country ?: "Unknown", s.place ?: "Unknown", s.name)
+                val siteId = container.sites.getOrCreateSite(s.country ?: UNKNOWN_PLACE, s.place ?: UNKNOWN_PLACE, s.name)
                 if (s.latitude != null && s.longitude != null) {
                     container.sites.site(siteId)?.let {
                         container.sites.updateSite(it.copy(latitude = s.latitude, longitude = s.longitude))
@@ -375,8 +375,8 @@ class LogbookIo(private val container: AppContainer) {
     private fun siteScore(hasCoordinates: Boolean, country: String?, place: String?): Int {
         var score = 0
         if (hasCoordinates) score += 2
-        val realCountry = country?.takeIf { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
-        val realPlace = place?.takeIf { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+        val realCountry = country?.takeIf { it.isNotBlank() && !it.equals(UNKNOWN_PLACE, ignoreCase = true) }
+        val realPlace = place?.takeIf { it.isNotBlank() && !it.equals(UNKNOWN_PLACE, ignoreCase = true) }
         if (realCountry != null || realPlace != null) score += 1
         return score
     }
@@ -409,10 +409,12 @@ class LogbookIo(private val container: AppContainer) {
         val site = container.sites.site(siteId) ?: return null
         val place = container.sites.place(site.placeId)
         val country = place?.let { container.sites.country(it.countryId) }
+        // "Unknown" stands in for a missing country or place; files get none.
+        fun real(name: String?) = name?.takeUnless { it.equals(UNKNOWN_PLACE, ignoreCase = true) }
         return SiteRef(
             name = site.name,
-            country = country?.name,
-            place = place?.name,
+            country = real(country?.name),
+            place = real(place?.name),
             latitude = site.latitude,
             longitude = site.longitude,
         )
@@ -453,6 +455,9 @@ class LogbookIo(private val container: AppContainer) {
         fun formats(): List<DiveFormat> = listOf(SubsurfaceXml(), UddfFormat(), MacDiveXml())
 
         private const val SHEARWATER_CLOUD = "shearwater-cloud-db"
+
+        /** Country or place name for a site imported without one. */
+        private const val UNKNOWN_PLACE = "Unknown"
 
         /** Every export: the text formats, then a Shearwater Cloud database. */
         fun exportTargets(): List<ExportTarget> =

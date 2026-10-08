@@ -164,4 +164,35 @@ class UddfFormatTest {
         val local = format.write(DiveLog(listOf(dive.copy(startEpochSeconds = 1_224_950_700, utcOffsetSeconds = 0))))
         assertTrue(local.contains("<datetime>2008-10-25T16:05:00</datetime>"), local)
     }
+
+    private fun siteOf(siteXml: String): SiteRef? {
+        val xml = """<uddf xmlns="http://www.streit.cc/uddf/3.2/" version="3.2.1"><divesite>$siteXml</divesite>
+            <profiledata><repetitiongroup><dive><informationbeforedive><link ref="s1"/>
+            <datetime>2020-01-01T10:00:00</datetime></informationbeforedive></dive></repetitiongroup></profiledata></uddf>"""
+        return UddfFormat().read(xml).dives.single().site
+    }
+
+    @Test
+    fun readsSitesAsTheSpecLaysThemOut() {
+        val site = siteOf(
+            """<site id="s1"><name>The Wall</name><geography><address><country>Norway</country></address>
+            <location>Drøbak</location><latitude>59.66</latitude><longitude>10.63</longitude></geography></site>""",
+        )
+        assertEquals(SiteRef("The Wall", "Norway", "Drøbak", 59.66, 10.63), site)
+    }
+
+    @Test
+    fun readsSitesFromEarlierExportsOfThisApp() {
+        assertEquals(SiteRef("The Wall", "Norway", "Drøbak"), siteOf("""<site id="s1" name="Norway / Drøbak / The Wall"/>"""))
+        assertEquals(SiteRef("Somewhere"), siteOf("""<site id="s1" name="Somewhere"/>"""))
+    }
+
+    @Test
+    fun writesSitesAsTheSpecLaysThemOut() {
+        val dive = DiveEntry(startEpochSeconds = 0, durationSeconds = 60, site = SiteRef("The Wall", "Norway", "Drøbak"))
+        val xml = format.write(DiveLog(listOf(dive)))
+        assertTrue(xml.contains("<name>The Wall</name>"), xml)
+        assertTrue(xml.contains("<address><country>Norway</country></address><location>Drøbak</location>"), xml)
+        assertTrue(xml.contains("xmlns=\"http://www.streit.cc/uddf/3.2/\""), xml)
+    }
 }

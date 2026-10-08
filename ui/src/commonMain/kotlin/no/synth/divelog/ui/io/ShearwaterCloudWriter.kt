@@ -63,10 +63,11 @@ internal object ShearwaterCloudWriter {
             "DateAndTime" to usStamp(local),
             "Depth" to dive.maxDepthMm?.let { Format.oneDecimal(it / 1000.0) },
             "SerialNumber" to shearwaterSerial(dive),
-            "AverageDepth" to stats.meanDepthM,
-            "AverageTemp" to stats.meanTempC,
-            "MinTemp" to stats.minTempC,
-            "MaxTemp" to stats.maxTempC,
+            // Shearwater Cloud never leaves these empty; 0 is its "no data".
+            "AverageDepth" to (stats.meanDepthM ?: 0.0),
+            "AverageTemp" to (stats.meanTempC ?: 0.0),
+            "MinTemp" to (stats.minTempC ?: 0.0),
+            "MaxTemp" to (stats.maxTempC ?: 0.0),
             "EndGF99" to 0.0,
             "Location" to dive.site?.let { it.place ?: it.country },
             "Site" to dive.site?.name,
@@ -114,7 +115,7 @@ internal object ShearwaterCloudWriter {
             "GasProfile" to profile(index, t),
             "DiveTransmitter" to if (index < 4) {
                 obj(
-                    "TankIndex" to index, "IsOn" to false, "UnformattedSerialNumber" to "",
+                    "TankIndex" to index, "IsOn" to false, "UnformattedSerialNumber" to null,
                     "Name" to null, "DefaultScriptTerm" to "dive_details/tank_${index + 1}",
                 )
             } else {
