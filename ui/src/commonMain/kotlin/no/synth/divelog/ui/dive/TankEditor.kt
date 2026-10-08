@@ -18,15 +18,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.core.model.units.Units
-import no.synth.divelog.ui.format.Format
 import kotlin.math.roundToInt
 
 /**
  * A tank as typed in the editor. [id] is null until it is first saved. Pressures are in
- * the user's units (bar or psi), size in litres of water volume.
+ * the user's units (bar or psi), size as [Units.tankSize] shows it. [saved] is the tank as
+ * loaded: its working pressure is not edited, only carried, and a field left as shown
+ * keeps its stored value rather than the rounded text.
  */
 internal data class TankDraft(
     val id: Long?,
@@ -35,7 +37,13 @@ internal data class TankDraft(
     val size: String,
     val start: String,
     val end: String,
+    val saved: Tank? = null,
 ) {
+    val workingPressureMbar: Int? get() = saved?.workingPressureMbar
+
+    /** The unit [size] is in: litres, or nominal cuft in imperial when the working pressure is known. */
+    fun sizeUnit(system: UnitSystem): String = Units.tankSize(0, workingPressureMbar, system).unit
+
     /** Whether a mix has been typed at all; an empty one is no gas, not an error. */
     fun hasMix(): Boolean = o2.isNotBlank() || he.isNotBlank()
 
@@ -47,20 +55,25 @@ internal data class TankDraft(
         return (o2 * 10).roundToInt() to (he * 10).roundToInt()
     }
 
-    fun volumeMl(): Int? = parse(size)?.takeIf { it > 0 }?.let { (it * 1000).roundToInt() }
+    fun volumeMl(system: UnitSystem): Int? {
+        saved?.volumeMl?.let { if (size == sizeText(it, workingPressureMbar, system)) return it }
+        val v = parse(size)?.takeIf { it > 0 } ?: return null
+        return Units.tankVolumeMl(v, workingPressureMbar, system)
+    }
 
-    fun startMbar(system: UnitSystem): Int? = toMbar(start, system)
+    fun startMbar(system: UnitSystem): Int? = toMbar(start, saved?.startPressureMbar, system)
 
-    fun endMbar(system: UnitSystem): Int? = toMbar(end, system)
+    fun endMbar(system: UnitSystem): Int? = toMbar(end, saved?.endPressureMbar, system)
 
     companion object {
         fun of(tank: Tank, o2Permille: Int?, hePermille: Int?, system: UnitSystem) = TankDraft(
             id = tank.id,
             o2 = o2Permille?.let { trimmed(it / 10.0) } ?: "",
             he = hePermille?.takeIf { it > 0 }?.let { trimmed(it / 10.0) } ?: "",
-            size = tank.volumeMl?.let { trimmed(it / 1000.0) } ?: "",
+            size = tank.volumeMl?.let { sizeText(it, tank.workingPressureMbar, system) } ?: "",
             start = tank.startPressureMbar?.let { fromMbar(it, system) } ?: "",
             end = tank.endPressureMbar?.let { fromMbar(it, system) } ?: "",
+            saved = tank,
         )
 
         fun blank() = TankDraft(id = null, o2 = "", he = "", size = "", start = "", end = "")
@@ -69,10 +82,14 @@ internal data class TankDraft(
 
         private fun trimmed(v: Double) = Format.oneDecimal(v).removeSuffix(".0")
 
+        private fun sizeText(ml: Int, workingPressureMbar: Int?, system: UnitSystem) =
+            trimmed(Units.tankSize(ml, workingPressureMbar, system).value)
+
         private fun fromMbar(mbar: Int, system: UnitSystem) =
             Units.pressure(mbar, system).value.roundToInt().toString()
 
-        private fun toMbar(text: String, system: UnitSystem): Int? {
+        private fun toMbar(text: String, saved: Int?, system: UnitSystem): Int? {
+            if (saved != null && text == fromMbar(saved, system)) return saved
             val v = parse(text)?.takeIf { it >= 0 } ?: return null
             // One unit of the system in millibar: 1 bar, or 1 psi.
             val mbarPerUnit = 1_000.0 / Units.pressure(1_000, system).value
@@ -108,7 +125,7 @@ internal fun TanksEditor(
                     val invalid = d.hasMix() && d.gas() == null
                     Field(d.o2, "O2 %", Modifier.weight(1f), isError = invalid) { onChange(i, d.copy(o2 = it)) }
                     Field(d.he, "He %", Modifier.weight(1f), isError = invalid) { onChange(i, d.copy(he = it)) }
-                    Field(d.size, "Size (L)", Modifier.weight(1f)) { onChange(i, d.copy(size = it)) }
+                    Field(d.size, "Size (${d.sizeUnit(unitSystem)})", Modifier.weight(1f)) { onChange(i, d.copy(size = it)) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Field(d.start, "Start ($pressureUnit)", Modifier.weight(1f)) { onChange(i, d.copy(start = it)) }

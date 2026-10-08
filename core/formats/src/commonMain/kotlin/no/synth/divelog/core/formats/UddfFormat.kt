@@ -238,7 +238,7 @@ class UddfFormat : DiveFormat {
         dive.visibility?.let { text(w, "visibility", FormatUnits.siMetres(it)) }
         dive.notes?.let {
             w.startTag(NS, "notes", "")
-            text(w, "para", it)
+            it.lines().forEach { line -> text(w, "para", line) }
             w.endTag(NS, "notes", "")
         }
         computerId?.let {
@@ -403,7 +403,8 @@ class UddfFormat : DiveFormat {
                             // UDDF rates 1..10; the logbook rates 0..5 stars.
                             "ratingvalue" -> dive?.rating = FormatUnits.leadingNumber(t)?.let { ((it + 1) / 2).toInt() }
                             "visibility" -> dive?.visibilityMm = FormatUnits.siMetresToMm(t)
-                            "para" -> dive?.notes = t
+                            // One paragraph per line.
+                            "para" -> dive?.let { d -> d.notes = d.notes?.let { "$it\n$t" } ?: t }
                             "dive" -> { dive?.let { dives.add(it.build(mixes, sites, buddies, computers)) }; dive = null }
                         }
                         depth--
@@ -543,7 +544,7 @@ class UddfFormat : DiveFormat {
                 meanDepthMm = meanDepthMm,
                 waterTempMk = waterTempMk,
                 airTempMk = airTempMk,
-                notes = notes,
+                notes = notes?.trim()?.ifEmpty { null },
                 rating = rating,
                 visibility = visibilityMm,
                 site = site,

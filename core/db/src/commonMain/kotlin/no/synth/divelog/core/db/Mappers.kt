@@ -22,6 +22,8 @@ import no.synth.divelog.core.db.sql.FindByDeviceAndFingerprint
 import no.synth.divelog.core.db.sql.GasMix as GasMixRow
 import no.synth.divelog.core.db.sql.Place as PlaceRow
 import no.synth.divelog.core.db.sql.Sample as SampleRow
+import no.synth.divelog.core.db.sql.SelectAllRecordSummaries
+import no.synth.divelog.core.db.sql.SelectRecordFromDeviceAmongDives
 import no.synth.divelog.core.db.sql.SelectRecordSummariesForDive
 import no.synth.divelog.core.db.sql.SelectRecordSummaryById
 import no.synth.divelog.core.db.sql.Site as SiteRow
@@ -87,6 +89,7 @@ internal fun DiveRow.toDomain() = Dive(
     visibility = visibility?.toInt(),
     siteId = siteId,
     primaryComputerRecordId = primaryComputerRecordId,
+    visibilityRating = visibilityRating?.toInt(),
 )
 
 private fun record(
@@ -113,6 +116,12 @@ internal fun SelectRecordSummaryById.toDomain() =
     record(id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint)
 
 internal fun SelectRecordSummariesForDive.toDomain() =
+    record(id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint)
+
+internal fun SelectAllRecordSummaries.toDomain() =
+    record(id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint)
+
+internal fun SelectRecordFromDeviceAmongDives.toDomain() =
     record(id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint)
 
 internal fun FindByDeviceAndFingerprint.toDomain() =

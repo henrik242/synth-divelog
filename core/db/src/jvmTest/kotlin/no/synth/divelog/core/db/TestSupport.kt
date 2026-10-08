@@ -7,7 +7,7 @@ import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
 
 /** A fresh in-memory database per call. */
-fun testDatabase(): DiveDatabase = DriverFactory().createDatabase()
+fun testDatabase(): DiveDatabase = createDatabase()
 
 /** Convenience builder for an incoming download in tests. */
 fun incoming(

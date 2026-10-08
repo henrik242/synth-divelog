@@ -1,5 +1,6 @@
 package no.synth.divelog.core.db
 
+import kotlinx.coroutines.flow.Flow
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.Country
 import no.synth.divelog.core.model.Place
@@ -24,7 +25,11 @@ class SiteRepository(private val db: DiveDatabase) {
 
     fun countries(): List<Country> = q.selectAllCountries().executeAsList().map { it.toDomain() }
 
+    fun countriesFlow(): Flow<List<Country>> = q.selectAllCountries().listFlow { it.toDomain() }
+
     fun country(id: Long): Country? = q.selectCountryById(id).executeAsOneOrNull()?.toDomain()
+
+    fun countryFlow(id: Long): Flow<Country?> = q.selectCountryById(id).oneOrNullFlow { it.toDomain() }
 
     fun renameCountry(id: Long, name: String) = q.updateCountry(name, id)
 
@@ -41,6 +46,11 @@ class SiteRepository(private val db: DiveDatabase) {
 
     fun place(id: Long): Place? = q.selectPlaceById(id).executeAsOneOrNull()?.toDomain()
 
+    fun placeFlow(id: Long): Flow<Place?> = q.selectPlaceById(id).oneOrNullFlow { it.toDomain() }
+
+    /** Every place by id. */
+    fun allPlaces(): Map<Long, Place> = q.selectAllPlaces().executeAsList().associate { it.id to it.toDomain() }
+
     fun updatePlace(place: Place) = q.updatePlace(place.countryId, place.name, place.id)
 
     fun deletePlace(id: Long) = q.deletePlace(id)
@@ -56,7 +66,11 @@ class SiteRepository(private val db: DiveDatabase) {
 
     fun allSites(): List<Site> = q.selectAllSites().executeAsList().map { it.toDomain() }
 
+    fun allSitesFlow(): Flow<List<Site>> = q.selectAllSites().listFlow { it.toDomain() }
+
     fun site(id: Long): Site? = q.selectSiteById(id).executeAsOneOrNull()?.toDomain()
+
+    fun siteFlow(id: Long): Flow<Site?> = q.selectSiteById(id).oneOrNullFlow { it.toDomain() }
 
     fun updateSite(site: Site) =
         q.updateSite(site.placeId, site.name, site.latitude, site.longitude, site.notes, site.id)

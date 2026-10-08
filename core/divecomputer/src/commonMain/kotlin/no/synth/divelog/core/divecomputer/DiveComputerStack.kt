@@ -32,7 +32,11 @@ interface DownloadListener {
     /** [current] of [total] units done; [total] is 0 while still unknown. */
     fun onProgress(current: Int, total: Int) {}
 
-    fun onDiveDownloaded(index: Int) {}
+    /**
+     * [dive] has been read. [index] is its place in this download's newest-first order
+     * (0 is the newest), so a caller can keep what arrived if the download fails later.
+     */
+    fun onDiveDownloaded(index: Int, dive: RawDive) {}
 }
 
 /** Polled by long operations so the user can cancel a download. */
@@ -56,7 +60,9 @@ interface DiveComputerProtocol {
      * Download dives, skipping anything at or before [knownFingerprint] (the
      * newest dive already stored for this device), newest first. [limit], when set,
      * returns only the newest that many dives; for devices that serve dives one at a
-     * time this also avoids fetching the rest.
+     * time this also avoids fetching the rest. Each dive also goes to
+     * [DownloadListener.onDiveDownloaded] as soon as it is read, so a download that
+     * fails partway still yields the dives read before the failure.
      */
     fun download(
         knownFingerprint: String?,
@@ -65,6 +71,18 @@ interface DiveComputerProtocol {
         limit: Int? = null,
     ): List<RawDive>
 }
+
+/**
+ * The newest-first dives up to, not including, [knownFingerprint], capped at [limit]
+ * when that is positive. Lazy, so a device read behind the sequence stops early.
+ */
+internal fun <T> Sequence<T>.newestUntil(knownFingerprint: String?, limit: Int?, fingerprint: (T) -> String): Sequence<T> {
+    val fresh = if (knownFingerprint == null) this else takeWhile { fingerprint(it) != knownFingerprint }
+    return if (limit != null && limit > 0) fresh.take(limit) else fresh
+}
+
+internal fun Sequence<RawDive>.newestUntil(knownFingerprint: String?, limit: Int?): Sequence<RawDive> =
+    newestUntil(knownFingerprint, limit) { it.fingerprint }
 
 /** Turns a device's raw dive blob into the importable model. One per log format. */
 interface DiveLogParser {

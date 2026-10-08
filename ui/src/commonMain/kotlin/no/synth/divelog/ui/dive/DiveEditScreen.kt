@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -14,6 +15,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,14 +31,13 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardOptions
+import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Tag
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.core.model.UNSAVED_ID
 import no.synth.divelog.core.model.units.UnitSystem
-import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.components.CountryField
 import no.synth.divelog.ui.components.NameChipsField
 import no.synth.divelog.ui.components.NamedItem
@@ -57,7 +58,10 @@ fun DiveEditScreen(
     unitSystem: UnitSystem,
     onCancel: () -> Unit,
 ) {
-    val dive = remember(diveId) { container.dives.getDive(diveId) } ?: run { onCancel(); return }
+    val dive = remember(diveId) { container.dives.getDive(diveId) } ?: run {
+        LaunchedEffect(diveId) { onCancel() }
+        return
+    }
     val originalBuddyIds = remember(diveId) { container.buddies.buddiesForDive(diveId).map { it.id }.toSet() }
     val originalTagIds = remember(diveId) { container.tags.tagsForDive(diveId).map { it.id }.toSet() }
     val originalTanks = remember(diveId) { container.gases.tanksForDive(diveId) }
@@ -90,7 +94,7 @@ fun DiveEditScreen(
     var newSite by remember(diveId) { mutableStateOf("") }
     var addingSite by remember(diveId) { mutableStateOf(false) }
 
-    // Tanks autosave like the rest; working pressure is not edited, so it is carried over.
+    // Tanks autosave like the rest; working pressure is not edited, so the draft carries it.
     fun draftOf(tank: Tank): TankDraft {
         val gas = tank.gasMixId?.let { container.gases.gasMix(it) }
         return TankDraft.of(tank, gas?.o2Permille, gas?.hePermille, unitSystem)
@@ -99,13 +103,12 @@ fun DiveEditScreen(
     var tankDrafts by remember(diveId) { mutableStateOf(originalDrafts) }
 
     fun saveTank(index: Int, draft: TankDraft): TankDraft {
-        val kept = originalTanks.firstOrNull { it.id == draft.id }
         val tank = Tank(
             id = draft.id ?: UNSAVED_ID,
             diveId = diveId,
             index = index,
-            volumeMl = draft.volumeMl(),
-            workingPressureMbar = kept?.workingPressureMbar,
+            volumeMl = draft.volumeMl(unitSystem),
+            workingPressureMbar = draft.workingPressureMbar,
             startPressureMbar = draft.startMbar(unitSystem),
             endPressureMbar = draft.endMbar(unitSystem),
             gasMixId = draft.gas()?.let { (o2, he) -> container.gases.getOrCreateGasMix(o2, he) },

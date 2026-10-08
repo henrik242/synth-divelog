@@ -1,6 +1,8 @@
 rootProject.name = "synth-divelog"
 
 pluginManagement {
+    // Convention plugins shared by the core modules.
+    includeBuild("build-logic")
     repositories {
         google {
             mavenContent {
@@ -45,6 +47,7 @@ include(":core:divecomputer")
 include(":core:transport")
 include(":core:formats")
 include(":core:gas")
+include(":core:logbook")
 include(":ui")
 include(":app:android")
 include(":app:desktop")

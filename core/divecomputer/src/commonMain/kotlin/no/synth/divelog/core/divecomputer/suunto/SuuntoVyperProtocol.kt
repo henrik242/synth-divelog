@@ -5,6 +5,7 @@ import no.synth.divelog.core.divecomputer.DeviceInfo
 import no.synth.divelog.core.divecomputer.DiveComputerProtocol
 import no.synth.divelog.core.divecomputer.DownloadListener
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.newestUntil
 import no.synth.divelog.core.divecomputer.transport.Parity
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
@@ -49,16 +50,9 @@ class SuuntoVyperProtocol(
             cancel = cancel,
         )
 
-        val all = SuuntoVyperDump.extract(ring, pointer)
-        // Dives are newest-first; stop at the one already stored for this device.
-        val new = if (knownFingerprint == null) {
-            all
-        } else {
-            all.takeWhile { it.fingerprint != knownFingerprint }
-        }
-        val fresh = if (limit != null && limit > 0) new.take(limit) else new
+        val fresh = SuuntoVyperDump.extract(ring, pointer).asSequence().newestUntil(knownFingerprint, limit).toList()
         listener.onDiveCount(fresh.size)
-        fresh.forEachIndexed { index, _ -> listener.onDiveDownloaded(index) }
+        fresh.forEachIndexed { index, dive -> listener.onDiveDownloaded(index, dive) }
         return fresh
     }
 

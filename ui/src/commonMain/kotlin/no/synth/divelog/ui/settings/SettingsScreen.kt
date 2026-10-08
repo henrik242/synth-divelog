@@ -21,25 +21,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import no.synth.divelog.core.logbook.io.LogbookIo
+import no.synth.divelog.core.logbook.settings.AppSettings
 import no.synth.divelog.core.model.units.UnitSystem
-import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.BuildInfo
 import no.synth.divelog.ui.components.CloudCredentialsDialog
-import no.synth.divelog.ui.io.LogbookIo
 
+/**
+ * Units, export, maintenance and dive computers. A null [onCloudPush] hides the cloud
+ * export; its credentials are kept in [settings].
+ */
 @Composable
 fun SettingsSection(
-    container: AppContainer,
+    settings: AppSettings,
     unitSystem: UnitSystem,
     onUnitSystemChange: (UnitSystem) -> Unit,
-    onExport: (formatId: String) -> Unit = {},
-    onReparse: () -> Unit = {},
-    cloudEnabled: Boolean = false,
-    initialCloudEmail: String = "",
-    initialCloudPassword: String = "",
-    onCloudConfigChange: (email: String, pass: String) -> Unit = { _, _ -> },
-    onCloudPush: (email: String, pass: String) -> Unit = { _, _ -> },
-    onOpenComputers: () -> Unit = {},
+    onExport: (formatId: String) -> Unit,
+    onReparse: () -> Unit,
+    onCloudPush: ((email: String, pass: String) -> Unit)?,
+    onOpenComputers: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -69,21 +69,22 @@ fun SettingsSection(
                     Text("Export ${target.displayName}")
                 }
             }
-            if (cloudEnabled) {
+            if (onCloudPush != null) {
                 OutlinedButton(onClick = { cloudExportOpen = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Export to Subsurface cloud")
                 }
             }
         }
 
-        if (cloudExportOpen) {
+        if (cloudExportOpen && onCloudPush != null) {
             CloudCredentialsDialog(
                 title = "Export to Subsurface cloud",
                 confirmLabel = "Export",
-                initialEmail = initialCloudEmail,
-                initialPassword = initialCloudPassword,
+                initialEmail = settings.cloudEmail,
+                initialPassword = settings.cloudPassword,
                 onConfirm = { email, pass ->
-                    onCloudConfigChange(email, pass)
+                    settings.cloudEmail = email
+                    settings.cloudPassword = pass
                     onCloudPush(email, pass)
                     cloudExportOpen = false
                 },

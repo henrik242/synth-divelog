@@ -12,7 +12,7 @@ import kotlin.time.Instant
  * one. A time with no zone is kept as the wall clock with a zero offset.
  */
 internal object FormatDateTime {
-    private fun wallClock(epochSeconds: Long, utcOffsetSeconds: Int): LocalDateTime =
+    fun wallClock(epochSeconds: Long, utcOffsetSeconds: Int): LocalDateTime =
         Instant.fromEpochSeconds(epochSeconds + utcOffsetSeconds).toLocalDateTime(TimeZone.UTC)
 
     private fun p2(v: Int) = v.toString().padStart(2, '0')

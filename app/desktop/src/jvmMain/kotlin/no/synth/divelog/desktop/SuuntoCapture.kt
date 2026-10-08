@@ -2,12 +2,14 @@ package no.synth.divelog.desktop
 
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DeviceInfo
+import no.synth.divelog.core.divecomputer.DiveComputerKind
 import no.synth.divelog.core.divecomputer.DiveComputerProtocol
 import no.synth.divelog.core.divecomputer.DownloadListener
-import no.synth.divelog.core.divecomputer.suunto.SuuntoFamily
+import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.divecomputer.suunto.SuuntoVyper2Link
 import no.synth.divelog.core.divecomputer.suunto.SuuntoVyper2Protocol
 import no.synth.divelog.core.divecomputer.transport.RecordingTransport
+import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.transport.JSerialCommTransport
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -32,13 +34,11 @@ fun main(args: Array<String>) {
     val ports = JSerialCommTransport.availablePortNames()
     println("Available serial ports: ${if (ports.isEmpty()) "(none)" else ports.joinToString()}")
 
-    val familyArg = args.firstNotNullOfOrNull { runCatching { SuuntoFamily.valueOf(it.uppercase()) }.getOrNull() }
+    val familyArg = args.firstNotNullOfOrNull(::suuntoFamily)
     val proto = args.any { it.equals("proto", ignoreCase = true) }
-    val portArg = args.firstOrNull {
-        !it.equals("proto", ignoreCase = true) && runCatching { SuuntoFamily.valueOf(it.uppercase()) }.isFailure
-    }
+    val portArg = args.firstOrNull { !it.equals("proto", ignoreCase = true) && suuntoFamily(it) == null }
 
-    val family = familyArg ?: SuuntoFamily.VYPER
+    val family = familyArg ?: DiveComputerKind.SUUNTO_VYPER
     val portName = portArg
         ?: ports.firstOrNull { it.contains("usbserial", true) || it.contains("tty.usb", true) || it.contains("ttyUSB", true) }
     if (portName == null) {
@@ -60,11 +60,10 @@ fun main(args: Array<String>) {
     }
     try {
         recording.open()
-        val protocol = family.protocol(recording)
-        if (protocol is SuuntoVyper2Protocol) {
-            dumpVyper2Memory(protocol)
+        if (family == DiveComputerKind.SUUNTO_VYPER2) {
+            dumpVyper2Memory(recording)
         } else {
-            downloadDives(family, protocol)
+            downloadDives(family, family.protocol(recording))
         }
     } catch (e: Exception) {
         println("ERROR: ${e.message}")
@@ -75,21 +74,27 @@ fun main(args: Array<String>) {
     }
 }
 
-private fun downloadDives(family: SuuntoFamily, protocol: DiveComputerProtocol) {
+/** VYPER or VYPER2 (or the full SUUNTO_ name) to the Suunto family, else null. */
+private fun suuntoFamily(arg: String): DiveComputerKind? = when (arg.uppercase().removePrefix("SUUNTO_")) {
+    "VYPER" -> DiveComputerKind.SUUNTO_VYPER
+    "VYPER2" -> DiveComputerKind.SUUNTO_VYPER2
+    else -> null
+}
+
+private fun downloadDives(family: DiveComputerKind, protocol: DiveComputerProtocol) {
     val listener = object : DownloadListener {
         override fun onDeviceInfo(info: DeviceInfo) = println("Device: ${info.vendor} ${info.model}")
-        override fun onDiveDownloaded(index: Int) = println("  downloaded dive ${index + 1}")
+        override fun onDiveDownloaded(index: Int, dive: RawDive) = println("  downloaded dive ${index + 1}")
     }
     val raw = protocol.download(null, listener, CancellationSignal.NONE)
     println("Downloaded ${raw.size} raw dive(s)")
-    family.parser()?.let { parser ->
-        raw.forEach { r ->
-            runCatching { parser.parse(r) }
-                .onSuccess { d ->
-                    println("  dive #${d.number ?: "?"}  max=${d.maxDepthMm ?: 0} mm  ${d.durationSeconds}s  ${d.samples.size} samples")
-                }
-                .onFailure { println("  parse failed: ${it.message}") }
-        }
+    val parser = family.parser()
+    raw.forEach { r ->
+        runCatching { parser.parse(r) }
+            .onSuccess { d ->
+                println("  dive #${d.number ?: "?"}  max=${d.maxDepthMm ?: 0} mm  ${d.durationSeconds}s  ${d.samples.size} samples")
+            }
+            .onFailure { println("  parse failed: ${it.message}") }
     }
 }
 
@@ -99,8 +104,9 @@ private fun downloadDives(family: SuuntoFamily, protocol: DiveComputerProtocol) 
  * addresses may not answer, so a failed page is filled with 0xFF and the dump keeps
  * going; the saved .bin stays address-aligned.
  */
-private fun dumpVyper2Memory(protocol: SuuntoVyper2Protocol) {
-    val info = runCatching { protocol.readDeviceInfo() }.getOrNull()
+private fun dumpVyper2Memory(transport: Transport) {
+    val info = runCatching { SuuntoVyper2Protocol(transport).readDeviceInfo() }.getOrNull()
+    val link = SuuntoVyper2Link(transport)
     if (info != null) println("Device: ${info.vendor} ${info.model} firmware ${info.firmware}")
 
     val out = ByteArrayOutputStream()
@@ -108,7 +114,7 @@ private fun dumpVyper2Memory(protocol: SuuntoVyper2Protocol) {
     var failed = 0
     while (addr < DUMP_END) {
         val n = minOf(SuuntoVyper2Link.MAX_PAGE, DUMP_END - addr)
-        val page = runCatching { protocol.link.readMemory(addr, n) }.getOrNull()
+        val page = runCatching { link.readMemory(addr, n) }.getOrNull()
         if (page != null) {
             out.write(page)
         } else {
@@ -143,7 +149,7 @@ private fun saveTranscript(recording: RecordingTransport) {
 private const val DUMP_END = 0x8000
 
 /** Run the shared download over a bare transport, as the apps do, and print the parsed dives. */
-private fun protoDownload(portName: String, family: SuuntoFamily) {
+private fun protoDownload(portName: String, family: DiveComputerKind) {
     val start = System.currentTimeMillis()
     fun elapsed() = (System.currentTimeMillis() - start) / 1000
     println("Line settings: ${family.serialParams}")
@@ -153,17 +159,15 @@ private fun protoDownload(portName: String, family: SuuntoFamily) {
         val protocol = family.protocol(transport)
         val listener = object : DownloadListener {
             override fun onDeviceInfo(info: DeviceInfo) = println("Device: ${info.vendor} ${info.model} serial ${info.serial} fw ${info.firmware}")
-            override fun onDiveDownloaded(index: Int) = println("  dive ${index + 1} read, ${elapsed()}s")
+            override fun onDiveDownloaded(index: Int, dive: RawDive) = println("  dive ${index + 1} read, ${elapsed()}s")
         }
         val raw = protocol.download(null, listener, CancellationSignal.NONE)
         println("Downloaded ${raw.size} raw dive(s) in ${elapsed()}s")
         val parser = family.parser()
-        if (parser != null) {
-            raw.forEachIndexed { i, r ->
-                runCatching { parser.parse(r) }
-                    .onSuccess { d -> println("  #${i + 1}  ${Instant.ofEpochSecond(d.startEpochSeconds)}  ${d.durationSeconds / 60}min  max=${(d.maxDepthMm ?: 0) / 1000.0}m  ${d.samples.size} samples") }
-                    .onFailure { println("  #${i + 1}  parse failed: ${it.message}") }
-            }
+        raw.forEachIndexed { i, r ->
+            runCatching { parser.parse(r) }
+                .onSuccess { d -> println("  #${i + 1}  ${Instant.ofEpochSecond(d.startEpochSeconds)}  ${d.durationSeconds / 60}min  max=${(d.maxDepthMm ?: 0) / 1000.0}m  ${d.samples.size} samples") }
+                .onFailure { println("  #${i + 1}  parse failed: ${it.message}") }
         }
     } catch (e: Exception) {
         println("proto download failed: ${e.message}")

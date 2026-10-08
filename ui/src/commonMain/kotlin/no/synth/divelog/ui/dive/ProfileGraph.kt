@@ -31,11 +31,11 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Sample
 import no.synth.divelog.core.model.units.UnitSystem
-import no.synth.divelog.ui.format.Format
 
 /**
  * Dive profile: depth against time with a temperature trace, event markers and a
@@ -50,12 +50,14 @@ fun ProfileGraph(
     modifier: Modifier = Modifier,
 ) {
     val points = samples.filter { it.depthMm != null }
+    // Parallel to [points]: each one's depth, non-null by the filter above.
+    val depths = points.mapNotNull { it.depthMm }
     if (points.size < 2) {
         Text("No profile samples", Modifier.padding(16.dp))
         return
     }
 
-    val maxDepth = points.maxOf { it.depthMm!! }.coerceAtLeast(1)
+    val maxDepth = depths.max().coerceAtLeast(1)
     val maxTime = points.maxOf { it.timeOffsetSeconds }.coerceAtLeast(1)
     val temps = points.mapNotNull { it.temperatureMk }
     val minTemp = temps.minOrNull()
@@ -127,8 +129,8 @@ fun ProfileGraph(
 
                 // Depth trace, with a translucent fill below it so it reads as water.
                 val depthPath = Path().apply {
-                    moveTo(x(points[0].timeOffsetSeconds), yDepth(points[0].depthMm!!))
-                    for (p in points.drop(1)) lineTo(x(p.timeOffsetSeconds), yDepth(p.depthMm!!))
+                    moveTo(x(points[0].timeOffsetSeconds), yDepth(depths[0]))
+                    for (i in 1..points.lastIndex) lineTo(x(points[i].timeOffsetSeconds), yDepth(depths[i]))
                 }
                 val fillPath = Path().apply {
                     addPath(depthPath)
@@ -200,7 +202,7 @@ fun ProfileGraph(
                     val p = points[idx]
                     val cx = x(p.timeOffsetSeconds)
                     drawLine(cursorColor, Offset(cx, 0f), Offset(cx, plotH), strokeWidth = 1.5f)
-                    drawCircle(depthColor, radius = 5f, center = Offset(cx, yDepth(p.depthMm!!)))
+                    drawCircle(depthColor, radius = 5f, center = Offset(cx, yDepth(depths[idx])))
                 }
             }
         }

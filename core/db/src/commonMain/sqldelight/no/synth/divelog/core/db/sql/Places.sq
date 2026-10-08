@@ -50,6 +50,9 @@ SELECT * FROM place WHERE countryId = ? ORDER BY name;
 selectPlaceById:
 SELECT * FROM place WHERE id = ?;
 
+selectAllPlaces:
+SELECT * FROM place;
+
 updatePlace:
 UPDATE place SET countryId = ?, name = ? WHERE id = ?;
 

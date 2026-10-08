@@ -14,5 +14,8 @@ INSERT INTO event(recordId, timeOffsetSeconds, type, value) VALUES (?, ?, ?, ?);
 selectEventsForRecord:
 SELECT * FROM event WHERE recordId = ? ORDER BY timeOffsetSeconds, id;
 
+selectAllEvents:
+SELECT * FROM event ORDER BY recordId, timeOffsetSeconds, id;
+
 deleteEventsForRecord:
 DELETE FROM event WHERE recordId = ?;

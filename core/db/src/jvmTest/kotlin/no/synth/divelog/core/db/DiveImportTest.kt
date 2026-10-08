@@ -6,6 +6,7 @@ import no.synth.divelog.core.model.GasMix
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -22,7 +23,7 @@ class DiveImportTest {
         val result = dives.import(incoming(deviceId = predator(), maxDepthMm = 42_000)) { false }
         val created = assertIs<ImportResult.CreatedDive>(result)
 
-        val dive = dives.getDive(created.diveId)!!
+        val dive = assertNotNull(dives.getDive(created.diveId))
         assertEquals(42_000, dive.maxDepthMm)
         assertEquals(created.recordId, dive.primaryComputerRecordId)
         assertEquals(1, dive.number)
@@ -58,7 +59,7 @@ class DiveImportTest {
         assertEquals(1, dives.allDives().size)
         assertEquals(2, dives.recordsForDive(diveId).size)
         // Summary still comes from the primary (first) record.
-        assertEquals(assertIs<ImportResult.CreatedDive>(first).recordId, dives.getDive(diveId)!!.primaryComputerRecordId)
+        assertEquals(assertIs<ImportResult.CreatedDive>(first).recordId, assertNotNull(dives.getDive(diveId)).primaryComputerRecordId)
     }
 
     @Test

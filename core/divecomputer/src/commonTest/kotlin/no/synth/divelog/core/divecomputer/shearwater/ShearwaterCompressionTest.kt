@@ -16,6 +16,16 @@ class ShearwaterCompressionTest {
     }
 
     @Test
+    fun lreDecoderMatchesOneShotDecodeFedByteByByte() {
+        val input = byteArrayOf(0xA0.toByte(), 0x80.toByte(), 0xE8.toByte(), 0x40, 0x00, 0x55)
+        val decoder = ShearwaterCompression.LreDecoder()
+        val done = input.map { decoder.feed(byteArrayOf(it)) }
+        // Completes on the byte that holds the end code, and later bytes change nothing.
+        assertContentEquals(listOf(false, false, false, false, true, true).toBooleanArray(), done.toBooleanArray())
+        assertContentEquals(ShearwaterCompression.decompressLre(input).data, decoder.output())
+    }
+
+    @Test
     fun xorUndoesBlockChaining() {
         // Build data where block1 = block0 xor pattern, so undo recovers pattern copies.
         val block0 = ByteArray(32) { it.toByte() }

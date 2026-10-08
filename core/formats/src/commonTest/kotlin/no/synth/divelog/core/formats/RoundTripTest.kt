@@ -21,6 +21,9 @@ class RoundTripTest {
     private fun ComputerEntry.withoutCeilingAndGas() = copy(samples = samples.map { it.withoutCeilingAndGas() })
     private fun DiveEntry.withoutCeilingAndGas() = copy(computers = computers.map { it.withoutCeilingAndGas() })
 
+    // Subsurface keeps visibility as 0..5 stars only; the other formats as a distance only.
+    private fun DiveEntry.subsurface() = withoutCeilingAndGas().copy(visibility = null)
+
     private fun assertStable(format: DiveFormat) {
         val first = format.write(log)
         assertEquals(first, format.write(format.read(first)))
@@ -32,7 +35,7 @@ class RoundTripTest {
     @Test
     fun subsurfaceXmlKeepsEverythingButCeilingAndActiveGas() {
         val read = SubsurfaceXml().read(SubsurfaceXml().write(log))
-        assertEquals(DiveLog(log.dives.map { it.withoutCeilingAndGas() }), read)
+        assertEquals(DiveLog(log.dives.map { it.subsurface() }), read)
     }
 
     @Test
@@ -45,7 +48,7 @@ class RoundTripTest {
     @Test
     fun gitTreeKeepsEverythingButCeilingAndActiveGas() {
         val read = GitLogFormat().read(GitLogFormat().write(log))
-        assertEquals(DiveLog(log.dives.map { it.withoutCeilingAndGas() }), read)
+        assertEquals(DiveLog(log.dives.map { it.subsurface() }), read)
     }
 
     @Test
@@ -57,6 +60,7 @@ class RoundTripTest {
         // UDDF has no tags, no working pressure on tankdata, one profile per dive, and
         // alarms only for ascent, deco, surface and errors (no bookmarks or others).
         fun DiveEntry.uddf() = copy(
+            visibilityRating = null,
             tags = emptyList(),
             tanks = tanks.map { it.copy(workingPressureMbar = null) },
             computers = computers.take(1).map { c ->
@@ -80,6 +84,7 @@ class RoundTripTest {
         fun DiveEntry.macDive() = copy(
             startEpochSeconds = startEpochSeconds + utcOffsetSeconds,
             utcOffsetSeconds = 0,
+            visibilityRating = null,
             computers = computers.take(1).map { c ->
                 c.copy(
                     samples = c.samples.map { s ->

@@ -33,6 +33,18 @@ SELECT DISTINCT r.diveId, r.deviceId, d.vendor, d.model, d.serial, d.nickname
 FROM diveComputerRecord r LEFT JOIN device d ON d.id = r.deviceId
 ORDER BY r.diveId, r.deviceId;
 
+-- Every record's summary, for a whole-log export without per-dive lookups.
+selectAllRecordSummaries:
+SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
+FROM diveComputerRecord ORDER BY diveId, startEpochSeconds;
+
+-- A record from a device among some dives: one computer cannot log two dives at once.
+selectRecordFromDeviceAmongDives:
+SELECT r.id, r.diveId, r.deviceId, r.startEpochSeconds, r.durationSeconds, r.maxDepthMm, r.rawFormatId, r.fingerprint
+FROM diveComputerRecord r JOIN dive d ON d.id = r.diveId
+WHERE r.deviceId = :deviceId AND r.diveId IN :diveIds
+ORDER BY d.startEpochSeconds LIMIT 1;
+
 selectRawData:
 SELECT rawData FROM diveComputerRecord WHERE id = ?;
 
@@ -52,6 +64,11 @@ SELECT count(*) FROM diveComputerRecord WHERE diveId = ?;
 
 reassignRecordToDive:
 UPDATE diveComputerRecord SET diveId = ? WHERE id = ?;
+
+-- Moves a dive's records onto another dive, shifting their starts into its time frame.
+moveRecordsToDive:
+UPDATE diveComputerRecord SET diveId = :targetDiveId, startEpochSeconds = startEpochSeconds + :shiftSeconds
+WHERE diveId = :sourceDiveId;
 
 reassignRecordsFromDevice:
 UPDATE diveComputerRecord SET deviceId = ? WHERE deviceId = ?;

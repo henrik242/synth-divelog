@@ -5,83 +5,94 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+/** Sea water is 1.03 kg/l under 1013 mbar: 101.04 mbar per metre, as in the planner. */
 class DepthLimitsTest {
-    private val sea = WaterScale.METRES_SALT
+    private val sea = DepthLimits()
+    private val ean32 = BreathingGas(320)
+    private val trimix1845 = BreathingGas(180, 450)
 
     private fun assertNear(expected: Double, actual: Double) =
         assertTrue(abs(expected - actual) < 1e-9, "expected $expected, was $actual")
 
     @Test
     fun modOfCommonMixes() {
-        assertEquals(33.7, DepthLimits.mod(32.0, 1.4, sea)) // 33.75, rounded down
-        assertEquals(40.0, DepthLimits.mod(32.0, 1.6, sea))
-        assertEquals(22.0, DepthLimits.mod(50.0, 1.6, sea))
-        assertEquals(6.0, DepthLimits.mod(100.0, 1.6, sea))
-        assertEquals(56.6, DepthLimits.mod(21.0, 1.4, sea))
+        assertEquals(33.2, sea.mod(ean32, 1.4)) // 33.27, rounded down
+        assertEquals(39.4, sea.mod(ean32, 1.6)) // 39.46
+        assertEquals(21.6, sea.mod(BreathingGas(500), 1.6)) // 21.64
+        assertEquals(5.8, sea.mod(BreathingGas.OXYGEN, 1.6)) // 5.81
+        assertEquals(55.9, sea.mod(BreathingGas.AIR, 1.4)) // 55.95
     }
 
     @Test
-    fun modInFeetAndFreshWater() {
-        assertEquals(111.3, DepthLimits.mod(32.0, 1.4, WaterScale.FEET_SALT)) // 111.375
-        assertEquals(34.7, DepthLimits.mod(32.0, 1.4, WaterScale.METRES_FRESH)) // 34.76
+    fun modInFeetFreshWaterAndAltitude() {
+        assertEquals(109.1, DepthLimits(unit = DepthUnit.FEET).mod(ean32, 1.4)) // 109.16
+        assertEquals(34.2, DepthLimits(WaterColumn(1013, Water.FRESH)).mod(ean32, 1.4)) // 34.27
+        // A lake at altitude: less air above, so deeper for the same pO2.
+        assertTrue(DepthLimits(WaterColumn(800, Water.FRESH)).mod(ean32, 1.4) > 36.0)
+    }
+
+    @Test
+    fun modMatchesThePlannersWater() {
+        // Same water model as the planner: EAN32 reaches 1.4 bar at 33.27 m in both.
+        assertEquals(33273, WaterColumn().depthMm(1400 * 1000 / 320))
+        assertEquals(33.2, sea.mod(ean32, 1.4))
+        // EAN50 at 1.6 (21.64 m) is switched to at the 21 m stop.
+        assertEquals(21000, WaterColumn().switchDepthMm(BreathingGas(500), 1600, 3000))
     }
 
     @Test
     fun minimumDepthOfHypoxicMixes() {
-        assertEquals(6.0, DepthLimits.minimumDepth(10.0, sea))
-        assertEquals(0.0, DepthLimits.minimumDepth(21.0, sea))
-        assertEquals(0.0, DepthLimits.minimumDepth(16.0, sea))
-        assertEquals(4.6, DepthLimits.minimumDepth(11.0, sea)) // 4.545, rounded up
+        assertEquals(5.9, sea.minimumDepth(BreathingGas(100))) // 5.81, rounded up
+        assertEquals(0.0, sea.minimumDepth(BreathingGas.AIR))
+        assertEquals(0.0, sea.minimumDepth(BreathingGas(160)))
+        assertEquals(4.4, sea.minimumDepth(BreathingGas(110))) // 4.37, rounded up
     }
 
     @Test
     fun endOfAirIsItsDepthEitherWay() {
-        assertEquals(30.0, DepthLimits.end(21.0, 0.0, 30.0, sea, o2Narcotic = true))
-        assertEquals(30.0, DepthLimits.end(21.0, 0.0, 30.0, sea, o2Narcotic = false))
+        assertEquals(30.0, sea.end(BreathingGas.AIR, 30.0, o2Narcotic = true))
+        assertEquals(30.0, sea.end(BreathingGas.AIR, 30.0, o2Narcotic = false))
     }
 
     @Test
     fun endOfTrimix() {
-        // 18/45 at 60 m: 7 bar x 0.55 narcotic = 3.85 bar of air -> 28.5 m.
-        assertEquals(28.5, DepthLimits.end(18.0, 45.0, 60.0, sea, o2Narcotic = true))
-        // N2 only: 7 x 0.37 / 0.79 = 3.278 bar -> 22.8 m (22.78, rounded up).
-        assertEquals(22.8, DepthLimits.end(18.0, 45.0, 60.0, sea, o2Narcotic = false))
+        // 18/45 at 60 m: 0.55 of the ambient pressure is narcotic -> 28.49 m, rounded up.
+        assertEquals(28.5, sea.end(trimix1845, 60.0, o2Narcotic = true))
+        // N2 only: 0.37 / 0.79 of it -> 22.77 m.
+        assertEquals(22.8, sea.end(trimix1845, 60.0, o2Narcotic = false))
     }
 
     @Test
     fun eadOfNitrox() {
-        // EAN32 at 30 m, N2 only: 4 x 0.68 / 0.79 = 3.443 bar -> 24.5 m (24.43, rounded up).
-        assertEquals(24.5, DepthLimits.end(32.0, 0.0, 30.0, sea, o2Narcotic = false))
+        // EAN32 at 30 m, N2 only: 0.68 / 0.79 of the ambient pressure -> 24.43 m.
+        assertEquals(24.5, sea.end(ean32, 30.0, o2Narcotic = false))
         // With O2 narcotic nitrox is no better than air.
-        assertEquals(30.0, DepthLimits.end(32.0, 0.0, 30.0, sea, o2Narcotic = true))
+        assertEquals(30.0, sea.end(ean32, 30.0, o2Narcotic = true))
     }
 
     @Test
     fun endNeverAboveTheSurface() {
-        assertEquals(0.0, DepthLimits.end(10.0, 70.0, 5.0, sea, o2Narcotic = true))
+        assertEquals(0.0, sea.end(BreathingGas(100, 700), 5.0, o2Narcotic = true))
     }
 
     @Test
     fun depthForEndLimit() {
-        assertEquals(30.0, DepthLimits.depthForEnd(21.0, 0.0, 30.0, sea, o2Narcotic = true))
-        // 18/45, END 30 m: 4 bar / 0.55 = 7.27 bar -> 62.7 m; N2 only: 4 x 0.79 / 0.37 -> 75.4 m.
-        assertEquals(62.7, DepthLimits.depthForEnd(18.0, 45.0, 30.0, sea, o2Narcotic = true))
-        assertEquals(75.4, DepthLimits.depthForEnd(18.0, 45.0, 30.0, sea, o2Narcotic = false))
-        // EAN32, EAD 30 m: 4 x 0.79 / 0.68 = 4.647 bar -> 36.4 m.
-        assertEquals(36.4, DepthLimits.depthForEnd(32.0, 0.0, 30.0, sea, o2Narcotic = false))
-        assertEquals(123.3, DepthLimits.depthForEnd(10.0, 70.0, 30.0, sea, o2Narcotic = true))
-        assertEquals(100.0, DepthLimits.depthForEnd(21.0, 0.0, 100.0, WaterScale.FEET_SALT, o2Narcotic = true))
+        assertEquals(30.0, sea.depthForEnd(BreathingGas.AIR, 30.0, o2Narcotic = true))
+        assertEquals(62.7, sea.depthForEnd(trimix1845, 30.0, o2Narcotic = true)) // 62.75
+        assertEquals(75.4, sea.depthForEnd(trimix1845, 30.0, o2Narcotic = false)) // 75.43
+        assertEquals(36.4, sea.depthForEnd(ean32, 30.0, o2Narcotic = false)) // 36.47
+        assertEquals(123.3, sea.depthForEnd(BreathingGas(100, 700), 30.0, o2Narcotic = true)) // 123.39
+        assertEquals(100.0, DepthLimits(unit = DepthUnit.FEET).depthForEnd(BreathingGas.AIR, 100.0, o2Narcotic = true))
     }
 
     @Test
     fun noEndLimitWithoutNarcoticGas() {
-        assertEquals(null, DepthLimits.depthForEnd(21.0, 79.0, 30.0, sea, o2Narcotic = false))
+        assertEquals(null, sea.depthForEnd(BreathingGas(210, 790), 30.0, o2Narcotic = false))
     }
 
     @Test
     fun ppO2AtDepth() {
-        assertNear(1.28, DepthLimits.ppO2(32.0, 30.0, sea))
-        assertNear(0.21, DepthLimits.ppO2(21.0, 0.0, sea))
-        assertNear(0.42, DepthLimits.ppO2(21.0, 33.0, WaterScale.FEET_SALT))
+        assertNear(0.32 * (1.013 + 30 * 0.101043), sea.ppO2(ean32, 30.0))
+        assertNear(0.21 * 1.013, sea.ppO2(BreathingGas.AIR, 0.0))
     }
 }

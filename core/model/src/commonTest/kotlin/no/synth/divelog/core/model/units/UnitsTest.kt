@@ -49,4 +49,21 @@ class UnitsTest {
         assertEquals("°F", imperial.unit)
         assertClose(50.0, imperial.value)
     }
+
+    @Test
+    fun imperialTankSizeIsNominalGasAtWorkingPressure() {
+        // An AL80: 11.1 L of water at 3000 psi holds 80 cuft of free gas.
+        val al80 = Units.tankSize(11_100, 206_843, UnitSystem.IMPERIAL)
+        assertEquals("cuft", al80.unit)
+        assertClose(80.0, al80.value, 0.05)
+        assertEquals(11_100, Units.tankVolumeMl(al80.value, 206_843, UnitSystem.IMPERIAL))
+        assertClose(11_100.0, Units.tankVolumeMl(80.0, 206_843, UnitSystem.IMPERIAL).toDouble(), 10.0)
+    }
+
+    @Test
+    fun tankSizeWithoutWorkingPressureIsLitres() {
+        assertEquals(Measure(12.0, "L"), Units.tankSize(12_000, null, UnitSystem.IMPERIAL))
+        assertEquals(Measure(12.0, "L"), Units.tankSize(12_000, 232_000, UnitSystem.METRIC))
+        assertEquals(12_000, Units.tankVolumeMl(12.0, null, UnitSystem.IMPERIAL))
+    }
 }

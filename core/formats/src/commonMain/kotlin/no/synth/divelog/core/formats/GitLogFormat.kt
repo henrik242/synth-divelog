@@ -1,16 +1,14 @@
 package no.synth.divelog.core.formats
 
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import kotlin.math.roundToInt
-import kotlin.time.Instant
 import no.synth.divelog.core.formats.SubsurfaceShared.clock
 import no.synth.divelog.core.formats.SubsurfaceShared.milli
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType as DiveEventType
 import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
+import kotlin.math.roundToInt
 
 /**
  * Reads and writes the git-tree dive-log storage used by the dive cloud. Unlike
@@ -31,6 +29,7 @@ class GitLogFormat {
 
     fun write(log: DiveLog): Map<String, String> {
         val files = LinkedHashMap<String, String>()
+        val diveDirs = HashSet<String>()
         files[SETTINGS_FILE] = settingsFile(log)
 
         for (site in log.dives.mapNotNull { it.site }.distinct()) {
@@ -38,13 +37,13 @@ class GitLogFormat {
         }
 
         for (dive in log.dives) {
-            val wc = wallClock(dive.startEpochSeconds, dive.utcOffsetSeconds)
+            val wc = FormatDateTime.wallClock(dive.startEpochSeconds, dive.utcOffsetSeconds)
             val base = "${p4(wc.year)}/${p2(wc.month.ordinal + 1)}/${diveDirName(wc)}"
             val diveName = if (dive.number != null) "Dive-${dive.number}" else "Dive"
             val content = LinkedHashMap<String, String>()
             content[diveName] = diveFile(dive)
             val tanks = SubsurfaceShared.tanksToWrite(dive)
-            val computers = computersToWrite(dive)
+            val computers = SubsurfaceShared.computersToWrite(dive)
             val indexed = computers.size > 1
             computers.forEachIndexed { i, computer ->
                 val name = if (indexed) "Divecomputer-${p3(i + 1)}" else "Divecomputer"
@@ -52,13 +51,14 @@ class GitLogFormat {
             }
             // Two dives starting the same second get a hash suffix, as the cloud repo does.
             var dir = base
-            if (files.keys.any { it.startsWith("$dir/") }) {
+            if (dir in diveDirs) {
                 var seed = content.values.joinToString("\u0000")
                 do {
-                    dir = "$base~${hash7(seed)}"
+                    dir = "$base~${SubsurfaceShared.fnvHex(seed).take(7)}"
                     seed += "\u0000"
-                } while (files.keys.any { it.startsWith("$dir/") })
+                } while (dir in diveDirs)
             }
+            diveDirs.add(dir)
             content.forEach { (name, text) -> files["$dir/$name"] = text }
         }
         return files
@@ -75,28 +75,12 @@ class GitLogFormat {
         return b.toString()
     }
 
-    /** The dive's computers; a dive without one gets a bare computer carrying its summary. */
-    private fun computersToWrite(dive: DiveEntry): List<ComputerEntry> {
-        val computers = dive.computers.ifEmpty {
-            val summary = listOf(dive.maxDepthMm, dive.meanDepthMm, dive.waterTempMk, dive.airTempMk)
-            if (summary.any { it != null } || dive.utcOffsetSeconds != 0) listOf(ComputerEntry()) else emptyList()
-        }
-        // The dive's summary is its first computer's.
-        return computers.mapIndexed { i, c ->
-            if (i > 0) c else c.copy(
-                maxDepthMm = c.maxDepthMm ?: dive.maxDepthMm,
-                meanDepthMm = c.meanDepthMm ?: dive.meanDepthMm,
-                waterTempMk = c.waterTempMk ?: dive.waterTempMk,
-                airTempMk = c.airTempMk ?: dive.airTempMk,
-            )
-        }
-    }
-
     private fun diveFile(dive: DiveEntry): String {
         val b = StringBuilder()
         if (dive.durationSeconds > 0) b.append("duration ").append(clock(dive.durationSeconds)).append(" min\n")
         dive.rating?.let { b.append("rating ").append(it).append('\n') }
-        dive.visibility?.let { b.append("visibility ").append(it).append('\n') }
+        // Subsurface's visibility is 0..5 stars, not a distance.
+        dive.visibilityRating?.let { b.append("visibility ").append(it).append('\n') }
         if (dive.tags.isNotEmpty()) b.append("tags ").append(dive.tags.joinToString(", ") { quote(it) }).append('\n')
         dive.site?.let { b.append("divesiteid ").append(SubsurfaceShared.siteUuid(it)).append('\n') }
         if (dive.buddies.isNotEmpty()) {
@@ -105,11 +89,11 @@ class GitLogFormat {
         dive.notes?.takeIf { it.isNotBlank() }?.let { b.append("notes ").append(quote(it)).append('\n') }
         for (tank in SubsurfaceShared.tanksToWrite(dive)) b.append(cylinderLine(tank)).append('\n')
         // Dive temperatures only where they differ from what the computers give.
-        val computers = computersToWrite(dive)
+        val computers = SubsurfaceShared.computersToWrite(dive)
         dive.airTempMk?.takeIf { it != SubsurfaceShared.meanTemp(computers.map { c -> c.airTempMk }) }
-            ?.let { b.append("airtemp ").append(milli(it - ZERO_C_MK)).append("°C\n") }
+            ?.let { b.append("airtemp ").append(milli(it - ZERO_CELSIUS_MK)).append("°C\n") }
         dive.waterTempMk?.takeIf { it != SubsurfaceShared.meanTemp(computers.map { c -> c.waterTempMk }) }
-            ?.let { b.append("watertemp ").append(milli(it - ZERO_C_MK)).append("°C\n") }
+            ?.let { b.append("watertemp ").append(milli(it - ZERO_CELSIUS_MK)).append("°C\n") }
         return b.toString()
     }
 
@@ -139,8 +123,8 @@ class GitLogFormat {
         }
         computer.maxDepthMm?.let { b.append("maxdepth ").append(milli(it)).append("m\n") }
         computer.meanDepthMm?.let { b.append("meandepth ").append(milli(it)).append("m\n") }
-        computer.airTempMk?.let { b.append("airtemp ").append(milli(it - ZERO_C_MK)).append("°C\n") }
-        computer.waterTempMk?.let { b.append("watertemp ").append(milli(it - ZERO_C_MK)).append("°C\n") }
+        computer.airTempMk?.let { b.append("airtemp ").append(milli(it - ZERO_CELSIUS_MK)).append("°C\n") }
+        computer.waterTempMk?.let { b.append("watertemp ").append(milli(it - ZERO_CELSIUS_MK)).append("°C\n") }
         computer.serial?.let { b.append("keyvalue ").append(quote(SubsurfaceShared.KEY_SERIAL)).append(' ').append(quote(it)).append('\n') }
         if (utcOffset != 0) {
             b.append("keyvalue ").append(quote(SubsurfaceShared.KEY_UTC_OFFSET)).append(' ')
@@ -175,7 +159,7 @@ class GitLogFormat {
     private fun sampleLine(s: Sample, last: Sample): String {
         val b = StringBuilder(clock(s.timeOffsetSeconds).padStart(6))
         s.depthMm?.let { b.append(' ').append(milli(it)).append('m') }
-        s.temperatureMk?.takeIf { it != last.temperatureMk }?.let { b.append(' ').append(milli(it - ZERO_C_MK)).append("°C") }
+        s.temperatureMk?.takeIf { it != last.temperatureMk }?.let { b.append(' ').append(milli(it - ZERO_CELSIUS_MK)).append("°C") }
         for ((idx, mbar) in s.tankPressuresMbar.entries.sortedBy { it.key }) {
             b.append(' ').append(milli(mbar)).append("bar:").append(idx)
         }
@@ -252,7 +236,7 @@ class GitLogFormat {
     private fun buildDive(group: DiveGroup, sites: Map<String, SiteRef>, serials: Map<String, String>): DiveEntry {
         var duration = 0
         var rating: Int? = null
-        var visibility: Int? = null
+        var visibilityRating: Int? = null
         var siteUuid: String? = null
         val buddies = mutableListOf<String>()
         val tags = mutableListOf<String>()
@@ -267,40 +251,34 @@ class GitLogFormat {
             when (keyword) {
                 "duration" -> FormatUnits.clockToSeconds(rest)?.let { duration = it }
                 "rating" -> rating = rest.toIntOrNull()
-                "visibility" -> visibility = rest.toIntOrNull()
+                "visibility" -> visibilityRating = rest.toIntOrNull()
                 "tags" -> quotedStrings(rest).filter { it.isNotBlank() }.forEach { tags.add(it) }
                 "divesiteid" -> siteUuid = rest.trim().lowercase()
                 "buddy" -> buddies.addAll(SubsurfaceShared.splitList(unquote(rest)))
                 "notes" -> notes = unquote(rest).ifBlank { null }
-                "airtemp" -> airTempMk = tempMk(rest)
-                "watertemp" -> waterTempMk = tempMk(rest)
+                "airtemp" -> airTempMk = FormatUnits.celsiusToMk(rest)
+                "watertemp" -> waterTempMk = FormatUnits.celsiusToMk(rest)
                 "cylinder" -> tanks.add(parseCylinder(rest, tanks.size))
             }
         }
 
         val parsed = group.computers.entries.sortedBy { it.key }.map { parseComputer(it.value, tanks) }
-        val offset = parsed.firstOrNull()?.extra?.get(SubsurfaceShared.KEY_UTC_OFFSET)?.trim()?.removePrefix("+")?.toIntOrNull() ?: 0
-        val computers = parsed.map { it.build(serials, offset) }
-        val primary = computers.firstOrNull()
-
-        return DiveEntry(
+        val offset = SubsurfaceShared.utcOffset(parsed.firstOrNull()?.extra)
+        return SubsurfaceShared.dive(
             number = group.number,
-            startEpochSeconds = group.wallEpochSeconds - offset,
-            utcOffsetSeconds = offset,
+            wallEpochSeconds = group.wallEpochSeconds,
+            utcOffset = offset,
             durationSeconds = duration,
-            maxDepthMm = primary?.maxDepthMm,
-            meanDepthMm = primary?.meanDepthMm,
-            waterTempMk = waterTempMk ?: SubsurfaceShared.meanTemp(computers.map { it.waterTempMk }),
-            airTempMk = airTempMk ?: SubsurfaceShared.meanTemp(computers.map { it.airTempMk }),
-            notes = notes,
             rating = rating,
-            visibility = visibility,
+            visibilityRating = visibilityRating,
             site = siteUuid?.let { sites[it] },
+            notes = notes,
             buddies = buddies,
             tags = tags,
             tanks = tanks,
-            gasMixes = SubsurfaceShared.gasesOf(tanks),
-            computers = computers.filterNot(SubsurfaceShared::isBare),
+            airTempMk = airTempMk,
+            waterTempMk = waterTempMk,
+            computers = parsed.map { it.build(serials, offset) },
         )
     }
 
@@ -328,7 +306,7 @@ class GitLogFormat {
             samples = SubsurfaceShared.mapSensors(samples, sensorTanks),
             events = events,
             serial = extra[SubsurfaceShared.KEY_SERIAL] ?: deviceId?.let { serials[it] },
-            startEpochSeconds = date?.let { FormatDateTime.epochFromDateTime(it, time ?: "00:00:00") - utcOffset },
+            startEpochSeconds = SubsurfaceShared.computerStart(date, time, utcOffset),
             durationSeconds = durationSeconds,
         )
     }
@@ -362,10 +340,10 @@ class GitLogFormat {
                 "date" -> date = rest.trim()
                 "time" -> time = rest.trim()
                 "duration" -> duration = FormatUnits.clockToSeconds(rest)
-                "maxdepth" -> maxDepthMm = depthMm(rest)
-                "meandepth" -> meanDepthMm = depthMm(rest)
-                "watertemp" -> waterTempMk = tempMk(rest)
-                "airtemp" -> airTempMk = tempMk(rest)
+                "maxdepth" -> maxDepthMm = FormatUnits.thousandths(rest)
+                "meandepth" -> meanDepthMm = FormatUnits.thousandths(rest)
+                "watertemp" -> waterTempMk = FormatUnits.celsiusToMk(rest)
+                "airtemp" -> airTempMk = FormatUnits.celsiusToMk(rest)
                 "keyvalue" -> quotedStrings(rest).let { kv ->
                     val key = kv.getOrNull(0)
                     val value = kv.getOrNull(1)?.trim()
@@ -384,7 +362,7 @@ class GitLogFormat {
     private fun parseSample(line: String, previous: Sample?): Sample? {
         val tokens = line.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (tokens.isEmpty()) return null
-        val time = parseClock(tokens[0]) ?: return null
+        val time = FormatUnits.clockToSeconds(tokens[0]) ?: return null
 
         var depthMm = previous?.depthMm
         var temperatureMk = previous?.temperatureMk
@@ -401,13 +379,13 @@ class GitLogFormat {
                 val key = tok.substringBefore('=')
                 val value = tok.substringAfter('=')
                 when (key) {
-                    "ndl" -> ndlSeconds = parseClock(value)
-                    "stopdepth" -> stopDepthMm = depthMm(value)
-                    "stoptime" -> stopTimeSeconds = parseClock(value)
+                    "ndl" -> ndlSeconds = FormatUnits.clockToSeconds(value)
+                    "stopdepth" -> stopDepthMm = FormatUnits.thousandths(value)
+                    "stoptime" -> stopTimeSeconds = FormatUnits.clockToSeconds(value)
                     "cns" -> FormatUnits.percentToPermille(value)?.let { cnsPermille = it }
-                    "dc_supplied_ppo2" -> { ppO2Mbar = mbar(value); dcPpO2 = true }
+                    "dc_supplied_ppo2" -> { ppO2Mbar = FormatUnits.thousandths(value); dcPpO2 = true }
                     // Earlier exports of this app wrote the computer's ppO2 as po2.
-                    "po2" -> if (!dcPpO2) ppO2Mbar = mbar(value)
+                    "po2" -> if (!dcPpO2) ppO2Mbar = FormatUnits.thousandths(value)
                 }
             } else {
                 val num = FormatUnits.leadingNumber(tok) ?: continue
@@ -418,7 +396,7 @@ class GitLogFormat {
                         val sensor = unit.substringAfter(':', "0").toIntOrNull() ?: 0
                         (num * 1000).roundToInt().takeIf { it > 0 }?.let { pressures[sensor] = it }
                     }
-                    '°', 'C' -> temperatureMk = (num * 1000).roundToInt() + ZERO_C_MK
+                    '°', 'C' -> temperatureMk = (num * 1000).roundToInt() + ZERO_CELSIUS_MK
                 }
             }
         }
@@ -436,7 +414,7 @@ class GitLogFormat {
     }
 
     private fun parseEvent(rest: String, tanks: List<TankEntry>): Event? {
-        val time = parseClock(rest.substringBefore(' ')) ?: return null
+        val time = FormatUnits.clockToSeconds(rest.substringBefore(' ')) ?: return null
         val name = Regex("name=\"((?:[^\"\\\\]|\\\\.)*)\"").find(rest)?.groupValues?.get(1)?.let { unescape(it) }
         val type = SubsurfaceShared.eventType(name)
         fun key(k: String) = Regex("\\b$k=([0-9.+-]+)").find(rest)?.groupValues?.get(1)
@@ -457,10 +435,10 @@ class GitLogFormat {
         val o2 = kv["o2"]?.let { FormatUnits.percentToPermille(it) }
         return TankEntry(
             index = index,
-            volumeMl = kv["vol"]?.let { mbar(it) },
-            workingPressureMbar = kv["workpressure"]?.let { mbar(it) },
-            startPressureMbar = kv["start"]?.let { mbar(it) },
-            endPressureMbar = kv["end"]?.let { mbar(it) },
+            volumeMl = kv["vol"]?.let(FormatUnits::thousandths),
+            workingPressureMbar = kv["workpressure"]?.let(FormatUnits::thousandths),
+            startPressureMbar = kv["start"]?.let(FormatUnits::thousandths),
+            endPressureMbar = kv["end"]?.let(FormatUnits::thousandths),
             o2Permille = o2,
             hePermille = kv["he"]?.let { FormatUnits.percentToPermille(it) } ?: o2?.let { 0 },
         )
@@ -495,9 +473,6 @@ class GitLogFormat {
         val computers = LinkedHashMap<String, String>()
     }
 
-    private fun wallClock(epochSeconds: Long, utcOffsetSeconds: Int) =
-        Instant.fromEpochSeconds(epochSeconds + utcOffsetSeconds).toLocalDateTime(TimeZone.UTC)
-
     private fun diveDirName(wc: kotlinx.datetime.LocalDateTime): String {
         val weekday = WEEKDAYS[LocalDate(wc.year, wc.month.ordinal + 1, wc.day).dayOfWeek.ordinal]
         return "${p2(wc.day)}-$weekday-${p2(wc.hour)}=${p2(wc.minute)}=${p2(wc.second)}"
@@ -511,30 +486,6 @@ class GitLogFormat {
         val s = m.groupValues[4].toInt()
         return FormatDateTime.epochFromDateTime("${p4(year)}-${p2(month)}-${p2(day)}", "${p2(h)}:${p2(mi)}:${p2(s)}")
     }
-
-    /** Seven hex digits of a stable hash of [text]. */
-    private fun hash7(text: String): String {
-        var h = 2166136261u
-        for (c in text) { h = h xor c.code.toUInt(); h *= 16777619u }
-        return h.toString(16).padStart(8, '0').take(7)
-    }
-
-    private fun parseClock(text: String): Int? {
-        val parts = text.trim().split(":")
-        return when (parts.size) {
-            2 -> {
-                val m = parts[0].trim().toIntOrNull() ?: return null
-                val s = parts[1].trim().toIntOrNull() ?: return null
-                m * 60 + s
-            }
-            1 -> parts[0].trim().toIntOrNull()
-            else -> null
-        }
-    }
-
-    private fun depthMm(text: String): Int? = FormatUnits.leadingNumber(text)?.let { (it * 1000).roundToInt() }
-    private fun mbar(text: String): Int? = FormatUnits.leadingNumber(text)?.let { (it * 1000).roundToInt() }
-    private fun tempMk(text: String): Int? = FormatUnits.leadingNumber(text)?.let { (it * 1000).roundToInt() + ZERO_C_MK }
 
     /**
      * Escape and wrap a string the way the git format expects: backslash and quote are
@@ -608,7 +559,6 @@ class GitLogFormat {
     private companion object {
         const val SITES_DIR = "01-Divesites"
         const val SETTINGS_FILE = "00-Subsurface"
-        const val ZERO_C_MK = 273_150
         val WEEKDAYS = arrayOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
         // "07-Sun-13=08=10", with "~<hash>" appended when two dives share a start time.
         // Early builds of this app wrote "07-Sun=13=08=10"; accept that too.

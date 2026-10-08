@@ -59,7 +59,7 @@ Proven approach: Android USB Host Mode (USB-OTG), no root, no kernel drivers.
 - `JSerialCommTransport` (desktop, `core/transport` jvmMain) is the JVM equivalent
   over jSerialComm, same contract.
 - `SerialParams` (in `core/divecomputer` transport package) carries the line
-  settings so the protocol owns them; `SuuntoFamily` selects the protocol, its
+  settings so the protocol owns them; `DiveComputerKind` selects the protocol, its
   `SerialParams` and its parser, the way the Bluetooth path picks Petrel vs
   Predator.
 - iOS: not applicable (no USB host), skipped.

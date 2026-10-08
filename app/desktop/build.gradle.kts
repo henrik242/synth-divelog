@@ -7,14 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// CI checks out a pull request as GitHub's merge commit, which is on no branch; BUILD_GIT_SHA
-// names the pushed commit instead. Unset locally, where HEAD is right.
-val describedGitRef = providers.environmentVariable("BUILD_GIT_SHA")
-    .orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "HEAD"
-
-val gitCommitCount = providers.exec {
-    commandLine("git", "rev-list", "--count", describedGitRef)
-}.standardOutput.asText.map { it.trim().ifEmpty { "0" } }.orElse("0")
+val gitCommitCount: Provider<String> by rootProject.extra
 
 kotlin {
     jvm()
@@ -31,9 +24,8 @@ kotlin {
             implementation(project(":core:formats"))
             implementation(project(":core:divecomputer"))
             implementation(project(":core:transport"))
+            implementation(project(":core:logbook"))
             implementation(project(":ui"))
-            implementation(libs.sqldelight.driver.sqlite)
-            implementation(libs.jserialcomm)
             implementation(libs.kotlinx.coroutines.core)
             // Provides Dispatchers.Main on desktop (the AWT event thread), which the
             // MapLibre Compose map needs to deliver its engine callbacks.

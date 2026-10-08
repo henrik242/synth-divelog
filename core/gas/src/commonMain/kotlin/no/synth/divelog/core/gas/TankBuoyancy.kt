@@ -1,20 +1,20 @@
 package no.synth.divelog.core.gas
 
+import no.synth.divelog.core.model.units.ATM_BAR
+import no.synth.divelog.core.model.units.BAR_PER_PSI
+import no.synth.divelog.core.model.units.LBS_PER_KG
+import no.synth.divelog.core.model.units.LITRES_PER_CUFT
+import no.synth.divelog.core.model.units.PSI_PER_ATM
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.pow
 
-private const val BAR_PER_PSI = 0.06895
-private const val PSI_PER_ATM = 14.6959
-private const val LBS_PER_KG = 2.20462
-private const val LITRES_PER_CUFT = 28.31685
 private const val KG_PER_LITRE_IN_LBS_PER_CUFT = LBS_PER_KG * LITRES_PER_CUFT
 
-// kg/litre: chrome-moly steel, 6061-T6 aluminium, air at 15 C and 1 bar, sea and fresh water.
+// kg/litre: chrome-moly steel, 6061-T6 aluminium, air at 15 C and 1 atm.
 private const val STEEL_DENSITY = 7.85
 private const val ALU_DENSITY = 2.7
 private const val AIR_DENSITY = 0.001225
-private const val SALT_DENSITY = 1.024
-private const val FRESH_DENSITY = 1.0
 
 /** Typical DIN/yoke valve, kg. */
 private const val VALVE_KG = 0.9
@@ -26,12 +26,17 @@ enum class TankMetal { STEEL, ALUMINIUM }
 
 /** One cylinder rated in water volume and working pressure, with its weight (no valve). */
 data class MetricTank(val litres: Double, val bar: Double, val kg: Double) {
-    fun toImperial() = ImperialTank(litres / LITRES_PER_CUFT * bar, bar / BAR_PER_PSI, kg * LBS_PER_KG)
+    fun toImperial() = ImperialTank(litres / LITRES_PER_CUFT * bar / ATM_BAR, bar / BAR_PER_PSI, kg * LBS_PER_KG)
 }
 
-/** One cylinder rated in free gas at working pressure, with its weight (no valve). */
+/**
+ * One cylinder rated in free gas at working pressure, with its weight (no valve). The rating is
+ * nominal, ideal gas at 1 atm: inner volume x psi / 14.7, as US cylinders are labelled.
+ */
 data class ImperialTank(val cubicFeet: Double, val psi: Double, val lbs: Double) {
-    fun toMetric() = MetricTank(cubicFeet / (psi * BAR_PER_PSI) * LITRES_PER_CUFT, psi * BAR_PER_PSI, lbs / LBS_PER_KG)
+    val innerCubicFeet: Double get() = cubicFeet / psi * PSI_PER_ATM
+
+    fun toMetric() = MetricTank(innerCubicFeet * LITRES_PER_CUFT, psi * BAR_PER_PSI, lbs / LBS_PER_KG)
 }
 
 /** [doubles] means two cylinders on a manifold. */
@@ -68,7 +73,7 @@ data class Buoyancy(
  */
 fun buoyancy(tank: MetricTank, setup: TankSetup): Buoyancy {
     val metal = if (setup.metal == TankMetal.ALUMINIUM) ALU_DENSITY else STEEL_DENSITY
-    val water = if (setup.saltWater) SALT_DENSITY else FRESH_DENSITY
+    val water = waterOf(setup).kgPerLitre
     val cylinders = if (setup.doubles) 2 else 1
     val litres = tank.litres * cylinders
     val kg = tank.kg * cylinders
@@ -81,7 +86,9 @@ fun buoyancy(tank: MetricTank, setup: TankSetup): Buoyancy {
     val metalVolume = kg / metal
     val valveVolume = valve / STEEL_DENSITY
     val displaced = (metalVolume + valveVolume + litres) * water
-    val air = AIR_DENSITY * tank.bar * litres
+    val z = airZ(tank.bar)
+    val freeAir = litres * freeVolumes(tank.bar)
+    val air = AIR_DENSITY * freeAir
     val empty = displaced - kg - valve
     val full = empty - air
 
@@ -104,13 +111,15 @@ fun buoyancy(tank: MetricTank, setup: TankSetup): Buoyancy {
                 "${num(displaced)} kg",
             ),
         )
-        add(CalculationStep("Air has a density of ${raw(AIR_DENSITY)} kg/liter"))
+        add(CalculationStep(zLine(tank.bar, z)))
         add(
             CalculationStep(
-                "The air in a full tank weighs ${raw(AIR_DENSITY)} x ${raw(litres)} liters x ${raw(tank.bar)} bar",
-                "${num(air)} kg",
+                "Free air in a full tank: ${raw(litres)} liters x (${num(tank.bar + ATM_BAR)} bar / ${num(z)} - ${raw(ATM_BAR)} bar) / ${raw(ATM_BAR)}",
+                "${num(freeAir)} liters",
             ),
         )
+        add(CalculationStep("Air has a density of ${raw(AIR_DENSITY)} kg/liter at 1 atm"))
+        add(CalculationStep("The air in a full tank weighs ${raw(AIR_DENSITY)} x ${num(freeAir)} liters", "${num(air)} kg"))
         val minusValve = if (valve != 0.0) " - ${num(valve)}" else ""
         add(CalculationStep("Tank buoyancy when empty: ${num(displaced)} - ${raw(kg)}$minusValve", "${num(round1(empty))} kg"))
         add(
@@ -130,7 +139,7 @@ fun buoyancy(tank: MetricTank, setup: TankSetup): Buoyancy {
 fun buoyancy(tank: ImperialTank, setup: TankSetup): Buoyancy {
     val metal = (if (setup.metal == TankMetal.ALUMINIUM) ALU_DENSITY else STEEL_DENSITY) * KG_PER_LITRE_IN_LBS_PER_CUFT
     val steel = STEEL_DENSITY * KG_PER_LITRE_IN_LBS_PER_CUFT
-    val water = (if (setup.saltWater) SALT_DENSITY else FRESH_DENSITY) * KG_PER_LITRE_IN_LBS_PER_CUFT
+    val water = waterOf(setup).kgPerLitre * KG_PER_LITRE_IN_LBS_PER_CUFT
     val air = AIR_DENSITY * KG_PER_LITRE_IN_LBS_PER_CUFT
     val cylinders = if (setup.doubles) 2 else 1
     val cubicFeet = tank.cubicFeet * cylinders
@@ -141,17 +150,20 @@ fun buoyancy(tank: ImperialTank, setup: TankSetup): Buoyancy {
         else -> VALVE_KG * LBS_PER_KG
     }
 
-    val innerVolume = cubicFeet / tank.psi * PSI_PER_ATM
+    val innerVolume = tank.innerCubicFeet * cylinders
     val metalVolume = lbs / metal
     val valveVolume = valve / steel
     val displaced = (innerVolume + metalVolume + valveVolume) * water
-    val gas = air * cubicFeet
+    val bar = tank.psi * BAR_PER_PSI
+    val z = airZ(bar)
+    val freeAir = innerVolume * freeVolumes(bar)
+    val gas = air * freeAir
     val empty = displaced - lbs - valve
     val full = empty - gas
 
     val steps = buildList {
-        add(CalculationStep("Air has a pressure of ${raw(PSI_PER_ATM)} psi at 1 ATM"))
-        add(CalculationStep("Tank inner volume is ${raw(cubicFeet)} cuft / ${raw(tank.psi)} psi x ${raw(PSI_PER_ATM)}", "${num(innerVolume)} cuft"))
+        add(CalculationStep("Air has a pressure of ${num(PSI_PER_ATM)} psi at 1 atm"))
+        add(CalculationStep("Tank inner volume is ${raw(cubicFeet)} cuft / ${raw(tank.psi)} psi x ${num(PSI_PER_ATM)}", "${num(innerVolume)} cuft"))
         add(
             CalculationStep(
                 "Steel has a density of ${num(steel)} lbs/cuft" +
@@ -170,8 +182,15 @@ fun buoyancy(tank: ImperialTank, setup: TankSetup): Buoyancy {
                 "${num(displaced)} lbs",
             ),
         )
-        add(CalculationStep("Air has a density of ${num(air)} lbs/cuft"))
-        add(CalculationStep("The air in a full tank weighs ${num(air)} x ${raw(cubicFeet)} cuft", "${num(gas)} lbs"))
+        add(CalculationStep(zLine(bar, z) + " (${num(tank.psi, 0)} psi)"))
+        add(
+            CalculationStep(
+                "Free air in a full tank: ${num(innerVolume)} cuft x (${num(bar + ATM_BAR)} bar / ${num(z)} - ${raw(ATM_BAR)} bar) / ${raw(ATM_BAR)}",
+                "${num(freeAir)} cuft",
+            ),
+        )
+        add(CalculationStep("Air has a density of ${num(air)} lbs/cuft at 1 atm"))
+        add(CalculationStep("The air in a full tank weighs ${num(air)} x ${num(freeAir)} cuft", "${num(gas)} lbs"))
         val minusValve = if (valve != 0.0) " - ${num(valve)}" else ""
         add(CalculationStep("Tank buoyancy when empty: ${num(displaced)} - ${raw(lbs)}$minusValve", "${num(round1(empty))} lbs"))
         add(
@@ -188,20 +207,29 @@ fun buoyancy(tank: ImperialTank, setup: TankSetup): Buoyancy {
     )
 }
 
+private fun waterOf(setup: TankSetup) = if (setup.saltWater) Water.SALT else Water.FRESH
+
 private fun waterLine(salt: Boolean, density: String) =
     if (salt) "The density of salt water is $density" else "The density of fresh water is $density"
 
-private fun round1(v: Double): Double = roundHalfUp(v, 1)
+/** Z of air at [gaugeBar]. */
+private fun airZ(gaugeBar: Double): Double = Compressibility.z(BreathingGas.AIR, gaugeBar + ATM_BAR)
 
-private fun roundHalfUp(v: Double, decimals: Int): Double {
-    val factor = 10.0.pow(decimals)
-    return floor(v * factor + 0.5) / factor
-}
+private fun zLine(gaugeBar: Double, z: Double) =
+    "Air at ${num(gaugeBar + ATM_BAR)} bar absolute is less compressible than an ideal gas: Z = ${num(z)}"
+
+/**
+ * Free air at 1 atm that a full cylinder holds beyond an empty one (which still holds 1 atm),
+ * per volume of cylinder.
+ */
+private fun freeVolumes(gaugeBar: Double): Double = ((gaugeBar + ATM_BAR) / airZ(gaugeBar) - ATM_BAR) / ATM_BAR
+
+private fun round1(v: Double): Double = roundHalfUp(v, 1)
 
 /** Up to [decimals] decimals, trailing zeros dropped: 7.85, 1.8471, 29. */
 internal fun num(v: Double, decimals: Int = 4): String {
     val factor = 10.0.pow(decimals).toLong()
-    val scaled = floor(kotlin.math.abs(v) * factor + 0.5).toLong()
+    val scaled = floor(abs(v) * factor + 0.5).toLong()
     val sign = if (v < 0 && scaled != 0L) "-" else ""
     val whole = scaled / factor
     val frac = (scaled % factor).toString().padStart(decimals, '0').trimEnd('0')

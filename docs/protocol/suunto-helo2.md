@@ -70,6 +70,6 @@ Implemented in `core/divecomputer` `suunto/`:
 - `SuuntoVyper2Protocol` - `SERIAL_PARAMS` (incl. the 600 ms quiet gap) and the
   download: reads the profile ring backward from the newest dive a page at a time and
   stops at the last known dive, so an incremental download reads only the new dives.
-- `SuuntoVyper2Dump` - the directory walk over the ring (`walk`, `extract`).
+- `SuuntoVyper2Dump` - the directory walk over the ring (`dives`, `extract`).
 - `SuuntoVyper2Parser` - the HelO2 record and profile layout. Other models in the
   family are rejected until their offsets are known.

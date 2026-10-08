@@ -1,114 +1,102 @@
 package no.synth.divelog.core.gas
 
+import no.synth.divelog.core.model.units.ATM_BAR
 import kotlin.math.abs
-import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
 
-/** A gas available to fill from. [o2] and [he] are percent. */
-data class SourceGas(val name: String, val o2: Double, val he: Double)
+/** A gas available to fill from. */
+data class SourceGas(val name: String, val gas: BreathingGas)
 
-/** The cylinder before blending: water volume, gauge pressure and O2/He percent. */
-data class Cylinder(val volumeLitres: Double, val pressureBar: Double, val o2: Double, val he: Double)
+/** The cylinder before blending: water volume, gauge pressure and what it holds. */
+data class Cylinder(val volumeLitres: Double, val pressureBar: Double, val gas: BreathingGas)
 
-/** A mix (O2/He percent) at a gauge pressure. */
-data class Fill(val o2: Double, val he: Double, val pressureBar: Double)
-
-/** O2/He percent, rounded to 0.1 for display. */
-data class Mix(val o2: Double, val he: Double)
+/** A gas at a gauge pressure. */
+data class Fill(val gas: BreathingGas, val pressureBar: Double)
 
 sealed interface BlendStep {
     val fromBar: Double
     val toBar: Double
-    val mixBefore: Mix
-    val mixAfter: Mix
+    val gasBefore: BreathingGas
+    val gasAfter: BreathingGas
 
     /** Bleed the cylinder down to [toBar]; 0 empties it. */
     data class Drain(
         override val fromBar: Double,
         override val toBar: Double,
-        override val mixBefore: Mix,
-        override val mixAfter: Mix,
+        override val gasBefore: BreathingGas,
+        override val gasAfter: BreathingGas,
     ) : BlendStep
 
     /**
-     * Fill [addedBar] of [gas]. [topUp] marks the fill that brings the cylinder to the
-     * target pressure. [litres] is the free gas taken from the source.
+     * Fill [addedBar] of [source]. [topUp] marks the fill that brings the cylinder to the
+     * target pressure. [litres] is the free gas at 1 atm taken from the source.
      */
     data class Add(
-        val gas: SourceGas,
+        val source: SourceGas,
         val topUp: Boolean,
         override val fromBar: Double,
         override val toBar: Double,
         val addedBar: Double,
         val litres: Double,
-        override val mixBefore: Mix,
-        override val mixAfter: Mix,
+        override val gasBefore: BreathingGas,
+        override val gasAfter: BreathingGas,
     ) : BlendStep
 }
 
-enum class BlendProblem {
-    /** The target O2 and He add up to more than 100 %. */
-    MIX_OVER_100,
-
-    /** The available gases cannot reach the target within tolerance. */
-    OFF_TARGET,
-}
-
 /**
- * A blending procedure towards [target]. [result] is what the steps produce; when [problem] is
- * [BlendProblem.OFF_TARGET] the steps are still the closest the gases allow.
- * [litresUsed] is free gas per source gas name, in fill order.
+ * A blending procedure towards [target]. [result] is what the steps produce; when not [ok] the
+ * steps are still the closest the gases allow. [litresUsed] is free gas at 1 atm per source gas
+ * name, in fill order.
  */
 data class BlendPlan(
     val target: Fill,
     val steps: List<BlendStep>,
     val result: Fill,
     val litresUsed: Map<String, Double>,
-    val problem: BlendProblem?,
-) {
-    val ok: Boolean get() = problem == null
-}
+    val ok: Boolean,
+)
 
-/** Within this the result counts as on target: O2 and He percent points, and bar. */
-const val TOLERANCE_PERCENT = 0.5
+/** Within this the result counts as on target: O2 and He permille (0.5 percentage points), and bar. */
+const val TOLERANCE_PERMILLE = 5
 const val TOLERANCE_BAR = 1.0
 
 /**
- * Partial-pressure blend from [start] to [target] using [gases]: drain if any component
- * is in excess, add helium (pure or a helium-rich mix), then top up with O2 and/or a
- * nitrox (19-40 % O2). Accounts for real-gas compressibility; all pressures are gauge bar.
+ * Partial-pressure blend from [start] to [target] using [sources]: drain if any component is
+ * in excess, add helium (pure or a helium-rich mix), then top up with O2 and/or a nitrox
+ * (19-40 % O2). Pressures are gauge bar; amounts follow the real-gas [Compressibility] at
+ * absolute pressure, and the 1 atm left in an "empty" cylinder counts as part of the mix.
  */
-fun planBlend(start: Cylinder, target: Fill, gases: List<SourceGas>): BlendPlan {
-    if (target.o2 + target.he > 100) {
-        return BlendPlan(target, emptyList(), Fill(start.o2, start.he, start.pressureBar), emptyMap(), BlendProblem.MIX_OVER_100)
-    }
-    return Blender(start, target, gases).plan()
-}
+fun planBlend(start: Cylinder, target: Fill, sources: List<SourceGas>): BlendPlan = Blender(start, target, sources).plan()
 
 /** Smallest fill worth a step, bar. */
 private const val MIN_ADD_BAR = 0.1
 
-/** Smallest amount difference that counts, mole bar. */
+/** Smallest amount difference that counts, ideal bar. */
 private const val MIN_DELTA = 0.5
 
 /** Guard for near-singular denominators. */
 private const val NEAR_ZERO = 0.0001
 
-/** Half-up rounding, as the web blender this was ported from. */
-private fun roundTo(value: Double, decimals: Int): Double {
-    val factor = 10.0.pow(decimals)
-    return floor(value * factor + 0.5) / factor
-}
+/** O2, He and N2 as fractions of a mix, or as amounts in ideal bar. */
+private class Parts(val o2: Double, val he: Double, val n2: Double) {
+    val total: Double get() = o2 + he + n2
 
-private class Composition(val o2: Double, val he: Double, val n2: Double) {
-    constructor(gas: SourceGas) : this(gas.o2 / 100, gas.he / 100, (100 - gas.o2 - gas.he) / 100)
+    fun fractions(): Parts {
+        val t = total
+        return if (t <= NEAR_ZERO) Parts(0.0, 0.0, 0.0) else Parts(o2 / t, he / t, max(0.0, n2 / t))
+    }
+
+    fun toGas(): BreathingGas = BreathingGas.ofFractions(o2, he)
+
+    companion object {
+        fun of(gas: BreathingGas) = Parts(gas.o2 / 1000.0, gas.he / 1000.0, gas.n2 / 1000.0)
+    }
 }
 
 /** Amounts of the three [gases] that together hold [want] (Cramer's rule); null if they are dependent. */
-private fun solveFills(gases: List<Composition>, want: Composition): DoubleArray? {
-    fun det(a: Composition, b: Composition, c: Composition) =
+private fun solveFills(gases: List<Parts>, want: Parts): DoubleArray? {
+    fun det(a: Parts, b: Parts, c: Parts) =
         a.o2 * (b.he * c.n2 - b.n2 * c.he) - b.o2 * (a.he * c.n2 - a.n2 * c.he) + c.o2 * (a.he * b.n2 - a.n2 * b.he)
     val (g0, g1, g2) = gases
     val d = det(g0, g1, g2)
@@ -116,24 +104,16 @@ private fun solveFills(gases: List<Composition>, want: Composition): DoubleArray
     return doubleArrayOf(det(want, g1, g2) / d, det(g0, want, g2) / d, det(g0, g1, want) / d)
 }
 
-private class Fractions(val o2: Double, val he: Double, val n2: Double) {
-    fun toMix() = Mix(roundTo(o2 * 100, 1), roundTo(he * 100, 1))
-}
-
-/**
- * Amounts are tracked in "mole bar": the gauge pressure each component would show as
- * an ideal gas, so proportional to moles. Gauge bar = Z * mole bar.
- */
-private class Blender(private val start: Cylinder, private val target: Fill, gases: List<SourceGas>) {
+/** Amounts are tracked in ideal bar (see [Compressibility.idealBar]), so proportional to moles. */
+private class Blender(private val start: Cylinder, private val target: Fill, sources: List<SourceGas>) {
     private val steps = mutableListOf<BlendStep>()
     private val used = LinkedHashMap<String, Double>()
 
-    private val targetO2Frac = target.o2 / 100
-    private val targetHeFrac = target.he / 100
-    private val goal = target.pressureBar / Compressibility.z(targetO2Frac, targetHeFrac, target.pressureBar)
-    private val goalO2 = targetO2Frac * goal
-    private val goalHe = targetHeFrac * goal
-    private val goalN2 = (1 - targetO2Frac - targetHeFrac) * goal
+    private val targetParts = Parts.of(target.gas)
+    private val goal = idealBar(target.pressureBar, targetParts)
+    private val goalO2 = targetParts.o2 * goal
+    private val goalHe = targetParts.he * goal
+    private val goalN2 = targetParts.n2 * goal
 
     private var bar = start.pressureBar
     private var o2: Double
@@ -141,37 +121,40 @@ private class Blender(private val start: Cylinder, private val target: Fill, gas
     private var n2: Double
 
     init {
-        val startO2 = start.o2 / 100
-        val startHe = start.he / 100
-        val amount = if (bar <= 0) 0.0 else bar / Compressibility.z(startO2, startHe, bar)
-        o2 = startO2 * amount
-        he = startHe * amount
-        n2 = max(0.0, (1 - startO2 - startHe) * amount)
+        val startParts = Parts.of(start.gas)
+        val amount = idealBar(bar, startParts)
+        o2 = startParts.o2 * amount
+        he = startParts.he * amount
+        n2 = startParts.n2 * amount
     }
 
-    private val pureHe = gases.firstOrNull { it.he > 95 && it.o2 < 5 }
-    private val pureO2 = gases.firstOrNull { it.o2 > 95 && it.he < 5 }
-    private val topUps = gases.filter { it.he < 5 && it.o2 >= 19 && it.o2 <= 40 }.sortedBy { it.o2 }
-    private val heliumMixes = gases.filter { it.he > 30 }.sortedByDescending { it.he }
+    private val pureHe = sources.firstOrNull { it.gas.he > 950 && it.gas.o2 < 50 }
+    private val pureO2 = sources.firstOrNull { it.gas.o2 > 950 && it.gas.he < 50 }
+    private val topUps = sources.filter { it.gas.he < 50 && it.gas.o2 in 190..400 }.sortedBy { it.gas.o2 }
+    private val heliumMixes = sources.filter { it.gas.he > 300 }.sortedByDescending { it.gas.he }
     private val heSource = pureHe ?: heliumMixes.firstOrNull()
 
     private val total get() = o2 + he + n2
 
-    private fun fractions(): Fractions {
-        val t = total
-        if (t <= NEAR_ZERO) return Fractions(0.0, 0.0, 0.0)
-        return Fractions(o2 / t, he / t, max(0.0, n2 / t))
-    }
+    private fun fractions(): Parts = Parts(o2, he, n2).fractions()
+
+    /** Gas in the cylinder at [gaugeBar] of a mix with [fractions], ideal bar. */
+    private fun idealBar(gaugeBar: Double, fractions: Parts) = Compressibility.idealBar(gaugeBar, fractions.o2, fractions.he)
+
+    private fun gaugeBar(idealBar: Double, fractions: Parts) = Compressibility.gaugeBar(idealBar, fractions.o2, fractions.he)
+
+    /** The cylinder after adding [amount] ideal bar of [gas]. */
+    private fun plus(gas: Parts, amount: Double) = Parts(o2 + gas.o2 * amount, he + gas.he * amount, n2 + gas.n2 * amount)
 
     fun plan(): BlendPlan {
         drainIfNeeded()
         addHelium()
         topUp()
-        val result = fractions().toMix().let { Fill(it.o2, it.he, roundTo(bar, 1)) }
-        val off = abs(result.o2 - target.o2) > TOLERANCE_PERCENT ||
-            abs(result.he - target.he) > TOLERANCE_PERCENT ||
-            abs(result.pressureBar - target.pressureBar) > TOLERANCE_BAR
-        return BlendPlan(target, steps.toList(), result, used.toMap(), if (off) BlendProblem.OFF_TARGET else null)
+        val result = Fill(fractions().toGas(), roundHalfUp(bar, 1))
+        val ok = abs(result.gas.o2 - target.gas.o2) <= TOLERANCE_PERMILLE &&
+            abs(result.gas.he - target.gas.he) <= TOLERANCE_PERMILLE &&
+            abs(result.pressureBar - target.pressureBar) <= TOLERANCE_BAR
+        return BlendPlan(target, steps.toList(), result, used.toMap(), ok)
     }
 
     private fun drainIfNeeded() {
@@ -196,34 +179,31 @@ private class Blender(private val start: Cylinder, private val target: Fill, gas
         val heGas = heSource
         val topUpGas = topUps.firstOrNull()
         if (missingHe > MIN_DELTA && heGas != null && topUpGas != null) {
-            val solved = keepBeforeHelium(now, heGas, topUpGas)
+            val solved = keepBeforeHelium(now, Parts.of(heGas.gas), Parts.of(topUpGas.gas))
             if (solved == null || !solved.isFinite() || solved <= MIN_DELTA) {
                 // No amount kept works (or next to nothing): start from an empty cylinder.
                 drain = true
                 keep = 0.0
-            } else if (solved > MIN_DELTA &&
-                (solved < totalNow - MIN_DELTA || bar >= target.pressureBar - MIN_DELTA)
-            ) {
+            } else if (solved < totalNow - MIN_DELTA || bar >= target.pressureBar - MIN_DELTA) {
                 drain = true
                 keep = min(keep, solved)
             }
         }
 
         if (!drain) return
-        val toBar = roundTo(if (keep <= 0) 0.0 else Compressibility.gaugeBar(keep, now.o2, now.he), 1)
-        val drained = bar - toBar
-        if (drained > MIN_DELTA) drainTo(if (toBar > MIN_DELTA) toBar else 0.0)
+        // An empty cylinder still holds 1 atm, so the gauge cannot go below 0.
+        val toBar = roundHalfUp(max(0.0, gaugeBar(keep, now)), 1)
+        if (bar - toBar > MIN_DELTA) drainTo(if (toBar > MIN_DELTA) toBar else 0.0)
     }
 
     /**
-     * Mole bar to keep so that adding [heGas] and then topping up hits all three goals.
-     * With pure O2 on hand the top-up is two gases (O2 + [topUpGas]); otherwise only
-     * [topUpGas], and the amount is the unique solution. Null when nothing works.
+     * Ideal bar to keep so that adding [heGas] and then topping up hits all three goals. With
+     * pure O2 on hand the top-up is two gases (O2 + [topUpGas]); otherwise only [topUpGas], and
+     * the amount is the unique solution. Null when nothing works.
      */
-    private fun keepBeforeHelium(now: Fractions, heGas: SourceGas, topUpGas: SourceGas): Double? {
-        val topO2 = topUpGas.o2 / 100
-        val heO2 = heGas.o2 / 100
-        val heHe = heGas.he / 100
+    private fun keepBeforeHelium(now: Parts, heGas: Parts, topUpGas: Parts): Double? {
+        val topO2 = topUpGas.o2
+        val o2Source = pureO2
 
         fun pureHeTopUpOnly(): Double? {
             val den = now.o2 - (1 - now.he) * topO2
@@ -232,11 +212,11 @@ private class Blender(private val start: Cylinder, private val target: Fill, gas
         }
 
         return when {
-            pureO2 != null -> mostToKeep(now, heGas, pureO2, topUpGas)
+            o2Source != null -> mostToKeep(now, heGas, Parts.of(o2Source.gas), topUpGas)
             pureHe != null -> pureHeTopUpOnly()
             else -> {
-                val coeff = now.o2 - (now.he * heO2) / heHe - (1 - now.he / heHe) * topO2
-                val rhs = goalO2 - (goalHe * heO2) / heHe - (goal - goalHe / heHe) * topO2
+                val coeff = now.o2 - (now.he * heGas.o2) / heGas.he - (1 - now.he / heGas.he) * topO2
+                val rhs = goalO2 - (goalHe * heGas.o2) / heGas.he - (goal - goalHe / heGas.he) * topO2
                 if (abs(coeff) < NEAR_ZERO) null else rhs / coeff
             }
         }
@@ -248,11 +228,11 @@ private class Blender(private val start: Cylinder, private val target: Fill, gas
      * none can be negative, which bounds k. Keep the most the bounds allow, so the cylinder is
      * only drained when a component would otherwise overshoot. Null when no k works.
      */
-    private fun mostToKeep(now: Fractions, heGas: SourceGas, o2Gas: SourceGas, topUpGas: SourceGas): Double? {
-        val fills = listOf(heGas, o2Gas, topUpGas).map { Composition(it) }
+    private fun mostToKeep(now: Parts, heGas: Parts, oxygen: Parts, topUpGas: Parts): Double? {
+        val fills = listOf(heGas, oxygen, topUpGas)
         // fill_i = fromEmpty_i - k * perKept_i
-        val fromEmpty = solveFills(fills, Composition(goalO2, goalHe, goalN2)) ?: return null
-        val perKept = solveFills(fills, Composition(now.o2, now.he, now.n2)) ?: return null
+        val fromEmpty = solveFills(fills, Parts(goalO2, goalHe, goalN2)) ?: return null
+        val perKept = solveFills(fills, now) ?: return null
         var upper = total
         var lower = 0.0
         for (i in fills.indices) {
@@ -271,67 +251,59 @@ private class Blender(private val start: Cylinder, private val target: Fill, gas
         if (bar <= toBar) return
         val from = bar
         val before = fractions()
-        // Composition is unchanged; the amount scales with gauge / Z.
-        val zBefore = Compressibility.z(before.o2, before.he, from)
-        val zAfter = if (toBar <= 0) 1.0 else Compressibility.z(before.o2, before.he, toBar)
-        val ratio = if (from <= 0) 0.0 else toBar / zAfter / (from / zBefore)
+        // The mix is unchanged; the amount follows pressure over Z.
+        val ratio = idealBar(toBar, before) / idealBar(from, before)
         o2 *= ratio
         he *= ratio
         n2 *= ratio
         bar = toBar
-        steps += BlendStep.Drain(roundTo(from, 2), roundTo(toBar, 2), before.toMix(), fractions().toMix())
+        steps += BlendStep.Drain(roundHalfUp(from, 2), roundHalfUp(toBar, 2), before.toGas(), fractions().toGas())
     }
 
     private fun addHelium() {
         val missing = goalHe - he
         if (missing <= MIN_ADD_BAR) return
-        val gas = heSource ?: return
-        val heFrac = gas.he / 100
-        // Gauge pressure after the fill, from the Z of the resulting mix.
-        val add = missing / heFrac
-        val after = total + add
-        val mixO2 = (o2 + gas.o2 / 100 * add) / after
-        val mixHe = (he + heFrac * add) / after
-        addGas(gas, Compressibility.gaugeBar(after, mixO2, mixHe) - bar, topUp = false)
+        val source = heSource ?: return
+        val gas = Parts.of(source.gas)
+        val after = plus(gas, missing / gas.he)
+        addGas(source, gaugeBar(after.total, after.fractions()) - bar, topUp = false)
     }
 
     private fun topUp() {
         val remaining = target.pressureBar - bar
         if (remaining <= MIN_ADD_BAR) return
-        val o2Gas = pureO2
+        val o2Source = pureO2
         if (topUps.isEmpty()) {
-            if (o2Gas != null) addGas(o2Gas, remaining, topUp = false)
+            if (o2Source != null) addGas(o2Source, remaining, topUp = false)
             return
         }
 
         // The single top-up gas that lands closest to the target mix.
         var best = topUps.first()
         var bestMiss = Double.POSITIVE_INFINITY
-        for (gas in topUps) {
-            val added = amountToReach(gas, target.pressureBar)
-            val after = total + added
-            val mixO2 = (o2 + gas.o2 / 100 * added) / after
-            val mixHe = (he + gas.he / 100 * added) / after
-            val miss = abs(mixO2 * 100 - target.o2) + abs(mixHe * 100 - target.he)
+        for (source in topUps) {
+            val gas = Parts.of(source.gas)
+            val after = plus(gas, amountToReach(gas, target.pressureBar)).fractions()
+            val miss = abs(after.o2 - targetParts.o2) + abs(after.he - targetParts.he)
             if (miss < bestMiss) {
                 bestMiss = miss
-                best = gas
+                best = source
             }
         }
-        // Not close enough on its own: take the leanest so O2 can make up the difference.
-        if (o2Gas != null && bestMiss > 0.7) best = topUps.first()
+        // Not close enough on its own (0.7 points): take the leanest so O2 can make up the difference.
+        if (o2Source != null && bestMiss > 0.007) best = topUps.first()
 
-        if (o2Gas != null && abs(best.o2 - o2Gas.o2) > 10) {
+        if (o2Source != null && abs(best.gas.o2 - o2Source.gas.o2) > 100) {
             // O2 first, then the top-up gas to the target pressure takes the rounding.
-            val o2Needed = o2FillTo(o2Gas, best)?.let { it - bar } ?: 0.0
-            var o2Bar = max(0.0, min(remaining, roundTo(max(0.0, o2Needed), 1)))
-            var restBar = max(0.0, roundTo(remaining - o2Bar, 1))
+            val o2Needed = o2FillTo(Parts.of(o2Source.gas), Parts.of(best.gas))?.let { it - bar } ?: 0.0
+            var o2Bar = max(0.0, min(remaining, roundHalfUp(max(0.0, o2Needed), 1)))
+            var restBar = max(0.0, roundHalfUp(remaining - o2Bar, 1))
             // A top-up too small to make leaves the cylinder short; O2 takes it instead.
             if (o2Bar > MIN_ADD_BAR && restBar <= MIN_ADD_BAR) {
-                o2Bar = roundTo(remaining, 1)
+                o2Bar = roundHalfUp(remaining, 1)
                 restBar = 0.0
             }
-            if (o2Bar > MIN_ADD_BAR) addGas(o2Gas, o2Bar, topUp = false)
+            if (o2Bar > MIN_ADD_BAR) addGas(o2Source, o2Bar, topUp = false)
             if (restBar > MIN_ADD_BAR) addGas(best, restBar, topUp = true)
         } else {
             addGas(best, target.pressureBar - bar, topUp = true)
@@ -339,63 +311,54 @@ private class Blender(private val start: Cylinder, private val target: Fill, gas
     }
 
     /**
-     * Gauge pressure to fill [o2Gas] to so that topping up with [topUpGas] to the target
+     * Gauge pressure to fill [oxygen] to so that topping up with [topUpGas] to the target
      * pressure lands on the target O2 fraction. The final amount depends on the final mix's Z,
      * so iterate. Null when the two gases hold the same O2.
      */
-    private fun o2FillTo(o2Gas: SourceGas, topUpGas: SourceGas): Double? {
-        val p = target.pressureBar
-        val oxyO2 = o2Gas.o2 / 100
-        val oxyHe = o2Gas.he / 100
-        val topO2 = topUpGas.o2 / 100
-        val topHe = topUpGas.he / 100
-        if (abs(oxyO2 - topO2) < NEAR_ZERO) return null
+    private fun o2FillTo(oxygen: Parts, topUpGas: Parts): Double? {
+        if (abs(oxygen.o2 - topUpGas.o2) < NEAR_ZERO) return null
         val now = total
         var final = goal
         var o2Amount = 0.0
         repeat(8) {
-            // O2 balance: o2 + oxyO2 * o2Amount + topO2 * (final - now - o2Amount) = f * final
-            o2Amount = (targetO2Frac * final - o2 - topO2 * (final - now)) / (oxyO2 - topO2)
-            val heFinal = (he + oxyHe * o2Amount + topHe * (final - now - o2Amount)) / final
-            final = p / Compressibility.z(targetO2Frac, heFinal, p)
+            // O2 balance: o2 + oxygen.o2 * o2Amount + topUpGas.o2 * (final - now - o2Amount) = target * final
+            o2Amount = (targetParts.o2 * final - o2 - topUpGas.o2 * (final - now)) / (oxygen.o2 - topUpGas.o2)
+            val heFinal = (he + oxygen.he * o2Amount + topUpGas.he * (final - now - o2Amount)) / final
+            final = Compressibility.idealBar(target.pressureBar, targetParts.o2, heFinal)
         }
-        val added = max(0.0, o2Amount)
-        val after = now + added
-        if (after <= 0) return 0.0
-        return Compressibility.gaugeBar(after, (o2 + oxyO2 * added) / after, (he + oxyHe * added) / after)
+        val after = plus(oxygen, max(0.0, o2Amount))
+        return gaugeBar(after.total, after.fractions())
     }
 
     /**
-     * Mole bar of [gas] that brings the cylinder to [toBar]. The gauge follows the Z of the
-     * resulting mix, as for the start, drain and target, so iterate on the mix.
+     * Ideal bar of [gas] that brings the cylinder to [toBar]. The gauge follows the Z of the
+     * resulting mix, so iterate on the mix.
      */
-    private fun amountToReach(gas: SourceGas, toBar: Double): Double {
-        val gasO2 = gas.o2 / 100
-        val gasHe = gas.he / 100
+    private fun amountToReach(gas: Parts, toBar: Double): Double {
         val now = total
         var amount = toBar - bar
-        repeat(10) {
-            val after = now + amount
-            val next = toBar / Compressibility.z((o2 + gasO2 * amount) / after, (he + gasHe * amount) / after, toBar) - now
-            if (abs(next - amount) < 1e-6) return next
+        repeat(20) {
+            val next = idealBar(toBar, plus(gas, amount).fractions()) - now
+            if (abs(next - amount) < 1e-7) return next
             amount = next
         }
         return amount
     }
 
-    private fun addGas(gas: SourceGas, amountBar: Double, topUp: Boolean) {
-        val added = roundTo(amountBar, 1)
+    private fun addGas(source: SourceGas, amountBar: Double, topUp: Boolean) {
+        val added = roundHalfUp(amountBar, 1)
         if (added <= MIN_ADD_BAR) return
         val from = bar
         val before = fractions()
         val toBar = bar + added
+        val gas = Parts.of(source.gas)
         val amount = amountToReach(gas, toBar)
-        o2 += gas.o2 / 100 * amount
-        he += gas.he / 100 * amount
-        n2 = max(0.0, n2 + max(0.0, (100 - gas.o2 - gas.he) / 100) * amount)
+        o2 += gas.o2 * amount
+        he += gas.he * amount
+        n2 += gas.n2 * amount
         bar = toBar
-        val litres = roundTo(amount * start.volumeLitres, 1)
-        used[gas.name] = (used[gas.name] ?: 0.0) + litres
-        steps += BlendStep.Add(gas, topUp, roundTo(from, 2), roundTo(bar, 2), added, litres, before.toMix(), fractions().toMix())
+        val litres = roundHalfUp(amount * start.volumeLitres / ATM_BAR, 1)
+        used[source.name] = (used[source.name] ?: 0.0) + litres
+        steps += BlendStep.Add(source, topUp, roundHalfUp(from, 2), roundHalfUp(bar, 2), added, litres, before.toGas(), fractions().toGas())
     }
 }

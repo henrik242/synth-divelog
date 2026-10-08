@@ -89,16 +89,19 @@ class BuhlmannTest {
     fun gradientFactorsSlopeFromTheAnchor() {
         val t = Tissues.atSurface(surface)
         t.constantDepth(6.0, BreathingGas.AIR, 60 * 60)
+        val gf = GradientFactors(0.3, 0.8)
         val lowOnly = t.copy().toleratedAmbientBar(GradientFactors(0.3, 0.3), surface)
-        val sloped = t.copy().toleratedAmbientBar(GradientFactors(0.3, 0.8), surface)
         val plain = t.copy().toleratedAmbientBar(GradientFactors(1.0, 1.0), surface)
-        assertTrue(lowOnly > sloped && sloped > plain, "$lowOnly $sloped $plain")
-        // The anchor moves to the GF-low ceiling once that is deeper than surface + 1 bar.
-        val anchored = t.copy()
-        anchored.toleratedAmbientBar(GradientFactors(0.3, 0.8), surface)
-        assertNear(lowOnly, anchored.gfLowAnchorBar, 1e-9)
+        // The query leaves the anchor alone; anchoring moves it to the GF-low ceiling once that
+        // is deeper than surface + 1 bar.
+        t.toleratedAmbientBar(gf, surface)
+        assertNear(surface + 1.0, t.gfLowAnchorBar)
+        t.anchorGfLow(gf)
+        assertNear(lowOnly, t.gfLowAnchorBar)
         // At the anchor itself the sloped ceiling equals the GF-low one.
-        assertNear(lowOnly, sloped, 1e-9)
+        val sloped = t.toleratedAmbientBar(gf, surface)
+        assertNear(lowOnly, sloped)
+        assertTrue(lowOnly > plain, "$lowOnly $plain")
     }
 
     @Test
@@ -116,5 +119,6 @@ class BuhlmannTest {
         assertEquals("EAN50", BreathingGas(500).name)
         assertEquals("18/45", BreathingGas(180, 450).name)
         assertEquals("15/0", BreathingGas(150).name)
+        assertEquals("0/100", BreathingGas.HELIUM.name)
     }
 }

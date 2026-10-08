@@ -16,10 +16,12 @@ per-target entry point.
 | `:core:transport` | `expect`/`actual` transports: jSerialComm (jvm), USB-serial + classic-BT RFCOMM (android). |
 | `:core:formats` | File formats (Subsurface XML, UDDF, MacDive XML, git-tree) over a neutral `DiveLog`. |
 | `:core:gas` | Diving calculators (partial-pressure gas blender with real-gas Z, tank buoyancy, MOD/END, Buhlmann ZHL-16C/GF deco planner after Subsurface's), pure common. Shown under the Tools tab. |
-| `:ui` | Shared Compose Multiplatform screens; also hosts `LogbookIo`, cloud sync, serial-download orchestration. |
+| `:core:logbook` | App services without Compose: `AppServices`, settings, `LogbookIo` import/export, cloud sync (JGit), serial-download orchestration. |
+| `:ui` | Shared Compose Multiplatform screens; screens follow the data through repository `Flow`s. |
 | `:app:android`, `:app:desktop`, `iosApp/` | Per-platform entry points. |
 
-- **Keep Android/JVM APIs out of `:core:model`, `:core:divecomputer`, `:core:formats`, `:core:gas` and `:ui` commonMain.** Shared modules declare a `jvm()` target so common tests run on the JVM.
+- **Keep Android/JVM APIs out of `:core:model`, `:core:divecomputer`, `:core:formats`, `:core:gas`, `:core:logbook` and `:ui` commonMain.** Shared modules apply the `synth.kmp-library` convention plugin (`build-logic/`), which declares `jvm()` so common tests run on the JVM.
+- Physical unit constants (`MM_PER_FOOT`, `ATM_BAR`, `ZERO_CELSIUS_MK`, ...) live in `core/model` `units/Constants.kt`.
 - Storage uses fixed integer units: depth mm, pressure mbar, temperature mK, duration s, gas permille.
 - Each downloaded dive keeps its raw blob plus a format id, so it can be re-parsed after a parser fix.
 - A dive computer's serial line settings live in its protocol's `SERIAL_PARAMS` (`SerialParams`), applied by the platform transport.
@@ -36,7 +38,7 @@ per-target entry point.
 - **macOS serial:** use the `cu.*` port, not `tty.*` (the dial-in node blocks on open under jSerialComm).
 - **Shearwater Petrel/Predator** speak classic Bluetooth SPP (a serial port), not BLE. On macOS the paired device's `cu.*` node no longer brings the link up; the desktop connects through the bundled Swift helper `app/desktop/native/rfcomm-bridge.swift` (`MacRfcommTransport`). Test without the app: `./gradlew :app:desktop:shearwaterCapture --args="PETREL 3"`.
 - **Suunto HelO2 (Vyper2 family)** ignores a command sent less than ~500 ms after its previous reply; `txIdleMs = 600` handles it. When a serial download is flaky, check per-command timing before blaming the cable. Details in `docs/protocol/suunto-helo2.md`.
-- **DB migrations:** SQLDelight `.sqm` files bump `Schema.version`; Android/iOS drivers auto-migrate, the jvm `DriverFactory` tracks `PRAGMA user_version` by hand. Add a `.sqm` when changing the schema.
+- **DB migrations:** SQLDelight `.sqm` files bump `Schema.version`; Android/iOS drivers auto-migrate, the jvm `createDatabase` (`DriverFactory.jvm.kt`) tracks `PRAGMA user_version` by hand. Add a `.sqm` when changing the schema.
 
 ## Build and test
 

@@ -1,0 +1,5 @@
+-- Splits Subsurface's 0..5 visibility stars from visibility as a distance in mm.
+-- Values 0..5 can only be stars (no one logs 5 mm of visibility).
+ALTER TABLE dive ADD COLUMN visibilityRating INTEGER;
+
+UPDATE dive SET visibilityRating = visibility, visibility = NULL WHERE visibility BETWEEN 0 AND 5;

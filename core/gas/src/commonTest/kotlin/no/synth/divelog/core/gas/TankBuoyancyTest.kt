@@ -5,7 +5,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** The scuba-tools web tank calculator's test suite, case for case. */
+/**
+ * Ranges first ported from the scuba-tools web tank calculator's suite, with the gas weight now
+ * from real air (Z about 1.06 at 232 bar) and sea water at 1.03 kg/l like the planner.
+ */
 class TankBuoyancyTest {
     private val salt = TankSetup(metal = TankMetal.STEEL, saltWater = true, valve = true, doubles = false)
     private val saltAlu = salt.copy(metal = TankMetal.ALUMINIUM)
@@ -18,7 +21,7 @@ class TankBuoyancyTest {
     @Test
     fun steel12L232Bar() {
         val r = buoyancy(MetricTank(12.0, 232.0, 14.5), salt)
-        assertBetween(-3.0, -1.0, r.emptyKg, "empty")
+        assertBetween(-3.0, -0.5, r.emptyKg, "empty")
         assertTrue(r.fullKg < r.emptyKg)
         assertBetween(3.0, 3.8, r.gasKg, "air")
     }
@@ -27,7 +30,7 @@ class TankBuoyancyTest {
     fun steel15L232Bar() {
         val r = buoyancy(MetricTank(15.0, 232.0, 16.8), salt)
         assertBetween(-1.0, 1.0, r.emptyKg, "empty")
-        assertBetween(4.0, 4.7, r.gasKg, "air")
+        assertBetween(3.7, 4.3, r.gasKg, "air")
     }
 
     @Test
@@ -36,14 +39,15 @@ class TankBuoyancyTest {
         assertEquals(29.0, r.totalKg)
         assertEquals(24.0, r.totalLitres)
         assertTrue(r.emptyKg < -2)
-        assertBetween(6.5, 7.5, r.gasKg, "air")
+        assertBetween(6.0, 7.0, r.gasKg, "air")
     }
 
     @Test
     fun steel10L300Bar() {
         val r = buoyancy(MetricTank(10.0, 300.0, 14.2), salt)
         assertTrue(r.emptyKg < 0)
-        assertBetween(3.4, 4.0, r.gasKg, "air")
+        // Ideal gas would say 3.7 kg; real air at 300 bar has Z 1.11.
+        assertBetween(3.1, 3.5, r.gasKg, "air")
     }
 
     // Metric aluminium
@@ -119,7 +123,7 @@ class TankBuoyancyTest {
     fun stage7L() {
         val r = buoyancy(MetricTank(7.0, 232.0, 8.5), salt)
         assertTrue(r.emptyKg < 0)
-        assertBetween(1.8, 2.3, r.gasKg, "air")
+        assertBetween(1.7, 2.1, r.gasKg, "air")
     }
 
     @Test
@@ -143,9 +147,14 @@ class TankBuoyancyTest {
     @Test
     fun metricAndImperialAgree() {
         val metric = buoyancy(MetricTank(11.1, 207.0, 14.2), saltAlu)
-        val imperial = buoyancy(ImperialTank(77.4, 3000.0, 31.4), saltAlu)
-        assertTrue(abs(metric.emptyKg - imperial.emptyKg) < 0.5)
-        assertTrue(abs(metric.fullKg - imperial.fullKg) < 0.5)
+        val imperial = buoyancy(ImperialTank(80.0, 3000.0, 31.4), saltAlu)
+        assertTrue(abs(metric.emptyKg - imperial.emptyKg) < 0.2)
+        assertTrue(abs(metric.fullKg - imperial.fullKg) < 0.2)
+        // Converting is lossless: the same tank either way.
+        val al80 = ImperialTank(80.0, 3000.0, 31.4)
+        val viaMetric = al80.toMetric().toImperial()
+        assertTrue(abs(viaMetric.cubicFeet - al80.cubicFeet) < 1e-9 && abs(viaMetric.psi - al80.psi) < 1e-9)
+        assertEquals(buoyancy(al80, saltAlu).fullKg, buoyancy(al80.toMetric(), saltAlu).fullKg)
     }
 
     // Material density
@@ -159,17 +168,44 @@ class TankBuoyancyTest {
         assertBetween(3.0, 6.0, alu.emptyKg - steel.emptyKg, "difference")
     }
 
+    // Exact values
+
+    @Test
+    fun steel12L232BarExactly() {
+        // Displaces (12 + 14.5 / 7.85 + 0.9 / 7.85) l x 1.03 = 14.38 kg; holds 12 x (233.01 / 1.0575
+        // - 1.013) / 1.013 = 2598 l of free air, 3.18 kg.
+        val r = buoyancy(MetricTank(12.0, 232.0, 14.5), salt)
+        assertEquals(listOf(-1.0, -4.2, -2.2, -9.3, 14.5, 12.0), listOf(r.emptyKg, r.fullKg, r.emptyLbs, r.fullLbs, r.totalKg, r.totalLitres))
+        val twin = buoyancy(MetricTank(12.0, 232.0, 14.5), salt.copy(doubles = true))
+        assertEquals(listOf(-3.3, -9.7), listOf(twin.emptyKg, twin.fullKg))
+    }
+
+    @Test
+    fun al80HoldsItsRealCapacity() {
+        // Labelled 80 cuft (ideal gas), the real-gas capacity is about 77 cuft: 5.9 lbs of air.
+        val r = buoyancy(ImperialTank(80.0, 3000.0, 31.4), saltAlu)
+        assertEquals(listOf(4.1, -1.8, 1.8, -0.8), listOf(r.emptyLbs, r.fullLbs, r.emptyKg, r.fullKg))
+        assertTrue(r.steps.any { it.result == "76.8625 cuft" })
+    }
+
     // Worked calculation
 
     @Test
     fun explainsTheCalculation() {
         val r = buoyancy(MetricTank(12.0, 232.0, 14.5), salt)
-        val text = r.steps.joinToString("\n") { it.text }
-        assertTrue("density" in text)
-        assertTrue("7.85" in text)
-        assertTrue("salt water" in text)
-        assertTrue("buoyancy" in text)
-        // The web version bolds each step's result.
-        assertTrue(r.steps.any { it.result != null })
+        val expected = listOf(
+            "Steel has a density of 7.85 kg/liter",
+            "The volume of the tank metal is 14.5 kg / 7.85 = 1.8471 liters",
+            "The volume of the valve is 0.9 kg / 7.85 = 0.1146 liters",
+            "The density of salt water is 1.03 kg/liter",
+            "Total weight in water: (12 + 1.8471 + 0.1146) x 1.03 = 14.3806 kg",
+            "Air at 233.0133 bar absolute is less compressible than an ideal gas: Z = 1.0575",
+            "Free air in a full tank: 12 liters x (233.0133 bar / 1.0575 - 1.01325 bar) / 1.01325 = 2597.535 liters",
+            "Air has a density of 0.001225 kg/liter at 1 atm",
+            "The air in a full tank weighs 0.001225 x 2597.535 liters = 3.182 kg",
+            "Tank buoyancy when empty: 14.3806 - 14.5 - 0.9 = -1 kg",
+            "Tank buoyancy when full: 14.3806 - 14.5 - 0.9 - 3.182 = -4.2 kg",
+        )
+        assertEquals(expected, r.steps.map { s -> s.result?.let { "${s.text} = $it" } ?: s.text })
     }
 }

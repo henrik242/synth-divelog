@@ -1,6 +1,5 @@
 package no.synth.divelog.ui.tools
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,14 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -24,22 +21,20 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.gas.Buoyancy
@@ -51,7 +46,11 @@ import no.synth.divelog.core.gas.TankPreset
 import no.synth.divelog.core.gas.TankSetup
 import no.synth.divelog.core.gas.buoyancy
 import no.synth.divelog.core.model.units.UnitSystem
-import no.synth.divelog.ui.format.Format
+import no.synth.divelog.ui.components.CheckRow
+import no.synth.divelog.ui.components.DecimalField
+import no.synth.divelog.ui.components.ToolCard
+import no.synth.divelog.ui.components.parseDecimal
+import no.synth.divelog.ui.components.trimmedDecimal
 
 /** Tank calculator inputs, as typed, in [units]. Held above the screen so they survive leaving the tab. */
 @Stable
@@ -100,9 +99,9 @@ class TankBuoyancyState {
     }
 
     private fun values(): Triple<Double, Double, Double>? {
-        val a = parse(size)?.takeIf { it > 0 } ?: return null
-        val b = parse(pressure)?.takeIf { it > 0 } ?: return null
-        val c = parse(weight)?.takeIf { it > 0 } ?: return null
+        val a = parseDecimal(size)?.takeIf { it > 0 } ?: return null
+        val b = parseDecimal(pressure)?.takeIf { it > 0 } ?: return null
+        val c = parseDecimal(weight)?.takeIf { it > 0 } ?: return null
         return Triple(a, b, c)
     }
 
@@ -111,43 +110,45 @@ class TankBuoyancyState {
     private fun imperial() = values()?.takeIf { units == UnitSystem.IMPERIAL }?.let { (c, p, lbs) -> ImperialTank(c, p, lbs) }
 
     private fun setMetric(t: MetricTank) {
-        size = trimmed(t.litres)
-        pressure = trimmed(t.bar)
-        weight = trimmed(t.kg)
+        size = trimmedDecimal(t.litres)
+        pressure = trimmedDecimal(t.bar)
+        weight = trimmedDecimal(t.kg)
     }
 
     private fun setImperial(t: ImperialTank) {
-        size = trimmed(t.cubicFeet)
+        size = trimmedDecimal(t.cubicFeet)
         pressure = kotlin.math.round(t.psi).toLong().toString()
-        weight = trimmed(t.lbs)
+        weight = trimmedDecimal(t.lbs)
     }
 }
 
 @Composable
 fun TankBuoyancyScreen(state: TankBuoyancyState, unitSystem: UnitSystem) {
-    LaunchedEffect(unitSystem) { state.useUnits(unitSystem) }
+    // Convert before anything reads the fields, so the frame after a unit switch is already right.
+    Snapshot.withoutReadObservation { state.useUnits(unitSystem) }
     val metric = state.units == UnitSystem.METRIC
     val result = state.result()
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        TankCard("Cylinder") {
+        ToolCard("Cylinder") {
             PresetPicker(state.presetName) { state.choose(it) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TankField(state.size, { state.size = it; state.presetName = null }, if (metric) "Volume (L)" else "Capacity (cuft)", Modifier.weight(1f))
-                TankField(state.pressure, { state.pressure = it; state.presetName = null }, if (metric) "Pressure (bar)" else "Pressure (psi)", Modifier.weight(1f))
+                DecimalField(state.size, { state.size = it; state.presetName = null }, if (metric) "Volume (L)" else "Capacity (cuft)", Modifier.weight(1f))
+                DecimalField(state.pressure, { state.pressure = it; state.presetName = null }, if (metric) "Pressure (bar)" else "Pressure (psi)", Modifier.weight(1f))
             }
-            TankField(
+            DecimalField(
                 state.weight,
                 { state.weight = it; state.presetName = null },
                 if (metric) "Weight per cylinder, no valve (kg)" else "Weight per cylinder, no valve (lbs)",
                 Modifier.fillMaxWidth(),
             )
-            Option("Salt water", state.saltWater) { state.saltWater = it }
-            Option("Doubles (two cylinders on a manifold)", state.doubles) { state.doubles = it; state.presetName = null }
-            Option("Aluminium", state.aluminium) { state.aluminium = it; state.presetName = null }
-            Option("Include valve", state.valve) { state.valve = it }
+            val row = Modifier.fillMaxWidth()
+            CheckRow("Salt water", state.saltWater, row) { state.saltWater = it }
+            CheckRow("Doubles (two cylinders on a manifold)", state.doubles, row) { state.doubles = it; state.presetName = null }
+            CheckRow("Aluminium", state.aluminium, row) { state.aluminium = it; state.presetName = null }
+            CheckRow("Include valve", state.valve, row) { state.valve = it }
         }
 
         if (result == null) {
@@ -232,7 +233,7 @@ private fun BuoyancyTile(label: String, kg: Double, lbs: Double, metric: Boolean
 @Composable
 private fun CalculationCard(result: Buoyancy) {
     var open by remember { mutableStateOf(false) }
-    TankCard("How it is calculated") {
+    ToolCard("How it is calculated") {
         TextButton(onClick = { open = !open }) { Text(if (open) "Hide" else "Show") }
         if (open) {
             result.steps.forEachIndexed { i, step ->
@@ -252,44 +253,10 @@ private fun CalculationCard(result: Buoyancy) {
     }
 }
 
-@Composable
-private fun TankCard(title: String, content: @Composable () -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            content()
-        }
-    }
-}
-
-@Composable
-private fun Option(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }, verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(checked = checked, onCheckedChange = onChange)
-        Text(label)
-    }
-}
-
-@Composable
-private fun TankField(value: String, onChange: (String) -> Unit, label: String, modifier: Modifier) {
-    OutlinedTextField(
-        value,
-        { onChange(it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
-        label = { Text(label) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        modifier = modifier,
-    )
-}
-
 /** "3.4 kg" in the chosen system, the other in brackets. */
 private fun weightLabel(kg: Double, lbs: Double, metric: Boolean): String =
-    if (metric) "${trimmed(kg)} kg (${trimmed(lbs)} lbs)" else "${trimmed(lbs)} lbs (${trimmed(kg)} kg)"
+    if (metric) "${trimmedDecimal(kg)} kg (${trimmedDecimal(lbs)} lbs)" else "${trimmedDecimal(lbs)} lbs (${trimmedDecimal(kg)} kg)"
 
 /** "+1.2 kg" / "-3.5 kg": buoyancy, so the sign says float or sink. */
-private fun signedWeight(v: Double, unit: String) = (if (v > 0) "+" else "") + "${trimmed(v)} $unit"
+private fun signedWeight(v: Double, unit: String) = (if (v > 0) "+" else "") + "${trimmedDecimal(v)} $unit"
 
-private fun parse(text: String): Double? = text.trim().replace(',', '.').toDoubleOrNull()
-
-/** One decimal, dropped when it is zero. */
-private fun trimmed(v: Double): String = Format.oneDecimal(v).removeSuffix(".0")

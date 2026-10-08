@@ -28,6 +28,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 selectSamplesForRecord:
 SELECT * FROM sample WHERE recordId = ? ORDER BY timeOffsetSeconds;
 
+-- The whole log's samples, grouped by record in code.
+selectAllSamples:
+SELECT * FROM sample ORDER BY recordId, timeOffsetSeconds;
+
 countSamplesForRecord:
 SELECT count(*) FROM sample WHERE recordId = ?;
 
@@ -37,6 +41,9 @@ VALUES (?, ?, ?, ?);
 
 selectTankPressuresForRecord:
 SELECT * FROM sampleTankPressure WHERE recordId = ? ORDER BY timeOffsetSeconds, tankIndex;
+
+selectAllTankPressures:
+SELECT * FROM sampleTankPressure ORDER BY recordId, timeOffsetSeconds, tankIndex;
 
 deleteSamplesForRecord:
 DELETE FROM sample WHERE recordId = ?;

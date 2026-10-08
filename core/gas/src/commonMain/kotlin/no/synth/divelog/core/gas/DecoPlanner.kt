@@ -3,29 +3,24 @@
 // core/plannernotes.cpp, core/divelist.cpp).
 package no.synth.divelog.core.gas
 
+import no.synth.divelog.core.model.units.ATM_BAR
+import no.synth.divelog.core.model.units.feetToMm
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.round
 
-/** Water density as salinity in g per 10 l, Subsurface's unit. */
-enum class Water(val salinity: Int) { SALT(10300), FRESH(10000) }
-
 /** One level of the bottom profile: go to [depthMm] and leave it [durationS] later, travel included. */
 data class PlanLevel(val depthMm: Int, val durationS: Int)
 
 /**
- * Ascent rates in mm/min, chosen by depth relative to the average depth of the bottom
- * profile: deeper than 75 % of it, deeper than 50 %, below 6 m, and the last 6 m.
+ * Ascent rates in mm/min: [ascent] below 6 m, [lastSixMetres] from there to the surface.
+ * Subsurface can also slow down by depth relative to the average depth; its reference plans
+ * use one rate below 6 m, as here.
  */
-data class AscentRates(
-    val deep75: Int = 9000,
-    val mid50: Int = 9000,
-    val stops: Int = 9000,
-    val last6m: Int = 9000,
-) {
+data class AscentRates(val ascent: Int = 9000, val lastSixMetres: Int = 9000) {
     init {
-        require(listOf(deep75, mid50, stops, last6m).all { it >= 60 }) { "Ascent rates must be at least 60 mm/min" }
+        require(ascent >= 60 && lastSixMetres >= 60) { "Ascent rates must be at least 60 mm/min" }
     }
 }
 
@@ -56,6 +51,7 @@ data class DivePlan(
     init {
         require(levels.isNotEmpty()) { "A plan needs at least one level" }
         require(levels.all { it.depthMm > 0 && it.durationS > 0 }) { "Levels need a depth and a duration" }
+        require(bottomGas.o2 > 0 && decoGases.all { it.o2 > 0 }) { "Gases need oxygen" }
         require(descentRate >= 60) { "Descent rate must be at least 60 mm/min" }
         require(surfaceMbar in 500..1100) { "Surface pressure out of range" }
     }
@@ -80,10 +76,10 @@ sealed interface PlanWarning {
     val gas: BreathingGas
     val depthMm: Int
 
-    /** pO2 above the limit (bottom or deco), in atm as Subsurface reports it. */
+    /** pO2 above the limit (bottom or deco), bar. */
     data class HighPpO2(override val gas: BreathingGas, override val depthMm: Int, val ppO2: Double, val limit: Double) : PlanWarning
 
-    /** pO2 below 0.16: hypoxic. */
+    /** pO2 below [MIN_PPO2]: hypoxic. */
     data class LowPpO2(override val gas: BreathingGas, override val depthMm: Int, val ppO2: Double) : PlanWarning
 
     data class HighEnd(override val gas: BreathingGas, override val depthMm: Int, val endMm: Int) : PlanWarning
@@ -116,32 +112,6 @@ data class DecoPlan(
     val stops: List<PlanSegment> get() = segments.filter { it.isStop }
 }
 
-/** Depth/pressure conversion at a surface pressure and salinity, rounded to whole mbar as Subsurface does. */
-class WaterColumn(val surfaceMbar: Int, water: Water) {
-    private val mbarPerMm = water.salinity * 0.981 / 100000.0
-
-    fun mbar(depthMm: Int): Int = round(surfaceMbar + depthMm * mbarPerMm).toInt()
-    fun bar(depthMm: Int): Double = mbar(depthMm) / 1000.0
-
-    /** Depth of an ambient pressure, mm; negative above the surface. */
-    fun depthMm(ambientMbar: Int): Int = round((ambientMbar - surfaceMbar) / mbarPerMm).toInt()
-
-    /** Smooth ceiling depth for a tolerated ambient pressure, never above the surface. */
-    fun ceilingMm(toleratedBar: Double): Int {
-        val delta = max(0.0, toleratedBar - surfaceMbar / 1000.0)
-        return round(round(delta * 1000) / mbarPerMm).toInt()
-    }
-
-    /**
-     * Depth where [gas] reaches [ppO2Mbar], in whole [stepMm]. Rounds down, except that from
-     * 0.9 of a step it rounds up, so oxygen at 1.6 lands on 6 m.
-     */
-    fun switchDepthMm(gas: BreathingGas, ppO2Mbar: Int, stepMm: Int): Int {
-        val depth = depthMm(ppO2Mbar * 1000 / gas.o2).toDouble()
-        return (depth / stepMm + 0.1).toInt() * stepMm
-    }
-}
-
 private const val ASCENT_STEP_S = 2
 private const val STOP_STEP_S = 60
 private const val MAX_STOP_S = 48 * 3600
@@ -158,15 +128,13 @@ object DecoPlanner {
             ((0..300 step 10) + listOf(
                 333, 367, 400, 433, 467, 500, 533, 567, 600, 633, 667,
                 733, 800, 867, 933, 1000, 1067, 1133, 1200, 1267,
-            )).map { ftToMm(it) }
+            )).map { feetToMm(it) }
         } else {
             ((0..90 step 3) + (100..200 step 10) + (220..380 step 20)).map { it * 1000 }
         }
         // A 6 m last stop drops the 3 m level.
         return if (lastStopDeep) levels.filterIndexed { i, _ -> i != 1 } else levels
     }
-
-    internal fun ftToMm(ft: Int): Int = round(ft * 304.8).toInt()
 }
 
 private class Waypoint(val timeS: Int, val depthMm: Int, val gas: BreathingGas, val bottom: Boolean)
@@ -175,22 +143,26 @@ private class GasChange(val depthMm: Int, val gas: BreathingGas)
 
 private class PlanRun(private val plan: DivePlan) {
     private val water = WaterColumn(plan.surfaceMbar, plan.water)
-    private val surfaceBar = plan.surfaceMbar / 1000.0
+    private val surfaceBar = water.surfaceBar
     private val waypoints = mutableListOf<Waypoint>()
-    private var avgDepthMm = 0
-    private val rates = with(plan.ascentRates) { listOf(deep75, mid50, stops, last6m).map { it / 60 } }
+
+    // mm/s, truncated as Subsurface stores them.
+    private val ascentMmPerS = plan.ascentRates.ascent / 60
+    private val lastSixMetresMmPerS = plan.ascentRates.lastSixMetres / 60
+
+    private val stepMm = if (plan.imperialStops) feetToMm(10) else 3000
+    // Where each deco gas is switched to; the pO2 check tolerates it from there up.
+    private val switches = plan.decoGases.map { GasChange(water.switchDepthMm(it, plan.decoPpO2Mbar, stepMm), it) }
 
     fun run(): DecoPlan {
         val tissues = Tissues.atSurface(surfaceBar)
         if (!buildProfile()) return result(tissues, 0, 0, null, PlanError.LEVEL_TOO_SHORT)
         loadProfile(tissues)
-        avgDepthMm = averageDepthMm()
         val bottomTime = waypoints.last().timeS
         val bottomDepth = waypoints.last().depthMm
-        val bottomCeiling = water.ceilingMm(tissues.toleratedAmbientBar(plan.gf, surfaceBar))
+        // The ascent is planned from the GF-low anchor this check sets.
+        val bottomCeiling = ceilingMm(tissues)
 
-        val stepMm = if (plan.imperialStops) DecoPlanner.ftToMm(10) else 3000
-        val switches = plan.decoGases.map { GasChange(water.switchDepthMm(it, plan.decoPpO2Mbar, stepMm), it) }
         // Gases already usable at the end of the bottom are switched to there; the shallowest wins.
         val firstAscentGas = switches.filter { it.depthMm > bottomDepth }.minByOrNull { it.depthMm }?.gas
         val gasChanges = switches.filter { it.depthMm <= bottomDepth }.sortedBy { it.depthMm }
@@ -276,7 +248,7 @@ private class PlanRun(private val plan: DivePlan) {
         waypoints.add(Waypoint(0, 0, plan.bottomGas, bottom = true))
         for (level in plan.levels) {
             val diff = level.depthMm - depth
-            val rate = if (diff > 0) plan.descentRate else plan.ascentRates.stops
+            val rate = if (diff > 0) plan.descentRate else plan.ascentRates.ascent
             val travel = if (diff == 0) 0 else max(1, (if (diff > 0) diff else -diff) * 60 / rate)
             if (travel > level.durationS) return false
             if (travel > 0) waypoints.add(Waypoint(time + travel, level.depthMm, plan.bottomGas, bottom = true))
@@ -293,20 +265,13 @@ private class PlanRun(private val plan: DivePlan) {
         }
     }
 
-    /** Time-weighted mean depth of the planned profile, in whole mm as Subsurface sums it. */
-    private fun averageDepthMm(): Int {
-        var integral = 0L
-        waypoints.zipWithNext { a, b -> integral += (a.depthMm + b.depthMm).toLong() * (b.timeS - a.timeS) / 2 }
-        val last = waypoints.last().timeS
-        return if (last > 0) (integral / last).toInt() else 0
-    }
-
     /** mm/s. */
-    private fun ascentRate(depthMm: Int): Int = when {
-        depthMm.toLong() * 4 > avgDepthMm.toLong() * 3 -> rates[0]
-        depthMm.toLong() * 2 > avgDepthMm -> rates[1]
-        depthMm > SIX_METRES_MM -> rates[2]
-        else -> rates[3]
+    private fun ascentRate(depthMm: Int): Int = if (depthMm > SIX_METRES_MM) ascentMmPerS else lastSixMetresMmPerS
+
+    /** Ceiling depth, mm, after moving the GF-low anchor as Subsurface does on every check. */
+    private fun ceilingMm(tissues: Tissues): Int {
+        tissues.anchorGfLow(plan.gf)
+        return water.ceilingMm(tissues.toleratedAmbientBar(plan.gf, surfaceBar))
     }
 
     /** Whether, after waiting [waitS], the ascent from [fromMm] to [toMm] stays below the ceiling. */
@@ -317,7 +282,7 @@ private class PlanRun(private val plan: DivePlan) {
         while (depth > toMm) {
             val delta = minOf(ascentRate(depth) * ASCENT_STEP_S, depth)
             trial.constantDepth(water.bar(depth), gas, ASCENT_STEP_S)
-            if (water.ceilingMm(trial.toleratedAmbientBar(plan.gf, surfaceBar)) > depth - delta) return false
+            if (ceilingMm(trial) > depth - delta) return false
             depth -= delta
         }
         return true
@@ -354,7 +319,8 @@ private class PlanRun(private val plan: DivePlan) {
         )
     }
 
-    private fun atm(depthMm: Int): Double = water.mbar(depthMm) / 1013.25
+    /** Ambient pressure in atm, for gas volumes at the surface. */
+    private fun atm(depthMm: Int): Double = water.bar(depthMm) / ATM_BAR
 
     private fun gasUse(segments: List<PlanSegment>): List<GasUse> =
         segments.groupBy { it.gas }.map { (gas, segs) ->
@@ -398,9 +364,12 @@ private class PlanRun(private val plan: DivePlan) {
         val found = mutableListOf<PlanWarning>()
         val checks = segments.flatMap { s -> listOf(s to s.startDepthMm, s to s.endDepthMm) }
         for ((s, depth) in checks) {
-            val ppO2 = s.gas.o2 / 1000.0 * atm(depth)
+            val ppO2 = s.gas.o2 / 1000.0 * water.bar(depth)
             val limit = (if (s.bottom) plan.bottomPpO2Mbar else plan.decoPpO2Mbar) / 1000.0
-            if (ppO2 > limit) found += PlanWarning.HighPpO2(s.gas, depth, ppO2, limit)
+            // A deco gas at or above the switch depth chosen for it is as planned, even when
+            // rounding to the stop step puts it a little over the limit (O2 at 6 m is 1.619 bar).
+            val asSwitched = !s.bottom && switches.any { it.gas == s.gas && depth <= it.depthMm }
+            if (ppO2 > limit && !asSwitched) found += PlanWarning.HighPpO2(s.gas, depth, ppO2, limit)
             if (ppO2 < MIN_PPO2) found += PlanWarning.LowPpO2(s.gas, depth, ppO2)
             plan.maxEndMm?.let { maxEnd ->
                 val end = water.depthMm(water.mbar(depth) * (1000 - s.gas.he) / 1000)

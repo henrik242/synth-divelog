@@ -2,10 +2,9 @@ package no.synth.divelog.desktop
 
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DeviceInfo
+import no.synth.divelog.core.divecomputer.DiveComputerKind
 import no.synth.divelog.core.divecomputer.DownloadListener
-import no.synth.divelog.core.divecomputer.shearwater.PredatorParser
-import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPetrelProtocol
-import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPredatorProtocol
+import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.transport.MacRfcommTransport
 import java.time.Instant
 
@@ -27,6 +26,7 @@ fun main(args: Array<String>) {
     println("Paired serial-port devices: ${if (paired.isEmpty()) "(none)" else paired.joinToString { "${it.name} ${it.address}" }}")
 
     val predator = args.any { it.equals("PREDATOR", ignoreCase = true) }
+    val kind = if (predator) DiveComputerKind.SHEARWATER_PREDATOR else DiveComputerKind.SHEARWATER_PETREL
     val model = if (predator) "Predator" else "Petrel"
     val count = args.firstNotNullOfOrNull { it.toIntOrNull() } ?: 3
     val target = args.firstOrNull { it.uppercase() !in setOf("PETREL", "PREDATOR") && it.toIntOrNull() == null } ?: model
@@ -43,15 +43,15 @@ fun main(args: Array<String>) {
     try {
         transport.open()
         println("Connected after ${elapsed()}")
-        val protocol = if (predator) ShearwaterPredatorProtocol(transport) else ShearwaterPetrelProtocol(transport)
+        val protocol = kind.protocol(transport)
         val listener = object : DownloadListener {
             override fun onDeviceInfo(info: DeviceInfo) = println("Device: ${info.vendor} ${info.model}")
             override fun onDiveCount(total: Int) = println("Downloading $total dive(s)")
-            override fun onDiveDownloaded(index: Int) = println("  dive ${index + 1} read, ${elapsed()}")
+            override fun onDiveDownloaded(index: Int, dive: RawDive) = println("  dive ${index + 1} read, ${elapsed()}")
         }
         val raws = protocol.download(null, listener, CancellationSignal.NONE, limit = count)
         println("Downloaded ${raws.size} raw dive(s) in ${elapsed()}")
-        val parser = PredatorParser()
+        val parser = kind.parser()
         raws.forEachIndexed { i, raw ->
             runCatching { parser.parse(raw) }
                 .onSuccess { d -> println("  #${i + 1}  ${Instant.ofEpochSecond(d.startEpochSeconds)}  ${d.durationSeconds / 60}min  max=${(d.maxDepthMm ?: 0) / 1000.0}m  ${d.samples.size} samples") }

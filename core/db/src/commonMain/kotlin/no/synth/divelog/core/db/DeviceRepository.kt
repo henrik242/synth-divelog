@@ -1,5 +1,7 @@
 package no.synth.divelog.core.db
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
@@ -22,6 +24,8 @@ class DeviceRepository(private val db: DiveDatabase) {
 
     fun all(): List<Device> = q.selectAllDevices().executeAsList().map { it.toDomain() }
 
+    fun allFlow(): Flow<List<Device>> = q.selectAllDevices().listFlow { it.toDomain() }
+
     fun get(id: Long): Device? = q.selectDeviceById(id).executeAsOneOrNull()?.toDomain()
 
     fun byAddress(address: String): Device? =
@@ -42,6 +46,9 @@ class DeviceRepository(private val db: DiveDatabase) {
     /** Number of distinct dives recorded by each device, keyed by device id. */
     fun diveCounts(): Map<Long, Long> = db.recordQueries.countDivesByDevice().executeAsList()
         .associate { it.deviceId to it.dives }
+
+    fun diveCountsFlow(): Flow<Map<Long, Long>> =
+        db.recordQueries.countDivesByDevice().listFlow { it.deviceId to it.dives }.map { it.toMap() }
 
     /** Start time and UTC offset of the newest dive recorded by each device, keyed by device id. */
     fun newestDives(): Map<Long, Pair<Long, Int>> = db.recordQueries.newestDiveByDevice().executeAsList()

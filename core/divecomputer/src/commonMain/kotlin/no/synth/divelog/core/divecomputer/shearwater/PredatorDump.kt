@@ -1,7 +1,8 @@
 package no.synth.divelog.core.divecomputer.shearwater
 
 import no.synth.divelog.core.divecomputer.RawDive
-import no.synth.divelog.core.divecomputer.transport.toHex
+import no.synth.divelog.core.divecomputer.toHex
+import no.synth.divelog.core.divecomputer.u16be
 
 /**
  * Finds individual dives inside a Predator memory dump. The profile area is a
@@ -12,9 +13,10 @@ import no.synth.divelog.core.divecomputer.transport.toHex
  * The ring is circular: the newest dive can begin near the end and have its
  * closing block wrap back to the start. Each opening is paired with the next
  * closing in circular order (wrapping once past the end), and a wrapped dive's
- * bytes are stitched across the boundary. Orphan closings, left when an old
- * dive's opening has been overwritten, are ignored. Dives are returned newest
- * first by dive number.
+ * bytes are stitched across the boundary. An opening with another opening before
+ * that closing never closed (an interrupted or overwritten dive) and is skipped.
+ * Orphan closings, left when an old dive's opening has been overwritten, are
+ * ignored. Dives are returned newest first by dive number.
  */
 object PredatorDump {
     const val BLOCK_SIZE = 0x80
@@ -45,8 +47,8 @@ object PredatorDump {
         if (closings.isEmpty()) return emptyList()
         val sortedClosings = closings.sorted()
 
-        val found = openings.map { opening ->
-            val closing = nextClosing(opening, sortedClosings)
+        val found = openings.mapNotNull { opening ->
+            val closing = nextClosing(opening, openings, sortedClosings) ?: return@mapNotNull null
             val data = if (closing > opening) {
                 memory.copyOfRange(opening, minOf(closing + BLOCK_SIZE, memory.size))
             } else {
@@ -62,14 +64,22 @@ object PredatorDump {
             .map { RawDive(fingerprint = it.fingerprint, data = it.data, formatId = FORMAT_ID) }
     }
 
-    /** First closing after [opening]; if none, wrap to the earliest closing. */
-    private fun nextClosing(opening: Int, sortedClosings: List<Int>): Int =
-        sortedClosings.firstOrNull { it > opening } ?: sortedClosings.first()
+    /**
+     * First closing after [opening], wrapping to the earliest closing if there is none
+     * after it. Null when another opening comes first: this dive never closed.
+     */
+    private fun nextClosing(opening: Int, sortedOpenings: List<Int>, sortedClosings: List<Int>): Int? {
+        val nextOpening = sortedOpenings.firstOrNull { it > opening }
+        val closing = sortedClosings.firstOrNull { it > opening }
+        if (closing != null) return closing.takeIf { nextOpening == null || nextOpening > closing }
+        // Wrapped: no opening may lie after this one, nor before the closing at the start.
+        val wrapped = sortedClosings.first()
+        return wrapped.takeIf { nextOpening == null && sortedOpenings.first() > wrapped }
+    }
 
     /** Read number and fingerprint from a reassembled dive (opening block at index 0). */
     private fun capture(data: ByteArray): Found {
-        val number = ((data[NUMBER_OFFSET].toInt() and 0xFF) shl 8) or
-            (data[NUMBER_OFFSET + 1].toInt() and 0xFF)
+        val number = u16be(data, NUMBER_OFFSET)
         val fingerprint = data
             .copyOfRange(FINGERPRINT_OFFSET, FINGERPRINT_OFFSET + FINGERPRINT_LEN)
             .toHex()

@@ -1,6 +1,7 @@
 package no.synth.divelog.core.divecomputer.suunto
 
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.fnv1a
 
 /**
  * Splits the old-Vyper profile ring buffer into one raw blob per dive.
@@ -75,7 +76,7 @@ object SuuntoVyperDump {
             .filter { it.size >= MIN_RECORD && it.any { b -> b.toInt() != 0 } }
             .map { record ->
                 RawDive(
-                    fingerprint = fingerprint(record),
+                    fingerprint = fnv1a(record),
                     data = record,
                     formatId = FORMAT_ID,
                 )
@@ -92,15 +93,5 @@ object SuuntoVyperDump {
         0x0D -> "Cobra"
         0x16 -> "Zoop"
         else -> "Vyper-family (0x${typeByte.toString(16)})"
-    }
-
-    /** Stable per-dive id from the raw bytes (FNV-1a), for duplicate detection. */
-    private fun fingerprint(record: ByteArray): String {
-        var hash = 0x811C9DC5u
-        for (b in record) {
-            hash = hash xor (b.toUInt() and 0xFFu)
-            hash *= 0x01000193u
-        }
-        return hash.toString(16).padStart(8, '0')
     }
 }

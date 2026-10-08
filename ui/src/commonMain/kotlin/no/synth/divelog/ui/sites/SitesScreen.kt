@@ -28,66 +28,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import kotlin.math.round
-import no.synth.divelog.core.model.Country
-import no.synth.divelog.core.model.Place
-import no.synth.divelog.core.model.Site
+import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.units.UnitSystem
-import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.common.observe
 import no.synth.divelog.ui.components.CountryField
 import no.synth.divelog.ui.components.EmptyState
-import no.synth.divelog.ui.dive.DiveListWithDetail
+import no.synth.divelog.ui.dive.DiveList
+import kotlin.math.round
 
-/**
- * Renders a single Sites drill-in level from the navigation state owned by the caller
- * (SynthDivelogApp). The top-bar breadcrumb is the back affordance, so the levels no
- * longer draw their own headers. Callbacks move the lifted state to drill in.
- */
+/** The Sites overview: a map of every site with a coordinate over the list of countries. */
 @Composable
-fun SitesSection(
-    container: AppContainer,
-    unitSystem: UnitSystem,
-    country: Country?,
-    place: Place?,
-    site: Site?,
-    editing: Boolean,
-    onCountryChange: (Country?) -> Unit,
-    onPlaceChange: (Place?) -> Unit,
-    onSiteChange: (Site?) -> Unit,
-    onEditingChange: (Boolean) -> Unit,
-) {
-    when {
-        editing && site != null -> SiteEditScreen(container, site)
-        site != null -> SiteDetail(container, site, unitSystem, onEdit = { onEditingChange(true) })
-        place != null -> PlaceSites(container, place, onOpen = { onSiteChange(it) })
-        country != null -> CountryPlaces(container, country, onOpen = { onPlaceChange(it) })
-        else -> Countries(
-            container,
-            onOpen = { onCountryChange(it) },
-            onOpenSite = { id ->
-                // Drill straight to the tapped pin's site, deriving its place and country.
-                container.sites.site(id)?.let { s ->
-                    val p = container.sites.place(s.placeId)
-                    onCountryChange(p?.let { container.sites.country(it.countryId) })
-                    onPlaceChange(p)
-                    onSiteChange(s)
-                }
-            },
-        )
-    }
-}
-
-@Composable
-private fun Countries(container: AppContainer, onOpen: (Country) -> Unit, onOpenSite: (Long) -> Unit) {
-    val countries = remember { container.sites.countries() }
-    val allSites = remember { container.sites.allSites() }
+fun SitesOverview(container: AppContainer, onOpenCountry: (Long) -> Unit, onOpenSite: (Long) -> Unit) {
+    val countries = observe(container, read = container.sites::countries, flow = container.sites::countriesFlow)
+    val allSites = observe(container, read = container.sites::allSites, flow = container.sites::allSitesFlow)
     if (countries.isEmpty()) {
         EmptyState("No dive sites yet. Add one when editing a dive.", Icons.Outlined.Place)
         return
     }
     Column(Modifier.fillMaxSize()) {
-        // Overview map of every site that has a coordinate; tap a pin to open that site.
-        // The map takes most of the space; the country list scrolls in the rest.
+        // Tap a pin to open that site. The map takes most of the space; the country list
+        // scrolls in the rest.
         SitesOverviewMap(
             allSites,
             onOpenSite,
@@ -95,36 +55,41 @@ private fun Countries(container: AppContainer, onOpen: (Country) -> Unit, onOpen
         )
         LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
             items(countries) { c ->
-                RowItem(c.name) { onOpen(c) }
+                RowItem(c.name) { onOpenCountry(c.id) }
             }
         }
     }
 }
 
 @Composable
-private fun CountryPlaces(container: AppContainer, country: Country, onOpen: (Place) -> Unit) {
-    val places = remember(country.id) { container.sites.places(country.id) }
+fun CountryPlaces(container: AppContainer, countryId: Long, onOpen: (Long) -> Unit) {
+    val places = remember(countryId) { container.sites.places(countryId) }
     LazyColumn(Modifier.fillMaxSize()) {
-        items(places) { p -> RowItem(p.name) { onOpen(p) } }
+        items(places) { p -> RowItem(p.name) { onOpen(p.id) } }
     }
 }
 
 @Composable
-private fun PlaceSites(container: AppContainer, place: Place, onOpen: (Site) -> Unit) {
-    val sites = remember(place.id) { container.sites.sites(place.id) }
+fun PlaceSites(container: AppContainer, placeId: Long, onOpen: (Long) -> Unit) {
+    val sites = remember(placeId) { container.sites.sites(placeId) }
     LazyColumn(Modifier.fillMaxSize()) {
-        items(sites) { s -> RowItem(s.name) { onOpen(s) } }
+        items(sites) { s -> RowItem(s.name) { onOpen(s.id) } }
     }
 }
 
+/** A site's coordinate, notes and dives; tapping a dive hands its id to [onOpenDive]. */
 @Composable
-private fun SiteDetail(
+fun SiteDetail(
     container: AppContainer,
-    site: Site,
+    siteId: Long,
     unitSystem: UnitSystem,
     onEdit: () -> Unit,
+    onOpenDive: (Long) -> Unit,
 ) {
-    val dives = remember(site.id) { container.dives.divesBySite(site.id) }
+    val site = remember(siteId) { container.sites.site(siteId) } ?: run {
+        Text("Site not found", Modifier.padding(16.dp)); return
+    }
+    val dives = remember(siteId) { container.dives.divesBySite(siteId) }
     Column(Modifier.fillMaxSize()) {
         if (site.latitude != null && site.longitude != null) {
             Text("${site.latitude}, ${site.longitude}", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
@@ -140,7 +105,7 @@ private fun SiteDetail(
         }
         OutlinedButton(onClick = onEdit, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Edit location") }
         Text("${dives.size} dive(s)", Modifier.padding(16.dp), style = MaterialTheme.typography.titleSmall)
-        DiveListWithDetail(container, dives, unitSystem)
+        DiveList(container, dives, unitSystem, onOpenDive)
     }
 }
 
@@ -153,10 +118,10 @@ private fun SiteDetail(
  * either way of entering them works.
  */
 @Composable
-private fun SiteEditScreen(
-    container: AppContainer,
-    site: Site,
-) {
+fun SiteEditScreen(container: AppContainer, siteId: Long) {
+    val site = remember(siteId) { container.sites.site(siteId) } ?: run {
+        Text("Site not found", Modifier.padding(16.dp)); return
+    }
     val originalName = remember(site.id) { site.name }
     val originalLat = remember(site.id) { site.latitude?.toString() ?: "" }
     val originalLon = remember(site.id) { site.longitude?.toString() ?: "" }
@@ -179,15 +144,22 @@ private fun SiteEditScreen(
     val countryName = remember(placeId) { place?.let { container.sites.country(it.countryId)?.name } ?: "" }
     val placeName = place?.name ?: ""
 
-    fun current(): Site = site.copy(
-        placeId = placeId,
-        name = name.trim().ifBlank { site.name },
-        latitude = lat.trim().toDoubleOrNull(),
-        longitude = lon.trim().toDoubleOrNull(),
-        notes = notes.ifBlank { null },
-    )
+    // The coordinate as last saved; a half-typed or invalid entry keeps it rather than clearing it.
+    var saved by remember(site.id) { mutableStateOf(site) }
+    val latValue = parseCoordinate(lat, 90.0)
+    val lonValue = parseCoordinate(lon, 180.0)
 
-    fun persist() = container.sites.updateSite(current())
+    fun persist() {
+        val next = site.copy(
+            placeId = placeId,
+            name = name.trim().ifBlank { site.name },
+            latitude = if (lat.isBlank()) null else parseCoordinate(lat, 90.0) ?: saved.latitude,
+            longitude = if (lon.isBlank()) null else parseCoordinate(lon, 180.0) ?: saved.longitude,
+            notes = notes.ifBlank { null },
+        )
+        container.sites.updateSite(next)
+        saved = next
+    }
 
     val hasEdits = name != originalName || lat != originalLat || lon != originalLon ||
         notes != originalNotes || placeId != site.placeId
@@ -249,10 +221,10 @@ private fun SiteEditScreen(
                 ) { Text("Move here") }
             }
 
-            val coordSummary = run {
-                val la = lat.trim().toDoubleOrNull()
-                val lo = lon.trim().toDoubleOrNull()
-                if (la != null && lo != null) "${round6(la)}, ${round6(lo)}" else "tap the map or set manually"
+            val coordSummary = if (latValue != null && lonValue != null) {
+                "${round6(latValue)}, ${round6(lonValue)}"
+            } else {
+                "tap the map or set manually"
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -272,6 +244,7 @@ private fun SiteEditScreen(
                         { lat = it; persist() },
                         label = { Text("Latitude") },
                         singleLine = true,
+                        isError = lat.isNotBlank() && latValue == null,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f),
                     )
@@ -280,6 +253,7 @@ private fun SiteEditScreen(
                         { lon = it; persist() },
                         label = { Text("Longitude") },
                         singleLine = true,
+                        isError = lon.isNotBlank() && lonValue == null,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f),
                     )
@@ -289,8 +263,8 @@ private fun SiteEditScreen(
 
         // The map fills the space the fixed fields and the old save row used to take.
         SiteLocationMap(
-            latitude = lat.trim().toDoubleOrNull(),
-            longitude = lon.trim().toDoubleOrNull(),
+            latitude = latValue,
+            longitude = lonValue,
             onPick = { pickedLat, pickedLon ->
                 lat = round6(pickedLat).toString()
                 lon = round6(pickedLon).toString()
@@ -308,6 +282,10 @@ private fun SiteEditScreen(
         )
     }
 }
+
+/** A latitude or longitude typed with a point or a comma, or null unless within +-[limit]. */
+internal fun parseCoordinate(text: String, limit: Double): Double? =
+    text.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it in -limit..limit }
 
 /** Trim a map-picked coordinate to about a metre so the fields stay readable. */
 private fun round6(value: Double): Double = round(value * 1_000_000) / 1_000_000

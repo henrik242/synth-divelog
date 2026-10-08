@@ -2,12 +2,12 @@ package no.synth.divelog.core.db
 
 import android.content.Context
 import androidx.sqlite.db.SupportSQLiteDatabase
-import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import no.synth.divelog.core.db.sql.DiveDatabase
 
-actual class DriverFactory(private val context: Context) {
-    actual fun createDriver(): SqlDriver =
+/** Opens the app database, creating or migrating it, with foreign keys enforced. */
+fun createDatabase(context: Context): DiveDatabase =
+    DiveDatabase(
         AndroidSqliteDriver(
             schema = DiveDatabase.Schema,
             context = context,
@@ -18,5 +18,5 @@ actual class DriverFactory(private val context: Context) {
                     db.setForeignKeyConstraintsEnabled(true)
                 }
             },
-        )
-}
+        ),
+    )

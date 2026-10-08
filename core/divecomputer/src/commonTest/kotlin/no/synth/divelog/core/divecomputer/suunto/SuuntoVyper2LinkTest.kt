@@ -47,8 +47,7 @@ class SuuntoVyper2LinkTest {
     }
 
     @Test
-    fun pagedReadSplitsLargeRanges() {
-        // Two pages of the maximum size then a short final page.
+    fun readsAFullPageThenAShortOne() {
         val page = SuuntoVyper2Link.MAX_PAGE
         val events = mutableListOf<TransportEvent>()
         val expected = ByteArray(page + 5) { it.toByte() }
@@ -69,7 +68,7 @@ class SuuntoVyper2LinkTest {
             addr += count
         }
         val link = SuuntoVyper2Link(ReplayTransport(Transcript(events), strictWrites = true))
-        assertContentEquals(expected, link.readRange(address = 0, count = expected.size))
+        assertContentEquals(expected, link.readMemory(0, page) + link.readMemory(page, expected.size - page))
         assertEquals(page + 5, expected.size)
     }
 

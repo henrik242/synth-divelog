@@ -1,7 +1,9 @@
 package no.synth.divelog.core.divecomputer.shearwater
 
 import no.synth.divelog.core.divecomputer.ProtocolException
+import no.synth.divelog.core.divecomputer.toHex
 import no.synth.divelog.core.divecomputer.transport.FrameChannel
+import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
 
 /**
@@ -47,7 +49,7 @@ class ShearwaterLink(
             throw ProtocolException("Short response frame (${frame.size} bytes)")
         }
         if (frame[0] != RESPONSE_HI || frame[1] != RESPONSE_LO) {
-            throw ProtocolException("Unexpected response header ${frame.take(2).toHexString()}")
+            throw ProtocolException("Unexpected response header ${frame.copyOf(2).toHex()}")
         }
         val payload = frame.copyOfRange(HEADER_LEN, frame.size)
         if (payload.isNotEmpty() && (payload[0].toInt() and 0xFF) == NAK) {
@@ -63,6 +65,12 @@ class ShearwaterLink(
     companion object {
         const val HEADER_LEN = 4
         const val CONNECT_TIMEOUT_MS = 10_000L
+
+        /**
+         * Classic Bluetooth SPP is a clean full-duplex byte stream, so no half-duplex RTS
+         * toggling and no echo discard; the baud is nominal over RFCOMM.
+         */
+        val SERIAL_PARAMS = SerialParams(baudRate = 115200)
         private const val REQUEST_HI = 0xFF.toByte()
         private const val REQUEST_LO = 0x01.toByte()
         private const val RESPONSE_HI = 0x01.toByte()
@@ -70,6 +78,3 @@ class ShearwaterLink(
         private const val NAK = 0x7F
     }
 }
-
-internal fun List<Byte>.toHexString(): String =
-    joinToString(" ") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }

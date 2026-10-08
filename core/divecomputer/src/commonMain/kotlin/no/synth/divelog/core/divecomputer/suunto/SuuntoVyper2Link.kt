@@ -1,8 +1,10 @@
 package no.synth.divelog.core.divecomputer.suunto
 
 import no.synth.divelog.core.divecomputer.ProtocolException
+import no.synth.divelog.core.divecomputer.hex
 import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
+import no.synth.divelog.core.divecomputer.u16be
 
 /**
  * Command layer for the Suunto Vyper2 family (HelO2, Vyper2, Cobra2/3, Vyper Air).
@@ -20,10 +22,7 @@ import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
  *     GetVersion  -> 0F 00 00 crc
  *                 <- 0F 00 04 <4 version bytes> crc
  */
-class SuuntoVyper2Link(
-    private val transport: Transport,
-    private val timeoutMs: Long = 3_000,
-) {
+class SuuntoVyper2Link(private val transport: Transport) {
     /** Read [count] bytes (1..[MAX_PAGE]) from the 16-bit [address]. */
     fun readMemory(address: Int, count: Int): ByteArray {
         require(count in 1..MAX_PAGE) { "Vyper2 page read is 1..$MAX_PAGE bytes, got $count" }
@@ -34,18 +33,6 @@ class SuuntoVyper2Link(
         )
         val reply = exchange(CMD_READ, params, expectedDataLen = count)
         return reply.copyOfRange(reply.size - count, reply.size)
-    }
-
-    /** Read [count] bytes from [address], paging in [MAX_PAGE]-byte reads. */
-    fun readRange(address: Int, count: Int): ByteArray {
-        val out = ByteArray(count)
-        var read = 0
-        while (read < count) {
-            val n = minOf(MAX_PAGE, count - read)
-            readMemory(address + read, n).copyInto(out, read)
-            read += n
-        }
-        return out
     }
 
     /** Firmware version as four bytes: id, high, mid, low. */
@@ -102,11 +89,6 @@ class SuuntoVyper2Link(
         }
         return buffer
     }
-
-    private fun u16be(data: ByteArray, offset: Int): Int =
-        ((data[offset].toInt() and 0xFF) shl 8) or (data[offset + 1].toInt() and 0xFF)
-
-    private fun hex(b: Byte): String = (b.toInt() and 0xFF).toString(16).padStart(2, '0')
 
     companion object {
         const val MAX_PAGE = 0x78 // 120 bytes, larger than the old family

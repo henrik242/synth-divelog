@@ -3,6 +3,9 @@ package no.synth.divelog.ui.io
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
 import kotlinx.coroutines.CompletableDeferred
+import no.synth.divelog.core.logbook.io.ExportFile
+import no.synth.divelog.core.logbook.io.toByteArray
+import no.synth.divelog.core.logbook.io.toNSData
 import platform.CoreGraphics.CGRectMake
 import platform.Foundation.NSData
 import platform.Foundation.NSTemporaryDirectory

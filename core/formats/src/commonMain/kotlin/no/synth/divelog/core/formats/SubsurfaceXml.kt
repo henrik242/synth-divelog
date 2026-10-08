@@ -10,6 +10,7 @@ import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType as DiveEventType
 import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 
 /**
  * Reads and writes the Subsurface XML dive-log format. The format name is shown
@@ -85,7 +86,8 @@ class SubsurfaceXml : DiveFormat {
         w.startTag(NS, "dive", "")
         dive.number?.let { w.attribute(NS, "number", "", it.toString()) }
         dive.rating?.let { w.attribute(NS, "rating", "", it.toString()) }
-        dive.visibility?.let { w.attribute(NS, "visibility", "", it.toString()) }
+        // Subsurface's visibility is 0..5 stars, not a distance.
+        dive.visibilityRating?.let { w.attribute(NS, "visibility", "", it.toString()) }
         if (dive.tags.isNotEmpty()) w.attribute(NS, "tags", "", dive.tags.joinToString(", "))
         dive.site?.let { w.attribute(NS, "divesiteid", "", SubsurfaceShared.siteUuid(it)) }
         w.attribute(NS, "date", "", FormatDateTime.date(dive.startEpochSeconds, dive.utcOffsetSeconds))
@@ -110,28 +112,18 @@ class SubsurfaceXml : DiveFormat {
             w.endTag(NS, "cylinder", "")
         }
 
-        // The dive's summary is its first computer's; a dive without one gets a bare
-        // computer carrying the summary.
-        val computers = dive.computers.ifEmpty {
-            val summary = listOf(dive.maxDepthMm, dive.meanDepthMm, dive.waterTempMk, dive.airTempMk)
-            if (summary.any { it != null } || dive.utcOffsetSeconds != 0) listOf(ComputerEntry()) else emptyList()
-        }
-        val primary = computers.firstOrNull()?.let { withDiveSummary(it, dive) }
-        val written = listOfNotNull(primary) + computers.drop(1)
+        val computers = SubsurfaceShared.computersToWrite(dive)
         // Dive temperatures are written only where they differ from what the computers give.
-        val air = dive.airTempMk?.takeIf { it != SubsurfaceShared.meanTemp(written.map { c -> c.airTempMk }) }
-        val water = dive.waterTempMk?.takeIf { it != SubsurfaceShared.meanTemp(written.map { c -> c.waterTempMk }) }
+        val air = dive.airTempMk?.takeIf { it != SubsurfaceShared.meanTemp(computers.map { c -> c.airTempMk }) }
+        val water = dive.waterTempMk?.takeIf { it != SubsurfaceShared.meanTemp(computers.map { c -> c.waterTempMk }) }
         if (air != null || water != null) {
             w.startTag(NS, "divetemperature", "")
-            air?.let { w.attribute(NS, "air", "", "${milli(it - ZERO_C_MK)} C") }
-            water?.let { w.attribute(NS, "water", "", "${milli(it - ZERO_C_MK)} C") }
+            air?.let { w.attribute(NS, "air", "", "${milli(it - ZERO_CELSIUS_MK)} C") }
+            water?.let { w.attribute(NS, "water", "", "${milli(it - ZERO_CELSIUS_MK)} C") }
             w.endTag(NS, "divetemperature", "")
         }
 
-        computers.forEachIndexed { i, c ->
-            if (i == 0) writeComputer(w, dive, primary ?: c, tanks, dive.utcOffsetSeconds)
-            else writeComputer(w, dive, c, tanks, 0)
-        }
+        computers.forEachIndexed { i, c -> writeComputer(w, dive, c, tanks, if (i == 0) dive.utcOffsetSeconds else 0) }
         w.endTag(NS, "dive", "")
     }
 
@@ -155,8 +147,8 @@ class SubsurfaceXml : DiveFormat {
         }
         if (computer.waterTempMk != null || computer.airTempMk != null) {
             w.startTag(NS, "temperature", "")
-            computer.airTempMk?.let { w.attribute(NS, "air", "", "${milli(it - ZERO_C_MK)} C") }
-            computer.waterTempMk?.let { w.attribute(NS, "water", "", "${milli(it - ZERO_C_MK)} C") }
+            computer.airTempMk?.let { w.attribute(NS, "air", "", "${milli(it - ZERO_CELSIUS_MK)} C") }
+            computer.waterTempMk?.let { w.attribute(NS, "water", "", "${milli(it - ZERO_CELSIUS_MK)} C") }
             w.endTag(NS, "temperature", "")
         }
         computer.serial?.let { extraData(w, SubsurfaceShared.KEY_SERIAL, it) }
@@ -184,7 +176,7 @@ class SubsurfaceXml : DiveFormat {
             w.startTag(NS, "sample", "")
             w.attribute(NS, "time", "", "${SubsurfaceShared.clock(s.timeOffsetSeconds)} min")
             s.depthMm?.let { w.attribute(NS, "depth", "", "${milli(it)} m") }
-            s.temperatureMk?.takeIf { it != last.temperatureMk }?.let { w.attribute(NS, "temp", "", "${milli(it - ZERO_C_MK)} C") }
+            s.temperatureMk?.takeIf { it != last.temperatureMk }?.let { w.attribute(NS, "temp", "", "${milli(it - ZERO_CELSIUS_MK)} C") }
             for ((tank, mbar) in s.tankPressuresMbar.entries.sortedBy { it.key }) {
                 w.attribute(NS, "pressure$tank", "", "${milli(mbar)} bar")
             }
@@ -198,14 +190,6 @@ class SubsurfaceXml : DiveFormat {
         }
         w.endTag(NS, "divecomputer", "")
     }
-
-    /** The first computer, with the dive's summary filling what it lacks. */
-    private fun withDiveSummary(c: ComputerEntry, dive: DiveEntry) = c.copy(
-        maxDepthMm = c.maxDepthMm ?: dive.maxDepthMm,
-        meanDepthMm = c.meanDepthMm ?: dive.meanDepthMm,
-        waterTempMk = c.waterTempMk ?: dive.waterTempMk,
-        airTempMk = c.airTempMk ?: dive.airTempMk,
-    )
 
     private fun extraData(w: XmlWriter, key: String, value: String) {
         w.startTag(NS, "extradata", "")
@@ -271,8 +255,8 @@ class SubsurfaceXml : DiveFormat {
                             durationSeconds = attr(reader, "duration")?.let(FormatUnits::clockToSeconds),
                         )
                         "depth" -> computer?.let {
-                            it.maxDepthMm = attr(reader, "max")?.let(FormatUnits::metresToMm)
-                            it.meanDepthMm = attr(reader, "mean")?.let(FormatUnits::metresToMm)
+                            it.maxDepthMm = attr(reader, "max")?.let(FormatUnits::thousandths)
+                            it.meanDepthMm = attr(reader, "mean")?.let(FormatUnits::thousandths)
                         }
                         "temperature" -> computer?.let {
                             it.waterTempMk = attr(reader, "water")?.let(FormatUnits::celsiusToMk)
@@ -328,7 +312,7 @@ class SubsurfaceXml : DiveFormat {
             wallEpochSeconds = if (date != null) FormatDateTime.epochFromDateTime(date, time) else 0L,
             durationSeconds = attr(reader, "duration")?.let(FormatUnits::clockToSeconds) ?: 0,
             rating = attr(reader, "rating")?.toIntOrNull(),
-            visibility = attr(reader, "visibility")?.toIntOrNull(),
+            visibilityRating = attr(reader, "visibility")?.toIntOrNull(),
             siteUuid = attr(reader, "divesiteid")?.trim()?.lowercase(),
             tags = attr(reader, "tags")?.let(SubsurfaceShared::splitList) ?: emptyList(),
         )
@@ -339,10 +323,10 @@ class SubsurfaceXml : DiveFormat {
         val o2 = attr(reader, "o2")?.let(FormatUnits::percentToPermille)
         return TankEntry(
             index = index,
-            volumeMl = attr(reader, "size")?.let(FormatUnits::litresToMl),
-            workingPressureMbar = attr(reader, "workpressure")?.let(FormatUnits::barToMbar),
-            startPressureMbar = attr(reader, "start")?.let(FormatUnits::barToMbar),
-            endPressureMbar = attr(reader, "end")?.let(FormatUnits::barToMbar),
+            volumeMl = attr(reader, "size")?.let(FormatUnits::thousandths),
+            workingPressureMbar = attr(reader, "workpressure")?.let(FormatUnits::thousandths),
+            startPressureMbar = attr(reader, "start")?.let(FormatUnits::thousandths),
+            endPressureMbar = attr(reader, "end")?.let(FormatUnits::thousandths),
             o2Permille = o2,
             hePermille = attr(reader, "he")?.let(FormatUnits::percentToPermille) ?: o2?.let { 0 },
         )
@@ -358,16 +342,16 @@ class SubsurfaceXml : DiveFormat {
                 name.startsWith("pressure") -> name.removePrefix("pressure").toIntOrNull()
                 else -> null
             } ?: continue
-            FormatUnits.barToMbar(reader.getAttributeValue(i))?.takeIf { it > 0 }?.let { pressures[tank] = it }
+            FormatUnits.thousandths(reader.getAttributeValue(i))?.takeIf { it > 0 }?.let { pressures[tank] = it }
         }
         return Sample(
             timeOffsetSeconds = attr(reader, "time")?.let(FormatUnits::clockToSeconds) ?: 0,
-            depthMm = attr(reader, "depth")?.let(FormatUnits::metresToMm) ?: previous?.depthMm,
+            depthMm = attr(reader, "depth")?.let(FormatUnits::thousandths) ?: previous?.depthMm,
             temperatureMk = attr(reader, "temp")?.let(FormatUnits::celsiusToMk) ?: previous?.temperatureMk,
             // Earlier exports of this app wrote the computer's ppO2 as po2.
-            ppO2Mbar = (attr(reader, "dc_supplied_ppo2") ?: attr(reader, "po2"))?.let(FormatUnits::barToMbar) ?: previous?.ppO2Mbar,
+            ppO2Mbar = (attr(reader, "dc_supplied_ppo2") ?: attr(reader, "po2"))?.let(FormatUnits::thousandths) ?: previous?.ppO2Mbar,
             ndlSeconds = attr(reader, "ndl")?.let(FormatUnits::clockToSeconds) ?: previous?.ndlSeconds,
-            stopDepthMm = attr(reader, "stopdepth")?.let(FormatUnits::metresToMm) ?: previous?.stopDepthMm,
+            stopDepthMm = attr(reader, "stopdepth")?.let(FormatUnits::thousandths) ?: previous?.stopDepthMm,
             stopTimeSeconds = attr(reader, "stoptime")?.let(FormatUnits::clockToSeconds) ?: previous?.stopTimeSeconds,
             cnsPermille = attr(reader, "cns")?.let(FormatUnits::percentToPermille) ?: previous?.cnsPermille,
             tankPressuresMbar = pressures,
@@ -400,7 +384,7 @@ class SubsurfaceXml : DiveFormat {
         val wallEpochSeconds: Long,
         val durationSeconds: Int,
         val rating: Int?,
-        val visibility: Int?,
+        val visibilityRating: Int?,
         val siteUuid: String?,
         val tags: List<String> = emptyList(),
         var notes: String? = null,
@@ -411,27 +395,22 @@ class SubsurfaceXml : DiveFormat {
         val computers: MutableList<ComputerBuilder> = mutableListOf(),
     ) {
         fun build(sites: Map<String, SiteRef>, serials: Map<String, String>): DiveEntry {
-            val offset = computers.firstOrNull()?.extra?.get(SubsurfaceShared.KEY_UTC_OFFSET)?.trim()?.removePrefix("+")?.toIntOrNull() ?: 0
-            val built = computers.map { it.build(serials, offset) }
-            val primary = built.firstOrNull()
-            return DiveEntry(
+            val offset = SubsurfaceShared.utcOffset(computers.firstOrNull()?.extra)
+            return SubsurfaceShared.dive(
                 number = number,
-                startEpochSeconds = wallEpochSeconds - offset,
-                utcOffsetSeconds = offset,
+                wallEpochSeconds = wallEpochSeconds,
+                utcOffset = offset,
                 durationSeconds = durationSeconds,
-                maxDepthMm = primary?.maxDepthMm,
-                meanDepthMm = primary?.meanDepthMm,
-                waterTempMk = waterTempMk ?: SubsurfaceShared.meanTemp(built.map { it.waterTempMk }),
-                airTempMk = airTempMk ?: SubsurfaceShared.meanTemp(built.map { it.airTempMk }),
-                notes = notes,
                 rating = rating,
-                visibility = visibility,
+                visibilityRating = visibilityRating,
                 site = siteUuid?.let { sites[it] },
+                notes = notes,
                 buddies = buddies,
                 tags = tags,
                 tanks = tanks,
-                gasMixes = SubsurfaceShared.gasesOf(tanks),
-                computers = built.filterNot(SubsurfaceShared::isBare),
+                airTempMk = airTempMk,
+                waterTempMk = waterTempMk,
+                computers = computers.map { it.build(serials, offset) },
             )
         }
     }
@@ -453,7 +432,7 @@ class SubsurfaceXml : DiveFormat {
     ) {
         fun build(serials: Map<String, String>, utcOffset: Int): ComputerEntry {
             val serial = extra[SubsurfaceShared.KEY_SERIAL] ?: deviceId?.let { serials[it] }
-            val start = date?.let { FormatDateTime.epochFromDateTime(it, time ?: "00:00:00") - utcOffset }
+            val start = SubsurfaceShared.computerStart(date, time, utcOffset)
             return ComputerEntry(
                 model = model?.takeIf { it.isNotBlank() },
                 maxDepthMm = maxDepthMm,
@@ -471,6 +450,5 @@ class SubsurfaceXml : DiveFormat {
 
     private companion object {
         const val NS = ""
-        const val ZERO_C_MK = 273_150
     }
 }

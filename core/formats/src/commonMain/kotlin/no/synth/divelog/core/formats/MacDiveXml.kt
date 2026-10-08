@@ -9,6 +9,8 @@ import no.synth.divelog.core.model.EventType as DiveEventType
 import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.units.MM_PER_FOOT
+import kotlin.math.roundToInt
 
 /**
  * Reads and writes the MacDive XML dive-log format. MacDive stores one computer
@@ -53,7 +55,7 @@ class MacDiveXml : DiveFormat {
         text(w, "duration", dive.durationSeconds.toString())
         dive.airTempMk?.let { text(w, "tempAir", FormatUnits.macCelsius(it)) }
         (computer?.waterTempMk ?: dive.waterTempMk)?.let { text(w, "tempLow", FormatUnits.macCelsius(it)) }
-        dive.visibility?.let { text(w, "visibility", it.toString()) }
+        dive.visibility?.let { text(w, "visibility", FormatUnits.macDepth(it)) }
         dive.notes?.let { cdata(w, "notes", it) }
 
         dive.site?.let { writeSite(w, it) }
@@ -213,19 +215,19 @@ class MacDiveXml : DiveFormat {
                                 "lon" -> openSite.lon = t.toDoubleOrNull()
                             }
                             openGas != null -> when (reader.localName) {
-                                "pressureStart" -> openGas.startPressureMbar = FormatUnits.macBarToMbar(t)
-                                "pressureEnd" -> openGas.endPressureMbar = FormatUnits.macBarToMbar(t)
-                                "oxygen" -> openGas.o2Permille = FormatUnits.macPercentToPermille(t)
-                                "helium" -> openGas.hePermille = FormatUnits.macPercentToPermille(t)
-                                "tankSize" -> openGas.volumeMl = FormatUnits.macLitresToMl(t)
-                                "workingPressure" -> openGas.workingPressureMbar = FormatUnits.macBarToMbar(t)
+                                "pressureStart" -> openGas.startPressureMbar = FormatUnits.thousandths(t)
+                                "pressureEnd" -> openGas.endPressureMbar = FormatUnits.thousandths(t)
+                                "oxygen" -> openGas.o2Permille = FormatUnits.percentToPermille(t)
+                                "helium" -> openGas.hePermille = FormatUnits.percentToPermille(t)
+                                "tankSize" -> openGas.volumeMl = FormatUnits.thousandths(t)
+                                "workingPressure" -> openGas.workingPressureMbar = FormatUnits.thousandths(t)
                             }
                             openSample != null -> when (reader.localName) {
                                 "time" -> openSample.time = FormatUnits.macSeconds(t)
-                                "depth" -> openSample.depthMm = FormatUnits.macDepthToMm(t)
-                                "pressure" -> openSample.pressureMbar = FormatUnits.macBarToMbar(t)
-                                "temperature" -> openSample.tempMk = FormatUnits.macCelsiusToMk(t)
-                                "ppo2" -> openSample.ppO2Mbar = FormatUnits.macBarToMbar(t)
+                                "depth" -> openSample.depthMm = FormatUnits.thousandths(t)
+                                "pressure" -> openSample.pressureMbar = FormatUnits.thousandths(t)
+                                "temperature" -> openSample.tempMk = FormatUnits.celsiusToMk(t)
+                                "ppo2" -> openSample.ppO2Mbar = FormatUnits.thousandths(t)
                                 "ndt" -> openSample.ndlSeconds = FormatUnits.macMinutesToSeconds(t)
                             }
                             openEvent != null -> when (reader.localName) {
@@ -241,13 +243,13 @@ class MacDiveXml : DiveFormat {
                                 "computer" -> d?.computerModel = t.ifBlank { null }
                                 // The dive's own serial is the computer's; gear serials are skipped above.
                                 "serial" -> d?.computerSerial = t.ifBlank { null }
-                                "maxDepth" -> d?.maxDepthMm = FormatUnits.macDepthToMm(t)
-                                "averageDepth" -> d?.meanDepthMm = FormatUnits.macDepthToMm(t)
+                                "maxDepth" -> d?.maxDepthMm = FormatUnits.thousandths(t)
+                                "averageDepth" -> d?.meanDepthMm = FormatUnits.thousandths(t)
                                 "duration" -> d?.durationSeconds = t.toIntOrNull()
-                                "tempAir" -> d?.airTempMk = FormatUnits.macCelsiusToMk(t)
-                                "tempLow" -> d?.waterTempMk = FormatUnits.macCelsiusToMk(t)
-                                "tempHigh" -> if (d?.waterTempMk == null) d?.waterTempMk = FormatUnits.macCelsiusToMk(t)
-                                "visibility" -> d?.visibility = t.toIntOrNull()
+                                "tempAir" -> d?.airTempMk = FormatUnits.celsiusToMk(t)
+                                "tempLow" -> d?.waterTempMk = FormatUnits.celsiusToMk(t)
+                                "tempHigh" -> if (d?.waterTempMk == null) d?.waterTempMk = FormatUnits.celsiusToMk(t)
+                                "visibility" -> d?.visibility = visibilityMm(t)
                                 "notes" -> d?.notes = notesOrNull(t)
                                 "buddy" -> if (t.isNotBlank()) d?.buddies?.add(t)
                                 "tag" -> if (t.isNotBlank()) d?.tags?.add(t)
@@ -277,6 +279,13 @@ class MacDiveXml : DiveFormat {
             .filter { it.isNotEmpty() }
             .any { !it.endsWith(":") }
         return if (hasContent) trimmed else null
+    }
+
+    /** Visibility is free text: metres ("10", "10m"), or feet when it says so ("30 ft"). */
+    private fun visibilityMm(text: String): Int? {
+        val value = FormatUnits.leadingNumber(text)?.takeIf { it > 0 } ?: return null
+        val mmPerUnit = if (text.contains("ft", ignoreCase = true)) MM_PER_FOOT else 1000.0
+        return (value * mmPerUnit).roundToInt()
     }
 
     private fun eventName(e: Event): String = when (e.type) {

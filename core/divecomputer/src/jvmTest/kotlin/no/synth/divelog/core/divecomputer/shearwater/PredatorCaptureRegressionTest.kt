@@ -1,6 +1,7 @@
 package no.synth.divelog.core.divecomputer.shearwater
 
 import no.synth.divelog.core.divecomputer.transport.ReplayTransport
+import no.synth.divelog.core.divecomputer.transport.Slip
 import no.synth.divelog.core.divecomputer.transport.Transcript
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.units.Units
@@ -18,12 +19,26 @@ import kotlin.test.assertTrue
  */
 class PredatorCaptureRegressionTest {
     private fun loadDives(): Map<Int, IncomingDive> {
-        val text = javaClass.getResourceAsStream("/predator-capture.transcript.txt")!!
+        val text = requireNotNull(javaClass.getResourceAsStream("/predator-capture.transcript.txt")) { "missing transcript" }
             .bufferedReader().readText()
-        val transport = ReplayTransport(Transcript.fromText(text), strictWrites = false)
+        // Strict: every command the protocol sends must match the recorded one.
+        val transport = ReplayTransport(Transcript.fromText(text), strictWrites = true, sameWrite = ::sameCommand)
         val raw = ShearwaterPredatorProtocol(transport).download(knownFingerprint = null)
         val parser = PredatorParser()
-        return raw.associate { val d = parser.parse(it); d.number!! to d }
+        return raw.associate { val d = parser.parse(it); requireNotNull(d.number) to d }
+    }
+
+    /**
+     * The capture predates the two-byte block request: it sent `36 nn 00`, which the
+     * Predator also accepts. Compare a block request without that padding byte.
+     */
+    private fun sameCommand(expected: ByteArray, actual: ByteArray): Boolean {
+        if (expected.contentEquals(actual)) return true
+        val e = Slip.unescape(expected.copyOf(expected.size - 1))
+        val a = Slip.unescape(actual.copyOf(actual.size - 1))
+        val paddedBlockRequest = byteArrayOf(0xFF.toByte(), 0x01, 0x04, 0x00, 0x36)
+        return e.size == 7 && e.copyOf(5).contentEquals(paddedBlockRequest) && e[6] == 0.toByte() &&
+            a.contentEquals(byteArrayOf(0xFF.toByte(), 0x01, 0x03, 0x00, 0x36, e[5]))
     }
 
     private fun assertDive(
@@ -34,14 +49,10 @@ class PredatorCaptureRegressionTest {
     ) {
         assertNotNull(dive)
         assertEquals(durationMinutes * 60, dive.durationSeconds)
-        assertTrue(
-            abs(Units.depthMetres(dive.maxDepthMm!!) - maxDepthMetres) <= 0.6,
-            "max depth ${Units.depthMetres(dive.maxDepthMm!!)} vs $maxDepthMetres",
-        )
-        assertTrue(
-            abs(Units.depthMetres(dive.meanDepthMm!!) - avgDepthMetres) <= 1.1,
-            "avg depth ${Units.depthMetres(dive.meanDepthMm!!)} vs $avgDepthMetres",
-        )
+        val maxDepth = Units.depthMetres(assertNotNull(dive.maxDepthMm))
+        assertTrue(abs(maxDepth - maxDepthMetres) <= 0.6, "max depth $maxDepth vs $maxDepthMetres")
+        val avgDepth = Units.depthMetres(assertNotNull(dive.meanDepthMm))
+        assertTrue(abs(avgDepth - avgDepthMetres) <= 1.1, "avg depth $avgDepth vs $avgDepthMetres")
     }
 
     @Test
@@ -61,7 +72,7 @@ class PredatorCaptureRegressionTest {
         assertDive(dives[863], 27.0, 17.0, 28)
 
         // Dive 871 start time: 2025-10-26 10:46 as shown on the device (S-10:46).
-        assertEquals(1_761_475_582L, dives[871]!!.startEpochSeconds)
+        assertEquals(1_761_475_582L, dives[871]?.startEpochSeconds)
     }
 
     @Test

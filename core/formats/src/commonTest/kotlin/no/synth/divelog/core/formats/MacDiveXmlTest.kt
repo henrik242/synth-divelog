@@ -23,7 +23,7 @@ class MacDiveXmlTest {
                 airTempMk = 285_150, // 12.00 C
                 notes = "Wall dive with a <bracket> & ampersand",
                 rating = 4,
-                visibility = 8,
+                visibility = 8_000,
                 site = SiteRef("Testholmen", "Testland", "Testfjorden", 59.66, 10.63),
                 buddies = listOf("Alex", "Sam"),
                 tags = listOf("CCR", "Tech2"),
@@ -84,7 +84,7 @@ class MacDiveXmlTest {
         assertEquals(285_150, d.airTempMk)
         assertEquals("Wall dive with a <bracket> & ampersand", d.notes)
         assertEquals(4, d.rating)
-        assertEquals(8, d.visibility)
+        assertEquals(8_000, d.visibility)
         assertEquals(listOf("Alex", "Sam"), d.buddies)
         assertEquals(listOf("CCR", "Tech2"), d.tags)
 
@@ -162,5 +162,16 @@ class MacDiveXmlTest {
         val switch = format.read(xml).dives.single().computers.single().events.last()
         assertEquals(EventType.GAS_SWITCH, switch.type)
         assertEquals(GasSwitch.value(32, 0), switch.value)
+    }
+
+    @Test
+    fun visibilityIsFreeTextInMetresOrFeet() {
+        fun read(visibility: String) = format.read(
+            format.write(sampleLog()).replace(Regex("<visibility>[^<]*</visibility>"), "<visibility>$visibility</visibility>"),
+        ).dives.single().visibility
+        assertEquals(10_000, read("10m"))
+        assertEquals(12_500, read("12.5 m"))
+        assertEquals(9_144, read("30 ft"))
+        assertEquals(null, read("Good"))
     }
 }

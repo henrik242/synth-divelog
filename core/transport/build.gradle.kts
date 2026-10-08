@@ -1,25 +1,12 @@
 plugins {
-    alias(libs.plugins.kotlin.multiplatform)
-    alias(libs.plugins.android.kmp.library)
+    id("synth.kmp-library")
 }
 
+// JVM and Android only: jvmAndAndroidMain holds the JDK streams, threads and clock both use.
 kotlin {
-    jvm()
-
-    android {
-        namespace = "no.synth.divelog.core.transport"
-        compileSdk = libs.versions.android.compileSdk.get().toInt()
-        minSdk = libs.versions.android.minSdk.get().toInt()
-
-        withHostTestBuilder {}
-    }
-
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core:divecomputer"))
-        }
-        commonTest.dependencies {
-            implementation(kotlin("test"))
         }
         androidMain.dependencies {
             // USB host serial (FTDI/PL2303/CP210x/CDC-ACM/CH34x) for wired downloads.

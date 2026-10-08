@@ -20,6 +20,9 @@ SELECT * FROM tag ORDER BY name;
 selectTagById:
 SELECT * FROM tag WHERE id = ?;
 
+selectTagByName:
+SELECT * FROM tag WHERE name = ? LIMIT 1;
+
 updateTag:
 UPDATE tag SET name = ? WHERE id = ?;
 
@@ -37,6 +40,16 @@ SELECT tag.* FROM tag
 JOIN diveTag ON diveTag.tagId = tag.id
 WHERE diveTag.diveId = ?
 ORDER BY tag.name;
+
+-- Tag names per dive for the whole log.
+selectAllDiveTagNames:
+SELECT diveTag.diveId, tag.name FROM tag
+JOIN diveTag ON diveTag.tagId = tag.id
+ORDER BY diveTag.diveId, tag.name;
+
+-- Copies one dive's tags onto another, skipping those it already has.
+copyDiveTags:
+INSERT OR IGNORE INTO diveTag(diveId, tagId) SELECT :targetDiveId, tagId FROM diveTag WHERE diveId = :sourceDiveId;
 
 selectDiveIdsForTag:
 SELECT diveId FROM diveTag WHERE tagId = ?;

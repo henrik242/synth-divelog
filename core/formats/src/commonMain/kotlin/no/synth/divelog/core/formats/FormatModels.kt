@@ -19,7 +19,10 @@ data class DiveEntry(
     val airTempMk: Int? = null,
     val notes: String? = null,
     val rating: Int? = null,
+    /** Visibility as a distance, mm (UDDF, MacDive). */
     val visibility: Int? = null,
+    /** Subsurface's 0..5 star visibility, not a distance. */
+    val visibilityRating: Int? = null,
     val site: SiteRef? = null,
     val buddies: List<String> = emptyList(),
     val tags: List<String> = emptyList(),
@@ -58,7 +61,10 @@ data class ComputerEntry(
     val events: List<Event> = emptyList(),
     /** The computer's serial number, when the log records one. */
     val serial: String? = null,
-    /** When this computer's recording starts, epoch seconds; null when it starts with the dive. */
+    /**
+     * When this computer's recording starts, epoch seconds in the dive's frame (add the dive's
+     * offset for the wall clock); null when it starts with the dive.
+     */
     val startEpochSeconds: Long? = null,
     /** Length of this computer's recording; null when it is the dive's duration. */
     val durationSeconds: Int? = null,

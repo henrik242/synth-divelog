@@ -6,6 +6,7 @@ import no.synth.divelog.core.divecomputer.DiveComputerProtocol
 import no.synth.divelog.core.divecomputer.DownloadCancelledException
 import no.synth.divelog.core.divecomputer.DownloadListener
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.newestUntil
 import no.synth.divelog.core.divecomputer.transport.Parity
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
@@ -17,16 +18,17 @@ import no.synth.divelog.core.divecomputer.transport.Transport
  * first. [SuuntoVyper2Parser] turns those blobs into dives. See
  * docs/protocol/suunto-helo2.md.
  */
-class SuuntoVyper2Protocol(
-    transport: Transport,
-    timeoutMs: Long = 3_000,
-) : DiveComputerProtocol {
-    val link = SuuntoVyper2Link(transport, timeoutMs)
+class SuuntoVyper2Protocol(transport: Transport) : DiveComputerProtocol {
+    private val link = SuuntoVyper2Link(transport)
 
-    override fun readDeviceInfo(): DeviceInfo {
+    // Reading version and serial takes two commands (~1.2 s with the quiet gap), so an
+    // incremental download, which reads the identity first, does not read it twice.
+    private var info: DeviceInfo? = null
+
+    override fun readDeviceInfo(): DeviceInfo = info ?: run {
         val version = link.readVersion()
         val serial = SuuntoVyper2Dump.decodeSerial(link.readMemory(SuuntoVyper2Dump.SERIAL_OFFSET, SuuntoVyper2Dump.SERIAL_SIZE))
-        return deviceInfo(version, serial)
+        deviceInfo(version, serial).also { info = it }
     }
 
     override fun download(
@@ -35,9 +37,7 @@ class SuuntoVyper2Protocol(
         cancel: CancellationSignal,
         limit: Int?,
     ): List<RawDive> {
-        val version = link.readVersion()
-        val serial = SuuntoVyper2Dump.decodeSerial(link.readMemory(SuuntoVyper2Dump.SERIAL_OFFSET, SuuntoVyper2Dump.SERIAL_SIZE))
-        listener.onDeviceInfo(deviceInfo(version, serial))
+        listener.onDeviceInfo(readDeviceInfo())
 
         val header = link.readMemory(SuuntoVyper2Dump.HEADER_OFFSET, SuuntoVyper2Dump.HEADER_SIZE)
 
@@ -45,33 +45,26 @@ class SuuntoVyper2Protocol(
         // the walk reaches, a page at a time, so an incremental download stops after the
         // new dives instead of reading the whole ring.
         val used = SuuntoVyper2Dump.usedBytes(header)
-        val end = (header[4].toInt() and 0xFF) or ((header[5].toInt() and 0xFF) shl 8)
+        val end = SuuntoVyper2Dump.endOf(header)
         val ring = ByteArray(SuuntoVyper2Dump.ringSize)
         var fetched = 0 // bytes read so far, going back from end
         var walked = 0 // bytes the walk has consumed, going back from end
-        val fresh = ArrayList<RawDive>()
-        SuuntoVyper2Dump.walk(
-            header,
-            read = { start, size ->
-                walked += size
-                while (fetched < walked) {
-                    if (cancel.isCancelled()) throw DownloadCancelledException()
-                    // The page ends where the fetched span begins and never crosses the wrap.
-                    var pageEnd = end - fetched
-                    if (pageEnd <= SuuntoVyper2Dump.RB_PROFILE_BEGIN) pageEnd += SuuntoVyper2Dump.ringSize
-                    val n = minOf(SuuntoVyper2Link.MAX_PAGE, pageEnd - SuuntoVyper2Dump.RB_PROFILE_BEGIN, used - fetched)
-                    link.readMemory(pageEnd - n, n).copyInto(ring, pageEnd - n - SuuntoVyper2Dump.RB_PROFILE_BEGIN)
-                    fetched += n
-                    listener.onProgress(fetched, used)
-                }
-                SuuntoVyper2Dump.recordAt(start, size, ring)
-            },
-        ) { dive ->
-            if (dive.fingerprint == knownFingerprint) return@walk false
-            fresh += dive
-            listener.onDiveDownloaded(fresh.size - 1)
-            limit == null || limit <= 0 || fresh.size < limit
-        }
+        val fresh = SuuntoVyper2Dump.dives(header) { start, size ->
+            walked += size
+            while (fetched < walked) {
+                if (cancel.isCancelled()) throw DownloadCancelledException()
+                // The page ends where the fetched span begins and never crosses the wrap.
+                var pageEnd = end - fetched
+                if (pageEnd <= SuuntoVyper2Dump.RB_PROFILE_BEGIN) pageEnd += SuuntoVyper2Dump.ringSize
+                val n = minOf(SuuntoVyper2Link.MAX_PAGE, pageEnd - SuuntoVyper2Dump.RB_PROFILE_BEGIN, used - fetched)
+                link.readMemory(pageEnd - n, n).copyInto(ring, pageEnd - n - SuuntoVyper2Dump.RB_PROFILE_BEGIN)
+                fetched += n
+                listener.onProgress(fetched, used)
+            }
+            SuuntoVyper2Dump.recordAt(start, size, ring)
+        }.newestUntil(knownFingerprint, limit)
+            .onEachIndexed { index, dive -> listener.onDiveDownloaded(index, dive) }
+            .toList()
         if (used > 0) listener.onProgress(used, used)
         return fresh
     }

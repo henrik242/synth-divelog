@@ -22,7 +22,7 @@ class GitLogFormatTest {
                 waterTempMk = 279_150,
                 notes = "Wall dive\nsecond line",
                 rating = 4,
-                visibility = 8,
+                visibilityRating = 3,
                 site = SiteRef("Drøbak", "Norway", "Oslofjorden", 59.661234, 10.631111),
                 buddies = listOf("Alex", "Sam"),
                 tanks = listOf(
@@ -89,7 +89,7 @@ class GitLogFormatTest {
         assertEquals(44 * 60, d.durationSeconds)
         assertEquals("Wall dive\nsecond line", d.notes)
         assertEquals(4, d.rating)
-        assertEquals(8, d.visibility)
+        assertEquals(3, d.visibilityRating)
         assertEquals(listOf("Alex", "Sam"), d.buddies)
         assertEquals(35_900, d.maxDepthMm)
         assertEquals(25_400, d.meanDepthMm)

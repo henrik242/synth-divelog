@@ -19,7 +19,7 @@ class SubsurfaceXmlTest {
                 durationSeconds = 44 * 60,
                 notes = "Wall dive",
                 rating = 4,
-                visibility = 8,
+                visibilityRating = 3,
                 site = SiteRef("Drøbak", "Norway", "Oslofjorden", 59.66, 10.63),
                 buddies = listOf("Alex", "Sam"),
                 tags = listOf("boat", "deep"),
@@ -65,7 +65,7 @@ class SubsurfaceXmlTest {
         assertEquals(44 * 60, d.durationSeconds)
         assertEquals("Wall dive", d.notes)
         assertEquals(4, d.rating)
-        assertEquals(8, d.visibility)
+        assertEquals(3, d.visibilityRating)
         assertEquals(listOf("Alex", "Sam"), d.buddies)
         assertEquals(listOf("boat", "deep"), d.tags)
 
@@ -194,5 +194,12 @@ class SubsurfaceXmlTest {
                 "<divecomputer model='B'><temperature water='9.0 C' /></divecomputer>",
         )
         assertEquals(281_650, d.waterTempMk)
+    }
+
+    @Test
+    fun visibilityAsADistanceIsNotWrittenAsStars() {
+        val dive = DiveEntry(startEpochSeconds = 1_761_475_582, durationSeconds = 60, visibility = 12_000)
+        val xml = SubsurfaceXml().write(DiveLog(listOf(dive)))
+        assertTrue(!xml.contains("visibility"), xml)
     }
 }

@@ -67,4 +67,37 @@ class PredatorDumpTest {
     fun ignoresEmptyRing() {
         assertEquals(0, PredatorDump.extract(dump(4)).size)
     }
+
+    @Test
+    fun skipsAnOpeningThatNeverClosed() {
+        // Dive 7 at block 2 was interrupted: the next block opens dive 8. Pairing it with the
+        // next closing (or, at the end, wrapping to the first) would glue it onto dive 8.
+        val memory = dump(8)
+        writeOpening(memory, block = 0, number = 6, fingerprint = byteArrayOf(1, 1, 1, 1))
+        writeClosing(memory, block = 1)
+        writeOpening(memory, block = 2, number = 7, fingerprint = byteArrayOf(2, 2, 2, 2))
+        writeOpening(memory, block = 3, number = 8, fingerprint = byteArrayOf(3, 3, 3, 3))
+        writeClosing(memory, block = 4)
+        writeOpening(memory, block = 6, number = 9, fingerprint = byteArrayOf(4, 4, 4, 4))
+        // block 6 never closes and nothing follows: no wrap to the closing at block 1.
+
+        val dives = PredatorDump.extract(memory)
+
+        assertEquals(listOf("03030303", "01010101"), dives.map { it.fingerprint })
+        assertEquals(2 * blockSize, dives[0].data.size)
+    }
+
+    @Test
+    fun aWrappedDiveNeedsNoOpeningBeforeItsClosing() {
+        // Block 7 opens, the ring wraps, and block 0 opens again before the closing at
+        // block 1: block 7 is an interrupted dive, block 0 the real one.
+        val memory = dump(8)
+        writeOpening(memory, block = 7, number = 3, fingerprint = byteArrayOf(7, 7, 7, 7))
+        writeOpening(memory, block = 0, number = 4, fingerprint = byteArrayOf(8, 8, 8, 8))
+        writeClosing(memory, block = 1)
+
+        val dives = PredatorDump.extract(memory)
+
+        assertEquals(listOf("08080808"), dives.map { it.fingerprint })
+    }
 }

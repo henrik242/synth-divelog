@@ -1,18 +1,12 @@
 package no.synth.divelog.core.formats
 
+import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 /** Formatting and parsing of the unit-suffixed values used in the file formats. */
 internal object FormatUnits {
-    fun oneDecimal(value: Double): String {
-        val scaled = (value * 10).roundToLong()
-        val whole = scaled / 10
-        val frac = abs(scaled % 10)
-        return "$whole.$frac"
-    }
-
     fun twoDecimals(value: Double): String {
         val scaled = (value * 100).roundToLong()
         val whole = scaled / 100
@@ -30,21 +24,16 @@ internal object FormatUnits {
         return sb.toString().toDoubleOrNull()
     }
 
-    // depth: metres with one decimal
-    fun depthToMetres(mm: Int): String = "${oneDecimal(mm / 1000.0)} m"
-    fun metresToMm(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+    /** Metres, bar or litres, any suffix, to mm, mbar or ml: "35.9 m" is 35900. */
+    fun thousandths(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
 
-    // temperature: Celsius with one decimal; storage is millikelvin
-    fun tempToCelsius(mk: Int): String = "${oneDecimal((mk - 273_150) / 1000.0)} C"
-    fun celsiusToMk(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() + 273_150 }
+    /** Celsius, any suffix, to millikelvin. */
+    fun celsiusToMk(text: String): Int? = thousandths(text)?.let { it + ZERO_CELSIUS_MK }
 
-    // time / duration: "M:SS min"
-    fun secondsToClock(seconds: Int): String {
-        val m = seconds / 60
-        val s = seconds % 60
-        return "$m:${s.toString().padStart(2, '0')} min"
-    }
+    /** Percent, any suffix, to permille. */
+    fun percentToPermille(text: String): Int? = leadingNumber(text)?.let { (it * 10).roundToInt() }
 
+    /** "M:SS", "M:SS min" or plain seconds. */
     fun clockToSeconds(text: String): Int? {
         val cleaned = text.trim().removeSuffix("min").trim()
         val parts = cleaned.split(":")
@@ -58,18 +47,6 @@ internal object FormatUnits {
             else -> null
         }
     }
-
-    // gas fraction: percent with one decimal; storage is permille
-    fun permilleToPercent(permille: Int): String = "${oneDecimal(permille / 10.0)}%"
-    fun percentToPermille(text: String): Int? = leadingNumber(text)?.let { (it * 10).roundToInt() }
-
-    // pressure: bar; storage is millibar
-    fun mbarToBar(mbar: Int): String = "${oneDecimal(mbar / 1000.0)} bar"
-    fun barToMbar(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
-
-    // volume: litres; storage is millilitres
-    fun mlToLitres(ml: Int): String = "${oneDecimal(ml / 1000.0)} l"
-    fun litresToMl(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
 
     /** A plain SI number, which may use an exponent ("1.2e5"). */
     private fun si(text: String): Double? = text.trim().toDoubleOrNull() ?: leadingNumber(text)
@@ -88,15 +65,10 @@ internal object FormatUnits {
 
     // MacDive plain decimals: metres, Celsius, bar, integer percent, litres, minutes
     fun macDepth(mm: Int): String = twoDecimals(mm / 1000.0)
-    fun macDepthToMm(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
-    fun macCelsius(mk: Int): String = twoDecimals((mk - 273_150) / 1000.0)
-    fun macCelsiusToMk(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() + 273_150 }
+    fun macCelsius(mk: Int): String = twoDecimals((mk - ZERO_CELSIUS_MK) / 1000.0)
     fun macBar(mbar: Int): String = twoDecimals(mbar / 1000.0)
-    fun macBarToMbar(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
     fun macPercent(permille: Int): String = (permille / 10).toString()
-    fun macPercentToPermille(text: String): Int? = leadingNumber(text)?.let { (it * 10).roundToInt() }
     fun macLitres(ml: Int): String = twoDecimals(ml / 1000.0)
-    fun macLitresToMl(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
     fun macMinutes(seconds: Int): String = (seconds / 60).toString()
     fun macMinutesToSeconds(text: String): Int? = leadingNumber(text)?.let { (it * 60).roundToInt() }
     fun macSeconds(text: String): Int? = leadingNumber(text)?.roundToInt()

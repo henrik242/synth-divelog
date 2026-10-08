@@ -13,15 +13,17 @@ CREATE TABLE dive (
     visibility INTEGER,
     siteId INTEGER REFERENCES site(id) ON DELETE SET NULL,
     -- Not a foreign key: dive <-> record is a cycle; integrity is kept in code.
-    primaryComputerRecordId INTEGER
+    primaryComputerRecordId INTEGER,
+    -- Subsurface's 0..5 visibility stars; visibility above is a distance in mm.
+    visibilityRating INTEGER
 );
 
 CREATE INDEX dive_start ON dive(startEpochSeconds);
 CREATE INDEX dive_site ON dive(siteId);
 
 insertDive:
-INSERT INTO dive(number, startEpochSeconds, utcOffsetSeconds, durationSeconds, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, notes, rating, visibility, siteId, primaryComputerRecordId)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO dive(number, startEpochSeconds, utcOffsetSeconds, durationSeconds, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, notes, rating, visibility, siteId, primaryComputerRecordId, visibilityRating)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectAllDives:
 SELECT * FROM dive ORDER BY startEpochSeconds DESC;
@@ -41,7 +43,7 @@ WHERE (startEpochSeconds + utcOffsetSeconds) < :rangeEnd
 ORDER BY startEpochSeconds;
 
 updateDive:
-UPDATE dive SET number = ?, startEpochSeconds = ?, utcOffsetSeconds = ?, durationSeconds = ?, maxDepthMm = ?, meanDepthMm = ?, waterTempMk = ?, airTempMk = ?, notes = ?, rating = ?, visibility = ?, siteId = ?, primaryComputerRecordId = ?
+UPDATE dive SET number = ?, startEpochSeconds = ?, utcOffsetSeconds = ?, durationSeconds = ?, maxDepthMm = ?, meanDepthMm = ?, waterTempMk = ?, airTempMk = ?, notes = ?, rating = ?, visibility = ?, siteId = ?, primaryComputerRecordId = ?, visibilityRating = ?
 WHERE id = ?;
 
 setPrimaryRecord:

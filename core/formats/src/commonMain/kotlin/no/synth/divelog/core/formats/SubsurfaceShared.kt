@@ -83,11 +83,16 @@ internal object SubsurfaceShared {
     }
 
     /** A stable 8-hex-digit site id from everything the site carries. */
-    fun siteUuid(site: SiteRef): String {
-        val key = listOf(site.name, site.country.orEmpty(), site.place.orEmpty(), site.latitude?.toString().orEmpty(), site.longitude?.toString().orEmpty())
-            .joinToString("\u0000")
+    fun siteUuid(site: SiteRef): String =
+        fnvHex(
+            listOf(site.name, site.country.orEmpty(), site.place.orEmpty(), site.latitude?.toString().orEmpty(), site.longitude?.toString().orEmpty())
+                .joinToString("\u0000"),
+        )
+
+    /** 32-bit FNV-1a of [text]'s chars, as 8 hex digits. */
+    fun fnvHex(text: String): String {
         var h = 2166136261u
-        for (c in key) { h = h xor c.code.toUInt(); h *= 16777619u }
+        for (c in text) { h = h xor c.code.toUInt(); h *= 16777619u }
         return h.toString(16).padStart(8, '0')
     }
 
@@ -192,6 +197,76 @@ internal object SubsurfaceShared {
         val known = values.filterNotNull().filter { it != 0 }
         if (known.isEmpty()) return null
         return ((known.sumOf { it.toLong() } + known.size / 2) / known.size).toInt()
+    }
+
+    /** The dive's UTC offset, which rides on its first computer's [extra] data; 0 without one. */
+    fun utcOffset(extra: Map<String, String>?): Int =
+        extra?.get(KEY_UTC_OFFSET)?.trim()?.removePrefix("+")?.toIntOrNull() ?: 0
+
+    /** A computer's own start from its date and time, when it has them, in the dive's frame. */
+    fun computerStart(date: String?, time: String?, utcOffset: Int): Long? =
+        date?.let { FormatDateTime.epochFromDateTime(it, time ?: "00:00:00") - utcOffset }
+
+    /**
+     * A dive as both formats read it: [wallEpochSeconds] is the local wall clock, depths are
+     * the first computer's, temperatures the dive's own or else its computers' mean, and
+     * computers that only carried the summary are dropped.
+     */
+    fun dive(
+        number: Int?,
+        wallEpochSeconds: Long,
+        utcOffset: Int,
+        durationSeconds: Int,
+        rating: Int?,
+        visibilityRating: Int?,
+        site: SiteRef?,
+        notes: String?,
+        buddies: List<String>,
+        tags: List<String>,
+        tanks: List<TankEntry>,
+        airTempMk: Int?,
+        waterTempMk: Int?,
+        computers: List<ComputerEntry>,
+    ): DiveEntry {
+        val primary = computers.firstOrNull()
+        return DiveEntry(
+            number = number,
+            startEpochSeconds = wallEpochSeconds - utcOffset,
+            utcOffsetSeconds = utcOffset,
+            durationSeconds = durationSeconds,
+            maxDepthMm = primary?.maxDepthMm,
+            meanDepthMm = primary?.meanDepthMm,
+            waterTempMk = waterTempMk ?: meanTemp(computers.map { it.waterTempMk }),
+            airTempMk = airTempMk ?: meanTemp(computers.map { it.airTempMk }),
+            notes = notes,
+            rating = rating,
+            visibilityRating = visibilityRating,
+            site = site,
+            buddies = buddies,
+            tags = tags,
+            tanks = tanks,
+            gasMixes = gasesOf(tanks),
+            computers = computers.filterNot(::isBare),
+        )
+    }
+
+    /**
+     * The computers a dive is written with: a dive without one gets a bare computer carrying
+     * its summary, and the first computer takes the dive's summary where it has none.
+     */
+    fun computersToWrite(dive: DiveEntry): List<ComputerEntry> {
+        val computers = dive.computers.ifEmpty {
+            val summary = listOf(dive.maxDepthMm, dive.meanDepthMm, dive.waterTempMk, dive.airTempMk)
+            if (summary.any { it != null } || dive.utcOffsetSeconds != 0) listOf(ComputerEntry()) else emptyList()
+        }
+        return computers.mapIndexed { i, c ->
+            if (i > 0) c else c.copy(
+                maxDepthMm = c.maxDepthMm ?: dive.maxDepthMm,
+                meanDepthMm = c.meanDepthMm ?: dive.meanDepthMm,
+                waterTempMk = c.waterTempMk ?: dive.waterTempMk,
+                airTempMk = c.airTempMk ?: dive.airTempMk,
+            )
+        }
     }
 
     /** A computer that names no device and recorded nothing: it only carries the dive's summary. */

@@ -1,31 +1,27 @@
 package no.synth.divelog.ui.tools
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.material3.Surface
-import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,19 +35,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.gas.BlendPlan
-import no.synth.divelog.core.gas.BlendProblem
 import no.synth.divelog.core.gas.BlendStep
+import no.synth.divelog.core.gas.BreathingGas
 import no.synth.divelog.core.gas.Cylinder
 import no.synth.divelog.core.gas.Fill
-import no.synth.divelog.core.gas.Mix
 import no.synth.divelog.core.gas.SourceGas
 import no.synth.divelog.core.gas.TOLERANCE_BAR
-import no.synth.divelog.core.gas.TOLERANCE_PERCENT
+import no.synth.divelog.core.gas.TOLERANCE_PERMILLE
 import no.synth.divelog.core.gas.planBlend
-import no.synth.divelog.ui.format.Format
+import no.synth.divelog.core.logbook.format.Format
+import no.synth.divelog.ui.components.DecimalField
+import no.synth.divelog.ui.components.ToolCard
+import no.synth.divelog.ui.components.parseDecimal
+import no.synth.divelog.ui.components.trimmedDecimal
 import kotlin.math.abs
 
 /** One source gas row. Fixed rows ([fixedName] set) have a name and a mix that cannot be edited. */
@@ -63,10 +61,10 @@ class GasRow(val fixedName: String?, o2: String, he: String, selected: Boolean) 
 
     /** The gas, or null while the mix is not a valid one. */
     fun toSourceGas(): SourceGas? {
-        val o2 = parse(o2) ?: return null
-        val he = parse(he) ?: return null
-        if (o2 < 0 || he < 0 || o2 + he > 100 || o2 + he <= 0) return null
-        return SourceGas(fixedName ?: mixName(o2, he), o2, he)
+        val o2 = parseDecimal(o2) ?: return null
+        val he = parseDecimal(he) ?: return null
+        val gas = BreathingGas.ofPercent(o2, he)?.takeIf { it.n2 < 1000 } ?: return null
+        return SourceGas(fixedName ?: mixName(o2, he), gas)
     }
 }
 
@@ -94,32 +92,37 @@ class GasBlenderState {
         startHe = "0"
     }
 
+    /** The target O2 and He are numbers but add up to more than 100 %. */
+    fun targetOverLimit(): Boolean {
+        val o2 = parseDecimal(targetO2) ?: return false
+        val he = parseDecimal(targetHe) ?: return false
+        return o2 >= 0 && he >= 0 && BreathingGas.ofPercent(o2, he) == null
+    }
+
     /** The plan for the current inputs, or null with the reason the inputs are incomplete. */
     fun plan(): Pair<BlendPlan?, String?> {
-        val volume = parse(volume)?.takeIf { it > 0 } ?: return null to "Enter the cylinder volume."
-        val startBar = parse(startBar)?.takeIf { it >= 0 } ?: return null to "Enter the starting pressure."
-        val startO2 = parse(startO2) ?: return null to "Enter the starting O2."
-        val startHe = parse(startHe) ?: return null to "Enter the starting He."
-        if (startO2 < 0 || startHe < 0 || startO2 + startHe > 100) return null to "Starting O2 + He must be 0-100 %."
-        val targetBar = parse(targetBar)?.takeIf { it > 0 } ?: return null to "Enter the target pressure."
-        val targetO2 = parse(targetO2)?.takeIf { it >= 0 } ?: return null to "Enter the target O2."
-        val targetHe = parse(targetHe)?.takeIf { it >= 0 } ?: return null to "Enter the target He."
-        val gases = this.gases.filter { it.selected }.mapNotNull { it.toSourceGas() }.distinctBy { it.o2 to it.he }
+        val volume = parseDecimal(volume)?.takeIf { it > 0 } ?: return null to "Enter the cylinder volume."
+        val startBar = parseDecimal(startBar)?.takeIf { it >= 0 } ?: return null to "Enter the starting pressure."
+        val startO2 = parseDecimal(startO2) ?: return null to "Enter the starting O2."
+        val startHe = parseDecimal(startHe) ?: return null to "Enter the starting He."
+        val startGas = BreathingGas.ofPercent(startO2, startHe) ?: return null to "Starting O2 + He must be 0-100 %."
+        val targetBar = parseDecimal(targetBar)?.takeIf { it > 0 } ?: return null to "Enter the target pressure."
+        val targetO2 = parseDecimal(targetO2)?.takeIf { it >= 0 } ?: return null to "Enter the target O2."
+        val targetHe = parseDecimal(targetHe)?.takeIf { it >= 0 } ?: return null to "Enter the target He."
+        val targetGas = BreathingGas.ofPercent(targetO2, targetHe) ?: return null to "Target O2 + He must be at most 100 %."
+        val gases = this.gases.filter { it.selected }.mapNotNull { it.toSourceGas() }.distinctBy { it.gas }
         if (gases.isEmpty()) return null to "Select at least one gas to fill from."
-        return planBlend(
-            Cylinder(volume, startBar, startO2, startHe),
-            Fill(targetO2, targetHe, targetBar),
-            gases,
-        ) to null
+        return planBlend(Cylinder(volume, startBar, startGas), Fill(targetGas, targetBar), gases) to null
     }
 }
 
 @Composable
 fun GasBlenderScreen(state: GasBlenderState) {
     val (plan, missing) = state.plan()
-    val overLimit = plan?.problem == BlendProblem.MIX_OVER_100
+    val overLimit = state.targetOverLimit()
     // The target card turns red while the target cannot be reached, so it shows next to the inputs.
     val targetTone = when {
+        overLimit -> Tone.BAD
         plan == null -> Tone.NEUTRAL
         plan.ok -> Tone.GOOD
         else -> Tone.BAD
@@ -130,21 +133,21 @@ fun GasBlenderScreen(state: GasBlenderState) {
     ) {
         Section("Starting gas") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NumberField(state.volume, { state.volume = it }, "Volume (L)", Modifier.weight(1f))
-                NumberField(state.startBar, { state.startBar = it }, "Pressure (bar)", Modifier.weight(1f))
+                DecimalField(state.volume, { state.volume = it }, "Volume (L)", Modifier.weight(1f))
+                DecimalField(state.startBar, { state.startBar = it }, "Pressure (bar)", Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                NumberField(state.startO2, { state.startO2 = it }, "O2 %", Modifier.weight(1f))
-                NumberField(state.startHe, { state.startHe = it }, "He %", Modifier.weight(1f))
+                DecimalField(state.startO2, { state.startO2 = it }, "O2 %", Modifier.weight(1f))
+                DecimalField(state.startHe, { state.startHe = it }, "He %", Modifier.weight(1f))
             }
             TextButton(onClick = state::emptyCylinder) { Text("Empty cylinder") }
         }
 
         Section("Target", targetTone) {
-            NumberField(state.targetBar, { state.targetBar = it }, "Pressure (bar)", Modifier.fillMaxWidth())
+            DecimalField(state.targetBar, { state.targetBar = it }, "Pressure (bar)", Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NumberField(state.targetO2, { state.targetO2 = it }, "O2 %", Modifier.weight(1f), isError = overLimit)
-                NumberField(state.targetHe, { state.targetHe = it }, "He %", Modifier.weight(1f), isError = overLimit)
+                DecimalField(state.targetO2, { state.targetO2 = it }, "O2 %", Modifier.weight(1f), isError = overLimit)
+                DecimalField(state.targetHe, { state.targetHe = it }, "He %", Modifier.weight(1f), isError = overLimit)
             }
             when (targetTone) {
                 Tone.GOOD -> StatusLine(Icons.Filled.CheckCircle, "Possible with the selected gases")
@@ -163,7 +166,7 @@ fun GasBlenderScreen(state: GasBlenderState) {
 
         when {
             missing != null -> Text(missing, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            plan != null && !overLimit -> PlanView(plan)
+            plan != null -> PlanView(plan)
         }
     }
 }
@@ -176,9 +179,9 @@ private fun GasRowItem(row: GasRow, onRemove: () -> Unit) {
         if (row.fixedName != null) {
             Text("${row.fixedName} (${row.o2}/${row.he})", Modifier.weight(1f))
         } else {
-            NumberField(row.o2, { row.o2 = it }, "O2 %", Modifier.weight(1f))
+            DecimalField(row.o2, { row.o2 = it }, "O2 %", Modifier.weight(1f))
             Text("/", Modifier.padding(horizontal = 8.dp))
-            NumberField(row.he, { row.he = it }, "He %", Modifier.weight(1f))
+            DecimalField(row.he, { row.he = it }, "He %", Modifier.weight(1f))
             IconButton(onClick = onRemove) { Icon(Icons.Filled.Close, contentDescription = "Remove gas") }
         }
     }
@@ -190,7 +193,7 @@ private fun PlanView(plan: BlendPlan) {
     val t = plan.target
     if (plan.ok) {
         Section("On target", Tone.GOOD, Icons.Filled.CheckCircle) {
-            Text("${mixLabel(Mix(r.o2, r.he))} at ${Format.oneDecimal(r.pressureBar)} bar", style = MaterialTheme.typography.titleMedium)
+            Text("${mixLabel(r.gas)} at ${Format.oneDecimal(r.pressureBar)} bar", style = MaterialTheme.typography.titleMedium)
             if (plan.litresUsed.isNotEmpty()) {
                 Text("Gas used", style = MaterialTheme.typography.titleSmall)
                 plan.litresUsed.forEach { (name, litres) ->
@@ -204,9 +207,9 @@ private fun PlanView(plan: BlendPlan) {
     } else {
         Section("Not possible", Tone.BAD, Icons.Filled.Warning) {
             Text(
-                "The selected gases cannot reach ${mixLabel(Mix(t.o2, t.he))} at ${Format.oneDecimal(t.pressureBar)} bar " +
+                "The selected gases cannot reach ${mixLabel(t.gas)} at ${Format.oneDecimal(t.pressureBar)} bar " +
                     "within 0.5 % O2/He and 1 bar. The closest they get is " +
-                    "${mixLabel(Mix(r.o2, r.he))} at ${Format.oneDecimal(r.pressureBar)} bar:",
+                    "${mixLabel(r.gas)} at ${Format.oneDecimal(r.pressureBar)} bar:",
             )
             misses(plan).forEach { Text("- $it", fontWeight = FontWeight.SemiBold) }
             Text("Select or add other gases, or change the target.")
@@ -232,8 +235,8 @@ private fun misses(plan: BlendPlan): List<String> {
     val r = plan.result
     val t = plan.target
     return buildList {
-        if (abs(r.o2 - t.o2) > TOLERANCE_PERCENT) add("O2 ${trimmed(r.o2)} % (target ${trimmed(t.o2)} %)")
-        if (abs(r.he - t.he) > TOLERANCE_PERCENT) add("He ${trimmed(r.he)} % (target ${trimmed(t.he)} %)")
+        if (abs(r.gas.o2 - t.gas.o2) > TOLERANCE_PERMILLE) add("O2 ${percent(r.gas.o2)} % (target ${percent(t.gas.o2)} %)")
+        if (abs(r.gas.he - t.gas.he) > TOLERANCE_PERMILLE) add("He ${percent(r.gas.he)} % (target ${percent(t.gas.he)} %)")
         if (abs(r.pressureBar - t.pressureBar) > TOLERANCE_BAR) {
             add("${Format.oneDecimal(r.pressureBar)} bar (target ${Format.oneDecimal(t.pressureBar)} bar)")
         }
@@ -262,7 +265,7 @@ private fun StepItem(number: Int, step: BlendStep) {
                 val (title, change) = when (step) {
                     is BlendStep.Drain -> (if (step.toBar <= 0) "Drain completely" else "Drain to ${Format.oneDecimal(step.toBar)} bar") to
                         "-${Format.oneDecimal(step.fromBar - step.toBar)} bar"
-                    is BlendStep.Add -> (if (step.topUp) "Top up with ${step.gas.name}" else "Add ${step.gas.name}") to
+                    is BlendStep.Add -> (if (step.topUp) "Top up with ${step.source.name}" else "Add ${step.source.name}") to
                         "+${Format.oneDecimal(step.addedBar)} bar, ${Format.oneDecimal(step.litres)} L"
                 }
                 Text(title, fontWeight = FontWeight.SemiBold)
@@ -271,7 +274,7 @@ private fun StepItem(number: Int, step: BlendStep) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    "${mixLabel(step.mixBefore)} → ${mixLabel(step.mixAfter)}",
+                    "${mixLabel(step.gasBefore)} → ${mixLabel(step.gasAfter)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -284,49 +287,19 @@ private enum class Tone { NEUTRAL, GOOD, BAD, STEPS }
 
 @Composable
 private fun Section(title: String, tone: Tone = Tone.NEUTRAL, icon: ImageVector? = null, content: @Composable () -> Unit) {
-    val colors = when (tone) {
-        Tone.NEUTRAL -> CardDefaults.elevatedCardColors()
-        Tone.GOOD -> CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        Tone.BAD -> CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
-        Tone.STEPS -> CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    val container = when (tone) {
+        Tone.NEUTRAL -> null
+        Tone.GOOD -> MaterialTheme.colorScheme.primaryContainer
+        Tone.BAD -> MaterialTheme.colorScheme.errorContainer
+        Tone.STEPS -> MaterialTheme.colorScheme.secondaryContainer
     }
-    ElevatedCard(Modifier.fillMaxWidth(), colors = colors) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                icon?.let { Icon(it, contentDescription = null) }
-                Text(title, style = MaterialTheme.typography.titleMedium)
-            }
-            content()
-        }
-    }
+    ToolCard(title, container, icon, content)
 }
-
-@Composable
-private fun NumberField(
-    value: String,
-    onChange: (String) -> Unit,
-    label: String,
-    modifier: Modifier = Modifier,
-    isError: Boolean = false,
-) {
-    OutlinedTextField(
-        value,
-        { onChange(it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
-        label = { Text(label) },
-        singleLine = true,
-        isError = isError,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        modifier = modifier,
-    )
-}
-
-private fun parse(text: String): Double? = text.trim().replace(',', '.').toDoubleOrNull()
 
 /** "Nitrox 32" for a helium-free nitrox, otherwise "O2/He". */
 private fun mixName(o2: Double, he: Double): String =
-    if (he == 0.0 && o2 > 21 && o2 < 41) "Nitrox ${trimmed(o2)}" else "${trimmed(o2)}/${trimmed(he)}"
+    if (he == 0.0 && o2 > 21 && o2 < 41) "Nitrox ${trimmedDecimal(o2)}" else "${trimmedDecimal(o2)}/${trimmedDecimal(he)}"
 
-private fun mixLabel(mix: Mix) = "${trimmed(mix.o2)}/${trimmed(mix.he)}"
+private fun mixLabel(gas: BreathingGas) = "${percent(gas.o2)}/${percent(gas.he)}"
 
-/** One decimal, dropped when it is zero. */
-private fun trimmed(v: Double): String = Format.oneDecimal(v).removeSuffix(".0")
+private fun percent(permille: Int): String = trimmedDecimal(permille / 10.0)

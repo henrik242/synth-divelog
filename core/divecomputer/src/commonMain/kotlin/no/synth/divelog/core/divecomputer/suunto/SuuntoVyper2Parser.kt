@@ -3,12 +3,14 @@ package no.synth.divelog.core.divecomputer.suunto
 import no.synth.divelog.core.divecomputer.DiveLogParser
 import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.u16le
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 
 /**
  * Parses one Vyper2-family dive record into an [IncomingDive]. The record is the dive
@@ -302,12 +304,9 @@ class SuuntoVyper2Parser(
         if (d.size < min) throw ProtocolException("Vyper2 record too small: ${d.size} bytes, need $min")
     }
 
-    private fun u16le(d: ByteArray, offset: Int): Int =
-        (d[offset].toInt() and 0xFF) or ((d[offset + 1].toInt() and 0xFF) shl 8)
-
     private fun celsiusToMilliKelvin(signedByte: Int, divisor: Int): Int {
         val c = signedByte.toByte().toInt() // sign-extend
-        return c * 1000 / divisor + 273_150
+        return c * 1000 / divisor + ZERO_CELSIUS_MK
     }
 
     companion object {

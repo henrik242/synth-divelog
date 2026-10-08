@@ -20,6 +20,9 @@ SELECT * FROM buddy ORDER BY name;
 selectBuddyById:
 SELECT * FROM buddy WHERE id = ?;
 
+selectBuddyByName:
+SELECT * FROM buddy WHERE name = ? LIMIT 1;
+
 updateBuddy:
 UPDATE buddy SET name = ? WHERE id = ?;
 
@@ -29,6 +32,10 @@ DELETE FROM buddy WHERE id = ?;
 linkDiveBuddy:
 INSERT OR IGNORE INTO diveBuddy(diveId, buddyId) VALUES (?, ?);
 
+-- Copies one dive's buddies onto another, skipping those it already has.
+copyDiveBuddies:
+INSERT OR IGNORE INTO diveBuddy(diveId, buddyId) SELECT :targetDiveId, buddyId FROM diveBuddy WHERE diveId = :sourceDiveId;
+
 unlinkDiveBuddy:
 DELETE FROM diveBuddy WHERE diveId = ? AND buddyId = ?;
 
@@ -37,6 +44,12 @@ SELECT buddy.* FROM buddy
 JOIN diveBuddy ON diveBuddy.buddyId = buddy.id
 WHERE diveBuddy.diveId = ?
 ORDER BY buddy.name;
+
+-- Buddy names per dive for the whole log.
+selectAllDiveBuddyNames:
+SELECT diveBuddy.diveId, buddy.name FROM buddy
+JOIN diveBuddy ON diveBuddy.buddyId = buddy.id
+ORDER BY diveBuddy.diveId, buddy.name;
 
 selectDiveIdsForBuddy:
 SELECT diveId FROM diveBuddy WHERE buddyId = ?;

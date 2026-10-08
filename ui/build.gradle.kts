@@ -1,24 +1,13 @@
 import java.time.LocalDate
 
 plugins {
-    alias(libs.plugins.kotlin.multiplatform)
-    alias(libs.plugins.android.kmp.library)
+    id("synth.kmp-library")
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
 }
 
-// CI checks out a pull request as GitHub's merge commit, which is on no branch; BUILD_GIT_SHA
-// names the pushed commit instead. Unset locally, where HEAD is right.
-val describedGitRef = providers.environmentVariable("BUILD_GIT_SHA")
-    .orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "HEAD"
-
-val gitCommitCount = providers.exec {
-    commandLine("git", "rev-list", "--count", describedGitRef)
-}.standardOutput.asText.map { it.trim().ifEmpty { "0" } }.orElse("0")
-
-val gitShortSha = providers.exec {
-    commandLine("git", "rev-parse", "--short", describedGitRef)
-}.standardOutput.asText.map { it.trim().ifEmpty { "unknown" } }.orElse("unknown")
+val gitCommitCount: Provider<String> by rootProject.extra
+val gitShortSha: Provider<String> by rootProject.extra
 
 /** Writes `BuildInfo`: the version string shown in Settings, "<commit count>.<sha> <date>". */
 abstract class GenerateBuildInfoTask : DefaultTask() {
@@ -59,9 +48,6 @@ kotlin {
     // compilation must run on a JDK 25 toolchain (and the desktop app runs on 25).
     jvmToolchain(25)
 
-    // SettingsStore and CloudGit are expect/actual classes, still Beta in Kotlin.
-    compilerOptions { freeCompilerArgs.add("-Xexpect-actual-classes") }
-
     jvm {
         // Emit Java 17 bytecode anyway; the toolchain only sets the compiler JDK.
         // The Android target keeps the AGP default jvmTarget, which the dexer
@@ -78,14 +64,6 @@ kotlin {
         }
     }
 
-    android {
-        namespace = "no.synth.divelog.ui"
-        compileSdk = libs.versions.android.compileSdk.get().toInt()
-        minSdk = libs.versions.android.minSdk.get().toInt()
-
-        withHostTestBuilder {}
-    }
-
     sourceSets {
         commonMain {
             kotlin.srcDir(generateBuildInfo.map { it.outputDir })
@@ -99,38 +77,21 @@ kotlin {
             implementation(compose.materialIconsExtended)
             implementation(project(":core:model"))
             implementation(project(":core:db"))
-            implementation(project(":core:formats"))
             implementation(project(":core:divecomputer"))
             implementation(project(":core:gas"))
-            implementation(libs.jetbrains.lifecycle.viewmodel)
-            implementation(libs.jetbrains.lifecycle.viewmodel.compose)
+            implementation(project(":core:logbook"))
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
-            // Shearwater Cloud exports carry JSON blobs.
-            implementation(libs.kotlinx.serialization.json)
             // Unified Compose map for the dive-site picker and the read-only site map.
             implementation(libs.maplibre.compose)
         }
         jvmMain.dependencies {
-            implementation(libs.jgit)
-            // Desktop serial ports for the shared wired download.
-            implementation(project(":core:transport"))
             // Metal renderer for the desktop map (Apple Silicon).
             runtimeOnly(libs.maplibre.compose.runtime.metal.macos.arm64)
         }
-        iosMain.dependencies {
-            // Reads and writes Shearwater Cloud database files.
-            implementation(libs.sqliter)
-        }
         androidMain.dependencies {
-            implementation(libs.jgit)
-            // USB-serial adapters and the USB permission flow for the shared wired download.
-            implementation(project(":core:transport"))
             // OpenGL renderer for the Android map.
             runtimeOnly(libs.maplibre.compose.runtime.opengl.android)
-        }
-        commonTest.dependencies {
-            implementation(kotlin("test"))
         }
     }
 }

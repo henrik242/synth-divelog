@@ -3,6 +3,7 @@ package no.synth.divelog.core.db
 import no.synth.divelog.core.model.Device
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 
 class ReparseTest {
     private val db = testDatabase()
@@ -26,7 +27,7 @@ class ReparseTest {
         val recordId = created.recordId
 
         // User edits the dive number and notes.
-        dives.updateDive(dives.getDive(diveId)!!.copy(number = 500, notes = "my dive"))
+        dives.updateDive(assertNotNull(dives.getDive(diveId)).copy(number = 500, notes = "my dive"))
 
         // A parser fix re-parses the same raw data: corrected depth and three samples.
         dives.reparseRecord(
@@ -39,7 +40,7 @@ class ReparseTest {
             ),
         )
 
-        val dive = dives.getDive(diveId)!!
+        val dive = assertNotNull(dives.getDive(diveId))
         assertEquals(20_000, dive.maxDepthMm, "primary record's new depth should reach the dive")
         assertEquals(15_000, dive.meanDepthMm)
         assertEquals(500, dive.number, "user-entered dive number must be kept")

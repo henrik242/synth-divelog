@@ -23,6 +23,9 @@ INSERT INTO gasMix(o2Permille, hePermille) VALUES (?, ?);
 selectGasMixById:
 SELECT * FROM gasMix WHERE id = ?;
 
+selectAllGasMixes:
+SELECT * FROM gasMix;
+
 findGasMix:
 SELECT * FROM gasMix WHERE o2Permille = ? AND hePermille = ? LIMIT 1;
 
@@ -32,6 +35,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?);
 
 selectTanksForDive:
 SELECT * FROM tank WHERE diveId = ? ORDER BY tankIndex;
+
+selectAllTanks:
+SELECT * FROM tank ORDER BY diveId, tankIndex;
 
 updateTank:
 UPDATE tank SET tankIndex = ?, volumeMl = ?, workingPressureMbar = ?, startPressureMbar = ?, endPressureMbar = ?, gasMixId = ?

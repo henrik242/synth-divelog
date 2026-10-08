@@ -51,4 +51,12 @@ class BuddyRepositoryTest {
         assertTrue(buddies.buddiesForDive(dive).isEmpty())
         assertTrue(buddies.all().isEmpty())
     }
+
+    @Test
+    fun getOrCreateFindsABuddyByName() {
+        val alex = buddies.getOrCreate("Alex")
+        assertEquals(alex, buddies.getOrCreate("Alex"))
+        buddies.getOrCreate("Kari")
+        assertEquals(listOf("Alex", "Kari"), buddies.all().map { it.name })
+    }
 }

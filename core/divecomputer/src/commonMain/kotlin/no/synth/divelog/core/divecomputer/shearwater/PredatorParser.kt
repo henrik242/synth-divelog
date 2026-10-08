@@ -3,12 +3,16 @@ package no.synth.divelog.core.divecomputer.shearwater
 import no.synth.divelog.core.divecomputer.DiveLogParser
 import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.u16be
+import no.synth.divelog.core.divecomputer.u24be
+import no.synth.divelog.core.divecomputer.u32be
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 
 /**
  * Parses the older Predator log format shared by the Predator and Petrel 1, and the
@@ -37,8 +41,8 @@ class PredatorParser(
         val layout = if (raw.formatId == PNF_FORMAT_ID) recordLayout(d) else blockLayout(d, raw.formatId)
         val header = layout.header
         val imperial = header[UNITS_OFFSET].toInt() == 1
-        val number = be16(header, NUMBER_OFFSET)
-        val startEpoch = be32(header, START_TIME_OFFSET)
+        val number = u16be(header, NUMBER_OFFSET)
+        val startEpoch = u32be(header, START_TIME_OFFSET)
         val durationSeconds = layout.durationSeconds
 
         val samples = ArrayList<Sample>()
@@ -47,7 +51,7 @@ class PredatorParser(
 
         for ((index, offset) in layout.sampleOffsets.withIndex()) {
             val time = index * sampleIntervalSeconds
-            val depthMm = toMillimetres(be16(d, offset + S_DEPTH), imperial)
+            val depthMm = toMillimetres(u16be(d, offset + S_DEPTH), imperial)
             // The sample temperature follows the dive's unit flag: Fahrenheit for
             // an imperial dive, Celsius for a metric one.
             val tempMk = if (imperial) {
@@ -56,8 +60,8 @@ class PredatorParser(
                 celsiusToMilliKelvin(signed(d[offset + S_TEMP]))
             }
             val ndlSeconds = (d[offset + S_NDL].toInt() and 0xFF).let { if (it == 0) null else it * 60 }
-            val stopDepthMm = be16(d, offset + S_STOP_DEPTH).let { if (it == 0) null else toMillimetres(it, imperial) }
-            val stopTimeSeconds = be16(d, offset + S_TTS).let { if (it == 0) null else it * 60 }
+            val stopDepthMm = u16be(d, offset + S_STOP_DEPTH).let { if (it == 0) null else toMillimetres(it, imperial) }
+            val stopTimeSeconds = u16be(d, offset + S_TTS).let { if (it == 0) null else it * 60 }
             val o2 = d[offset + S_O2].toInt() and 0xFF
             val he = d[offset + S_HE].toInt() and 0xFF
             val ppO2Mbar = sensorPpO2Mbar(d, offset)
@@ -136,7 +140,7 @@ class PredatorParser(
         // reads the close marker as a 0xFFFE depth sample and padding as duration.
         val closing = closingBlockOffset(d)
         val offsets = generateSequence(BLOCK) { it + stride }.takeWhile { it + SAMPLE_SIZE <= closing }.toList()
-        return Layout(d, offsets, be16(d, closing + CLOSE_DURATION_OFFSET) * 60)
+        return Layout(d, offsets, u16be(d, closing + CLOSE_DURATION_OFFSET) * 60)
     }
 
     private fun recordLayout(d: ByteArray): Layout {
@@ -145,7 +149,7 @@ class PredatorParser(
             ?: throw ProtocolException("Shearwater record log without an opening record")
         val closing = records.firstOrNull { d[it] == REC_CLOSING }
         val samples = records.filter { d[it] == REC_SAMPLE }.map { it + 1 }
-        val duration = closing?.let { be24(d, it + REC_CLOSE_DURATION_SECONDS) } ?: 0
+        val duration = closing?.let { u24be(d, it + REC_CLOSE_DURATION_SECONDS) } ?: 0
         return Layout(d.copyOfRange(opening, opening + RECORD), samples, duration)
     }
 
@@ -215,24 +219,12 @@ class PredatorParser(
         private const val MM_PER_TENTH_METRE = 100
         private const val MM_PER_TENTH_FOOT = 30.48
 
-        private fun be16(d: ByteArray, o: Int): Int =
-            ((d[o].toInt() and 0xFF) shl 8) or (d[o + 1].toInt() and 0xFF)
-
-        private fun be24(d: ByteArray, o: Int): Int =
-            ((d[o].toInt() and 0xFF) shl 16) or ((d[o + 1].toInt() and 0xFF) shl 8) or (d[o + 2].toInt() and 0xFF)
-
-        private fun be32(d: ByteArray, o: Int): Long {
-            var v = 0L
-            for (i in 0 until 4) v = (v shl 8) or (d[o + i].toLong() and 0xFF)
-            return v
-        }
-
         private fun signed(b: Byte): Int = b.toInt()
 
-        private fun celsiusToMilliKelvin(celsius: Int): Int = celsius * 1_000 + 273_150
+        private fun celsiusToMilliKelvin(celsius: Int): Int = celsius * 1_000 + ZERO_CELSIUS_MK
 
         private fun fahrenheitToMilliKelvin(fahrenheit: Int): Int =
-            (fahrenheit - 32) * 5_000 / 9 + 273_150
+            (fahrenheit - 32) * 5_000 / 9 + ZERO_CELSIUS_MK
 
     }
 }

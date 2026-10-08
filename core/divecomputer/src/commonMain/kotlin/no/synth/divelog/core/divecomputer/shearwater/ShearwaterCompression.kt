@@ -17,25 +17,57 @@ object ShearwaterCompression {
      * that many zero bytes; zero is the end-of-stream marker.
      */
     fun decompressLre(input: ByteArray): LreResult {
-        val out = ArrayList<Byte>(input.size * 2)
-        val totalBits = input.size * 8
-        var offset = 0
+        val decoder = LreDecoder()
+        decoder.feed(input)
+        return LreResult(decoder.output(), decoder.complete)
+    }
+
+    /**
+     * Incremental [decompressLre] for a stream that arrives in blocks: each [feed]
+     * decodes only the codes the new bytes complete.
+     */
+    class LreDecoder {
+        private var input = ByteArray(1_024)
+        private var out = ByteArray(4_096)
+        private var outSize = 0
+        private var bitOffset = 0
+
+        /** Bytes fed so far. */
+        var inputSize = 0
+            private set
+
+        /** True once the end marker is seen; later input is ignored. */
         var complete = false
-        while (offset + 9 <= totalBits) {
-            val byteIndex = offset / 8
-            val bitIndex = offset % 8
-            val hi = input[byteIndex].toInt() and 0xFF
-            val lo = if (byteIndex + 1 < input.size) input[byteIndex + 1].toInt() and 0xFF else 0
-            val window = (hi shl 8) or lo
-            val value = (window shr (7 - bitIndex)) and 0x1FF
-            offset += 9
-            when {
-                value == 0 -> { complete = true; break }
-                value and 0x100 != 0 -> out.add((value and 0xFF).toByte())
-                else -> repeat(value) { out.add(0) }
+            private set
+
+        fun feed(bytes: ByteArray): Boolean {
+            if (complete) return true
+            if (inputSize + bytes.size > input.size) input = input.copyOf(maxOf(input.size * 2, inputSize + bytes.size))
+            bytes.copyInto(input, inputSize)
+            inputSize += bytes.size
+            val totalBits = inputSize * 8
+            while (bitOffset + 9 <= totalBits) {
+                val byteIndex = bitOffset / 8
+                val hi = input[byteIndex].toInt() and 0xFF
+                val lo = if (byteIndex + 1 < inputSize) input[byteIndex + 1].toInt() and 0xFF else 0
+                val value = (((hi shl 8) or lo) shr (7 - bitOffset % 8)) and 0x1FF
+                bitOffset += 9
+                when {
+                    value == 0 -> { complete = true; break }
+                    value and 0x100 != 0 -> append((value and 0xFF).toByte(), 1)
+                    else -> append(0, value)
+                }
             }
+            return complete
         }
-        return LreResult(out.toByteArray(), complete)
+
+        fun output(): ByteArray = out.copyOf(outSize)
+
+        private fun append(b: Byte, count: Int) {
+            if (outSize + count > out.size) out = out.copyOf(maxOf(out.size * 2, outSize + count))
+            out.fill(b, outSize, outSize + count)
+            outSize += count
+        }
     }
 
     /** Undo the block XOR stage in place: each byte is XORed with the one a block back. */

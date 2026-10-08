@@ -1,5 +1,8 @@
 package no.synth.divelog.core.divecomputer.transport
 
+import no.synth.divelog.core.divecomputer.fromHex
+import no.synth.divelog.core.divecomputer.toHex
+
 /** One direction of a byte exchange on the link. */
 enum class Direction { WRITE, READ }
 
@@ -80,28 +83,4 @@ data class Transcript(val events: List<TransportEvent>) {
             }
         }
     }
-}
-
-internal fun ByteArray.toHex(): String {
-    val digits = "0123456789abcdef"
-    val sb = StringBuilder(size * 2)
-    for (b in this) {
-        val v = b.toInt() and 0xFF
-        sb.append(digits[v ushr 4])
-        sb.append(digits[v and 0x0F])
-    }
-    return sb.toString()
-}
-
-internal fun String.fromHex(): ByteArray {
-    require(length % 2 == 0) { "Hex string must have even length: $this" }
-    val out = ByteArray(length / 2)
-    var i = 0
-    while (i < length) {
-        val hi = this[i].digitToInt(16)
-        val lo = this[i + 1].digitToInt(16)
-        out[i / 2] = ((hi shl 4) or lo).toByte()
-        i += 2
-    }
-    return out
 }

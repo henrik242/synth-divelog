@@ -53,22 +53,20 @@ class ShearwaterMemory(private val link: ShearwaterLink) {
     ): ByteArray {
         begin(baseAddress, MAX_COMPRESSED_SIZE, compressed = true)
         try {
-            val raw = ArrayList<Byte>()
+            val lre = ShearwaterCompression.LreDecoder()
             var block = 1
             while (true) {
                 if (cancel.isCancelled()) throw DownloadCancelledException()
                 val data = readBlock(block)
                 if (data.isEmpty()) throw ProtocolException("Empty compressed block $block")
-                for (b in data) raw.add(b)
-                val lre = ShearwaterCompression.decompressLre(raw.toByteArray())
-                if (lre.complete) {
-                    val result = lre.data
+                if (lre.feed(data)) {
+                    val result = lre.output()
                     ShearwaterCompression.decompressXor(result)
                     return result
                 }
                 block = (block + 1) and 0xFF
-                onProgress(raw.size)
-                if (raw.size > MAX_COMPRESSED_SIZE) throw ProtocolException("Compressed dive exceeds limit")
+                onProgress(lre.inputSize)
+                if (lre.inputSize > MAX_COMPRESSED_SIZE) throw ProtocolException("Compressed dive exceeds limit")
             }
         } finally {
             runCatching { finish() }

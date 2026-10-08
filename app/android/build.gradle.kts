@@ -6,18 +6,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// CI checks out a pull request as GitHub's merge commit, which is on no branch; BUILD_GIT_SHA
-// names the pushed commit instead. Unset locally, where HEAD is right.
-val describedGitRef = providers.environmentVariable("BUILD_GIT_SHA")
-    .orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "HEAD"
-
-val gitCommitCount = providers.exec {
-    commandLine("git", "rev-list", "--count", describedGitRef)
-}.standardOutput.asText.map { it.trim().ifEmpty { "0" } }.orElse("0")
-
-val gitShortSha = providers.exec {
-    commandLine("git", "rev-parse", "--short", describedGitRef)
-}.standardOutput.asText.map { it.trim().ifEmpty { "unknown" } }.orElse("unknown")
+val gitCommitCount: Provider<String> by rootProject.extra
+val gitShortSha: Provider<String> by rootProject.extra
 
 android {
     namespace = "no.synth.divelog"
@@ -63,21 +53,14 @@ android {
 
 dependencies {
     implementation(project(":ui"))
-    implementation(project(":core:model"))
     implementation(project(":core:db"))
-    implementation(project(":core:divecomputer"))
-    implementation(project(":core:transport"))
-    implementation(project(":core:formats"))
+    implementation(project(":core:logbook"))
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
 
     implementation(compose.runtime)
-    implementation(compose.foundation)
-    implementation(compose.material3)
     implementation(compose.ui)
 
-    implementation(libs.jetbrains.lifecycle.viewmodel)
-    implementation(libs.jetbrains.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
 }

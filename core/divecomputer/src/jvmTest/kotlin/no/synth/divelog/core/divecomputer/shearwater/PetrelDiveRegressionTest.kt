@@ -3,6 +3,7 @@ package no.synth.divelog.core.divecomputer.shearwater
 import no.synth.divelog.core.divecomputer.RawDive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -17,7 +18,7 @@ import kotlin.test.assertTrue
  */
 class PetrelDiveRegressionTest {
     private fun decodeFixture(resource: String = "/petrel-dive-584.hex"): ByteArray {
-        val hex = javaClass.getResourceAsStream(resource)!!
+        val hex = requireNotNull(javaClass.getResourceAsStream(resource)) { "missing $resource" }
             .bufferedReader().readText().trim()
         val compressed = ByteArray(hex.length / 2) { i ->
             hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
@@ -54,7 +55,8 @@ class PetrelDiveRegressionTest {
     fun maxDepthIsNotTheCloseMarker() {
         // The old bug surfaced as a 0xFFFE depth = 6553.4 m on every dive.
         val dive = parseFixture()
-        assertTrue(dive.maxDepthMm!! < 100_000, "max depth ${dive.maxDepthMm} looks like the close marker")
+        val maxDepth = assertNotNull(dive.maxDepthMm)
+        assertTrue(maxDepth < 100_000, "max depth $maxDepth looks like the close marker")
         assertTrue(dive.durationSeconds > 0, "duration should be read from the real closing block")
     }
 
@@ -72,7 +74,7 @@ class PetrelDiveRegressionTest {
         assertEquals(2, dive.number)
         assertEquals(294_261, dive.waterTempMk) // ~21 C, from ~70 F
         assertTrue(
-            dive.waterTempMk!! in 283_150..303_150,
+            assertNotNull(dive.waterTempMk) in 283_150..303_150,
             "water temp ${dive.waterTempMk} mK should be a sane 10-30 C",
         )
     }

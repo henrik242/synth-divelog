@@ -31,6 +31,7 @@ platform adds a thin entry point.
 | `:core:transport` | Bluetooth and serial transports per platform. |
 | `:core:formats` | Logbook file formats. |
 | `:core:gas` | The calculators behind the Tools tab. |
+| `:core:logbook` | Logbook import and export, cloud sync, dive-computer downloads, settings. |
 | `:ui` | Shared screens. |
 | `:app:android`, `:app:desktop`, `iosApp/` | Platform entry points. |
 

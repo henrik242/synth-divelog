@@ -11,25 +11,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import no.synth.divelog.core.logbook.AppContainer
+import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.units.UnitSystem
-import no.synth.divelog.core.model.units.Units
-import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.common.observe
 import no.synth.divelog.ui.components.EmptyState
-import no.synth.divelog.ui.format.Format
 
 @Composable
-fun StatisticsSection(container: AppContainer, unitSystem: UnitSystem, dataVersion: Int) {
-    val dives = remember(dataVersion) { container.dives.allDives() }
+fun StatisticsSection(container: AppContainer, unitSystem: UnitSystem) {
+    val dives = observe(container, read = container.dives::allDives, flow = container.dives::allDivesFlow)
     if (dives.isEmpty()) {
         EmptyState("No dives yet. Statistics appear once you have logged some.", Icons.Outlined.BarChart)
         return
@@ -78,7 +78,7 @@ fun StatisticsSection(container: AppContainer, unitSystem: UnitSystem, dataVersi
 private fun StatTile(label: String, value: String, modifier: Modifier = Modifier) {
     Column(
         modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
         Text(value, style = MaterialTheme.typography.headlineSmall)

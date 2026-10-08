@@ -5,6 +5,7 @@ import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 
 /**
  * Parses one old-Vyper dive record into an [IncomingDive].
@@ -94,6 +95,6 @@ class SuuntoVyperParser(
 
         private fun feetToMillimetres(feet: Int): Int = feet * MM_PER_FOOT / 10
 
-        private fun celsiusToMilliKelvin(celsius: Int): Int = celsius * 1_000 + 273_150
+        private fun celsiusToMilliKelvin(celsius: Int): Int = celsius * 1_000 + ZERO_CELSIUS_MK
     }
 }

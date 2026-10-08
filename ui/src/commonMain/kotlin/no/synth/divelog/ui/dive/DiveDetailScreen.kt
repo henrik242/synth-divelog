@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -30,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -50,15 +54,16 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
+import no.synth.divelog.core.logbook.AppContainer
+import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.core.model.units.Units
-import no.synth.divelog.ui.AppContainer
-import no.synth.divelog.ui.format.Format
+import no.synth.divelog.ui.common.observe
 import no.synth.divelog.ui.sites.SiteLocationMap
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,28 +71,27 @@ fun DiveDetailScreen(
     container: AppContainer,
     diveId: Long,
     unitSystem: UnitSystem,
-    reloadKey: Int = 0,
     orderedDiveIds: List<Long> = emptyList(),
     onNavigate: (Long) -> Unit = {},
     onOpenDevice: (Long) -> Unit = {},
     onOpenSite: (Long) -> Unit = {},
     onEdit: () -> Unit = {},
-    onChanged: () -> Unit = {},
     onDeleted: () -> Unit = {},
     onTopBarActions: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
 ) {
-    val dive = remember(diveId, reloadKey) { container.dives.getDive(diveId) } ?: run {
+    val dive = observe(diveId, read = { container.dives.getDive(diveId) }, flow = { container.dives.diveFlow(diveId) }) ?: run {
         Text("Dive not found", Modifier.padding(16.dp)); return
     }
-    val records = remember(diveId, reloadKey) { container.dives.recordsForDive(diveId) }
+    val records = observe(diveId, read = { container.dives.recordsForDive(diveId) }, flow = { container.dives.recordsForDiveFlow(diveId) })
     val devices = remember(records) {
         records.mapNotNull { it.deviceId }.distinct().associateWith { container.devices.get(it) }
     }
-    val site = remember(diveId, reloadKey) { dive.siteId?.let { container.sites.site(it) } }
-    val buddies = remember(diveId, reloadKey) { container.buddies.buddiesForDive(diveId) }
-    val tags = remember(diveId, reloadKey) { container.tags.tagsForDive(diveId) }
-    val gases = remember(diveId, reloadKey) {
-        container.gases.tanksForDive(diveId).mapNotNull { t -> tankLabel(t, t.gasMixId?.let { container.gases.gasMix(it) }, unitSystem) }
+    val site = dive.siteId?.let { id -> observe(id, read = { container.sites.site(id) }, flow = { container.sites.siteFlow(id) }) }
+    val buddies = observe(diveId, read = { container.buddies.buddiesForDive(diveId) }, flow = { container.buddies.buddiesForDiveFlow(diveId) })
+    val tags = observe(diveId, read = { container.tags.tagsForDive(diveId) }, flow = { container.tags.tagsForDiveFlow(diveId) })
+    val tanks = observe(diveId, read = { container.gases.tanksForDive(diveId) }, flow = { container.gases.tanksForDiveFlow(diveId) })
+    val gases = remember(tanks, unitSystem) {
+        tanks.mapNotNull { t -> tankLabel(t, t.gasMixId?.let { container.gases.gasMix(it) }, unitSystem) }
     }
 
     // Previous/next step through [orderedDiveIds] (index-1 / index+1).
@@ -95,11 +99,11 @@ fun DiveDetailScreen(
     val prevId = if (index > 0) orderedDiveIds[index - 1] else null
     val nextId = if (index >= 0 && index < orderedDiveIds.lastIndex) orderedDiveIds[index + 1] else null
 
-    var selectedRecord by remember(diveId) {
-        mutableStateOf(
-            records.firstOrNull { it.id == dive.primaryComputerRecordId } ?: records.firstOrNull(),
-        )
-    }
+    // Resolved against the current records, so a split-out record falls back to the primary.
+    var selectedRecordId by remember(diveId) { mutableStateOf<Long?>(null) }
+    val selectedRecord = records.firstOrNull { it.id == selectedRecordId }
+        ?: records.firstOrNull { it.id == dive.primaryComputerRecordId }
+        ?: records.firstOrNull()
     val samples = remember(selectedRecord?.id) {
         selectedRecord?.let { container.dives.samplesForRecord(it.id) } ?: emptyList()
     }
@@ -117,19 +121,19 @@ fun DiveDetailScreen(
             title = { Text("Delete dive?") },
             text = { Text("This removes the dive and its computer records.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(
+                TextButton(
                     onClick = { container.dives.deleteDive(diveId); showDelete = false; onDeleted() },
-                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
                 ) { Text("Delete") }
             },
-            dismissButton = { androidx.compose.material3.TextButton(onClick = { showDelete = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showDelete = false }) { Text("Cancel") } },
         )
     }
 
     if (showMerge) {
-        val others = remember(reloadKey) { container.dives.allDives().filter { it.id != diveId } }
+        val others = remember { container.dives.allDives().filter { it.id != diveId } }
         AlertDialog(
             onDismissRequest = { showMerge = false },
             title = { Text("Merge another dive into this one") },
@@ -137,7 +141,7 @@ fun DiveDetailScreen(
                 if (others.isEmpty()) {
                     Text("No other dives to merge.")
                 } else {
-                    androidx.compose.foundation.lazy.LazyColumn {
+                    LazyColumn {
                         items(others) { other ->
                             Text(
                                 text = (other.number?.let { "#$it  " } ?: "") +
@@ -146,7 +150,6 @@ fun DiveDetailScreen(
                                     .clickable {
                                         container.dives.mergeDives(sourceDiveId = other.id, targetDiveId = diveId)
                                         showMerge = false
-                                        onChanged()
                                     }
                                     .padding(vertical = 12.dp),
                             )
@@ -155,7 +158,7 @@ fun DiveDetailScreen(
                 }
             },
             confirmButton = {},
-            dismissButton = { androidx.compose.material3.TextButton(onClick = { showMerge = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showMerge = false }) { Text("Cancel") } },
         )
     }
 
@@ -242,7 +245,7 @@ fun DiveDetailScreen(
                     records.forEachIndexed { i, rec ->
                         FilterChip(
                             selected = selectedRecord?.id == rec.id,
-                            onClick = { selectedRecord = rec },
+                            onClick = { selectedRecordId = rec.id },
                             label = {
                                 Text(recordLabel(devices[rec.deviceId], i, rec.id == dive.primaryComputerRecordId))
                             },
@@ -250,9 +253,9 @@ fun DiveDetailScreen(
                     }
                 }
                 selectedRecord?.let { rec ->
-                    androidx.compose.material3.TextButton(
-                        onClick = { container.dives.splitRecordIntoNewDive(rec.id); onChanged() },
-                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    TextButton(
+                        onClick = { container.dives.splitRecordIntoNewDive(rec.id) },
+                        colors = ButtonDefaults.textButtonColors(
                             contentColor = MaterialTheme.colorScheme.error,
                         ),
                     ) { Text("Split out") }
@@ -310,7 +313,7 @@ fun DiveDetailScreen(
             }
         }
 
-        androidx.compose.foundation.layout.Spacer(Modifier.padding(bottom = 8.dp))
+        Spacer(Modifier.padding(bottom = 8.dp))
     }
 }
 
@@ -351,7 +354,7 @@ private fun tankLabel(tank: Tank, gas: GasMix?, system: UnitSystem): String? {
     }
     return listOfNotNull(
         gas?.takeIf { it.o2Permille > 0 }?.let { Format.gasName(it.o2Permille, it.hePermille) },
-        tank.volumeMl?.takeIf { it > 0 }?.let { "${Format.oneDecimal(it / 1000.0).removeSuffix(".0")} L" },
+        tank.volumeMl?.takeIf { it > 0 }?.let { Format.tankSize(it, tank.workingPressureMbar, system) },
         pressures,
     ).joinToString(" · ").ifEmpty { null }
 }

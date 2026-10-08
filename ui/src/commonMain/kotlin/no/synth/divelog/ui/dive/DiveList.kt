@@ -12,22 +12,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import no.synth.divelog.ui.common.BackHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import no.synth.divelog.core.logbook.AppContainer
+import no.synth.divelog.core.logbook.format.Format
+import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.units.UnitSystem
-import no.synth.divelog.ui.AppContainer
-import no.synth.divelog.ui.format.Format
 
 /** One dive summary row: site (or date) as the headline, depth emphasized. */
 @Composable
@@ -74,33 +69,20 @@ fun DiveRow(dive: Dive, unitSystem: UnitSystem, onClick: () -> Unit, siteName: S
     }
 }
 
-/** A list of dives that opens a read-only detail inline when one is tapped. */
-@OptIn(ExperimentalComposeUiApi::class)
+/** A plain list of [dives]; tapping one hands its id to [onOpenDive]. */
 @Composable
-fun DiveListWithDetail(container: AppContainer, dives: List<Dive>, unitSystem: UnitSystem) {
-    var openId by remember(dives) { mutableStateOf<Long?>(null) }
-    BackHandler(enabled = openId != null) { openId = null }
-    val current = openId
-    if (current != null) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                TextButton(onClick = { openId = null }) { Text("< Back") }
-            }
-            DiveDetailScreen(container, current, unitSystem)
-        }
-        return
-    }
+fun DiveList(container: AppContainer, dives: List<Dive>, unitSystem: UnitSystem, onOpenDive: (Long) -> Unit) {
     val sources = remember(dives) { diveSourceLabels(container) }
     LazyColumn(Modifier.fillMaxSize()) {
         items(dives) { dive ->
-            DiveRow(dive, unitSystem, onClick = { openId = dive.id }, source = sources[dive.id])
+            DiveRow(dive, unitSystem, onClick = { onOpenDive(dive.id) }, source = sources[dive.id])
             HorizontalDivider()
         }
     }
 }
 
 /** Compact source label per dive id for list rows, from a single query. */
-fun diveSourceLabels(container: AppContainer): Map<Long, String> =
-    container.dives.sourcesByDive().mapValues { (_, sources) ->
-        sources.map { deviceName(it) }.distinct().joinToString(" + ")
-    }
+fun diveSourceLabels(container: AppContainer): Map<Long, String> = sourceLabels(container.dives.sourcesByDive())
+
+fun sourceLabels(sourcesByDive: Map<Long, List<Device?>>): Map<Long, String> =
+    sourcesByDive.mapValues { (_, sources) -> sources.map { deviceName(it) }.distinct().joinToString(" + ") }

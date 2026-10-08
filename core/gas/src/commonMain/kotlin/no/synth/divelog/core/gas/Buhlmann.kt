@@ -48,29 +48,6 @@ object Zhl16c {
     )
 }
 
-/** A breathing gas in permille; N2 is the rest. */
-data class BreathingGas(val o2: Int, val he: Int = 0) {
-    init {
-        require(o2 in 1..1000 && he in 0..1000 && o2 + he <= 1000) { "Invalid gas $o2/$he" }
-    }
-
-    val n2: Int get() = 1000 - o2 - he
-
-    /** "Air", "Oxygen", "EAN50" or "18/45". */
-    val name: String
-        get() = when {
-            he == 0 && o2 in 209..211 -> "Air"
-            he == 0 && o2 == 1000 -> "Oxygen"
-            he == 0 && o2 > 211 -> "EAN${(o2 + 5) / 10}"
-            else -> "${(o2 + 5) / 10}/${(he + 5) / 10}"
-        }
-
-    companion object {
-        val AIR = BreathingGas(210)
-        val OXYGEN = BreathingGas(1000)
-    }
-}
-
 /** Gradient factors as fractions, e.g. 0.3 and 0.75. */
 data class GradientFactors(val low: Double, val high: Double) {
     init {
@@ -125,37 +102,47 @@ class Tissues private constructor(
         }
     }
 
+    // a and b of compartment c, weighted by its N2 and He loading.
+    private fun a(c: Int): Double = (Zhl16c.n2A[c] * n2[c] + Zhl16c.heA[c] * he[c]) / (n2[c] + he[c])
+    private fun b(c: Int): Double = (Zhl16c.n2B[c] * n2[c] + Zhl16c.heB[c] * he[c]) / (n2[c] + he[c])
+
     /**
-     * Shallowest ambient pressure the tissues tolerate, bar, with [gf] sloping from GF low at
-     * the anchor to GF high at [surfaceBar]. Moves the anchor deeper when the plain GF-low
-     * ceiling is deeper than it, as Subsurface does.
+     * Moves the GF-low anchor down to the plain GF-low ceiling when that is deeper. Subsurface
+     * does this on every ceiling check, so call it before each [toleratedAmbientBar].
      */
-    fun toleratedAmbientBar(gf: GradientFactors, surfaceBar: Double): Double {
-        val a = DoubleArray(Zhl16c.COMPARTMENTS)
-        val b = DoubleArray(Zhl16c.COMPARTMENTS)
+    fun anchorGfLow(gf: GradientFactors) {
         for (c in 0 until Zhl16c.COMPARTMENTS) {
+            val a = a(c)
+            val b = b(c)
             val total = n2[c] + he[c]
-            a[c] = (Zhl16c.n2A[c] * n2[c] + Zhl16c.heA[c] * he[c]) / total
-            b[c] = (Zhl16c.n2B[c] * n2[c] + Zhl16c.heB[c] * he[c]) / total
-            val gfLowCeiling = (b[c] * total - gf.low * a[c] * b[c]) / ((1 - b[c]) * gf.low + b[c])
+            val gfLowCeiling = (b * total - gf.low * a * b) / ((1 - b) * gf.low + b)
             gfLowAnchorBar = max(gfLowAnchorBar, gfLowCeiling)
         }
+    }
+
+    /**
+     * Shallowest ambient pressure the tissues tolerate, bar, with [gf] sloping from GF low at
+     * [gfLowAnchorBar] to GF high at [surfaceBar].
+     */
+    fun toleratedAmbientBar(gf: GradientFactors, surfaceBar: Double): Double {
         val anchor = gfLowAnchorBar
         val lo = gf.low
         val hi = gf.high
         var tolerated = 0.0
         for (c in 0 until Zhl16c.COMPARTMENTS) {
+            val a = a(c)
+            val b = b(c)
             val total = n2[c] + he[c]
             // Only where the GF line runs from the anchor up to the surface; otherwise no limit.
-            val atSurface = (surfaceBar / b[c] + a[c] - surfaceBar) * hi + surfaceBar
-            val atAnchor = (anchor / b[c] + a[c] - anchor) * lo + anchor
+            val atSurface = (surfaceBar / b + a - surfaceBar) * hi + surfaceBar
+            val atAnchor = (anchor / b + a - anchor) * lo + anchor
             if (atSurface < atAnchor) {
-                val t = (-a[c] * b[c] * (hi * anchor - lo * surfaceBar) -
-                    (1 - b[c]) * (hi - lo) * anchor * surfaceBar +
-                    b[c] * (anchor - surfaceBar) * total) /
-                    (-a[c] * b[c] * (hi - lo) +
-                        (1 - b[c]) * (lo * anchor - hi * surfaceBar) +
-                        b[c] * (anchor - surfaceBar))
+                val t = (-a * b * (hi * anchor - lo * surfaceBar) -
+                    (1 - b) * (hi - lo) * anchor * surfaceBar +
+                    b * (anchor - surfaceBar) * total) /
+                    (-a * b * (hi - lo) +
+                        (1 - b) * (lo * anchor - hi * surfaceBar) +
+                        b * (anchor - surfaceBar))
                 tolerated = max(tolerated, t)
             }
         }

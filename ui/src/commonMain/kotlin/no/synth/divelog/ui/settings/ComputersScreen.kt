@@ -26,7 +26,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -35,9 +34,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
-import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.common.observe
 import no.synth.divelog.ui.components.BackHeader
 
 /**
@@ -53,9 +53,8 @@ fun ComputersScreen(
     focusDeviceId: Long? = null,
     onFocusConsumed: () -> Unit = {},
 ) {
-    var version by remember { mutableIntStateOf(0) }
-    val devices = remember(version) { container.devices.all() }
-    val diveCounts = remember(version) { container.devices.diveCounts() }
+    val devices = observe(container, read = container.devices::all, flow = container.devices::allFlow)
+    val diveCounts = observe(container, read = container.devices::diveCounts, flow = container.devices::diveCountsFlow)
     var mergeSource by remember { mutableStateOf<Device?>(null) }
 
     val bringIntoView = remember { BringIntoViewRequester() }
@@ -88,7 +87,7 @@ fun ComputersScreen(
                         modifier = if (focused) Modifier.bringIntoViewRequester(bringIntoView) else Modifier,
                         onRename = { container.devices.update(device.copy(nickname = it.ifBlank { null })) },
                         onMerge = { mergeSource = device },
-                        onForget = { container.devices.delete(device.id); version++ },
+                        onForget = { container.devices.delete(device.id) },
                     )
                 }
             }
@@ -103,7 +102,6 @@ fun ComputersScreen(
             onConfirm = { target ->
                 container.devices.merge(source.id, target.id)
                 mergeSource = null
-                version++
             },
             onDismiss = { mergeSource = null },
         )

@@ -1,6 +1,8 @@
 package no.synth.divelog.core.divecomputer.suunto
 
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.fnv1a
+import no.synth.divelog.core.divecomputer.u16le
 
 /**
  * Walks the Suunto Vyper2 family profile ring and splits it into one raw blob
@@ -30,7 +32,6 @@ object SuuntoVyper2Dump {
 
     const val HEADER_OFFSET = 0x0190
     const val HEADER_SIZE = 8
-    const val FINGERPRINT_OFFSET = 0x0011
     const val SERIAL_OFFSET = 0x0023
     const val SERIAL_SIZE = 4
     const val RB_PROFILE_BEGIN = 0x019A
@@ -48,9 +49,7 @@ object SuuntoVyper2Dump {
      */
     fun extract(ring: ByteArray, header: ByteArray): List<RawDive> {
         require(ring.size == ringSize) { "ring must be $ringSize bytes, got ${ring.size}" }
-        val dives = ArrayList<RawDive>()
-        walk(header, read = { start, size -> recordAt(start, size, ring) }) { dives += it; true }
-        return dives
+        return dives(header) { start, size -> recordAt(start, size, ring) }.toList()
     }
 
     /**
@@ -62,39 +61,42 @@ object SuuntoVyper2Dump {
         require(header.size >= HEADER_SIZE) { "header must be at least $HEADER_SIZE bytes" }
         val last = u16le(header, 0)
         val count = u16le(header, 2)
-        val end = u16le(header, 4)
+        val end = endOf(header)
         val begin = u16le(header, 6)
         if (!inRing(last) || !inRing(end)) return 0
         return if (inRing(begin)) ringDistance(begin, end, full = count > 0) else ringSize
     }
 
+    /** Ring address one past the newest dive, from [header]. */
+    fun endOf(header: ByteArray): Int = u16le(header, 4)
+
     /**
-     * Follow the dive chain backward from the newest dive. Each record is fetched with
-     * [read] (ring start address and size, wrapping at the ring end), in order and
-     * contiguously going back from `end`, so a caller can read the device lazily.
-     * [onDive] gets each complete dive, newest first, and returns false to stop.
+     * Follow the dive chain backward from the newest dive, yielding each complete dive
+     * newest first. Each record is fetched with [read] (ring start address and size,
+     * wrapping at the ring end), in order and contiguously going back from `end`, and
+     * only as the sequence is consumed, so a caller can read the device lazily.
      */
-    fun walk(header: ByteArray, read: (start: Int, size: Int) -> ByteArray, onDive: (RawDive) -> Boolean) {
+    fun dives(header: ByteArray, read: (start: Int, size: Int) -> ByteArray): Sequence<RawDive> = sequence {
         // Bytes still to account for. A valid begin gives an exact budget; a corrupt
         // one forces a whole-ring scan that terminates on the first broken record.
         var remaining = usedBytes(header)
         var current = u16le(header, 0)
-        var previous = u16le(header, 4)
+        var previous = endOf(header)
         while (remaining > 0) {
             val size = ringDistance(current, previous, full = true)
-            if (size < RECORD_HEAD || size > remaining) return
+            if (size < RECORD_HEAD || size > remaining) return@sequence
             remaining -= size
 
             val record = read(current, size)
             val prev = u16le(record, 0)
             val next = u16le(record, 2)
-            if (!inRing(prev) || !inRing(next)) return
-            if (next != previous && next != current) return
+            if (!inRing(prev) || !inRing(next)) return@sequence
+            if (next != previous && next != current) return@sequence
 
             // next == current marks an incomplete dive, which is skipped.
             if (next != current) {
                 val data = record.copyOfRange(RECORD_HEAD, record.size)
-                if (!onDive(RawDive(fingerprint(data), data, FORMAT_ID))) return
+                yield(RawDive(fnv1a(data), data, FORMAT_ID))
             }
 
             previous = current
@@ -145,16 +147,4 @@ object SuuntoVyper2Dump {
         return out
     }
 
-    private fun u16le(data: ByteArray, offset: Int): Int =
-        (data[offset].toInt() and 0xFF) or ((data[offset + 1].toInt() and 0xFF) shl 8)
-
-    /** Stable per-dive id from the record bytes (FNV-1a), for duplicate detection. */
-    private fun fingerprint(record: ByteArray): String {
-        var hash = 0x811C9DC5u
-        for (b in record) {
-            hash = hash xor (b.toUInt() and 0xFFu)
-            hash *= 0x01000193u
-        }
-        return hash.toString(16).padStart(8, '0')
-    }
 }

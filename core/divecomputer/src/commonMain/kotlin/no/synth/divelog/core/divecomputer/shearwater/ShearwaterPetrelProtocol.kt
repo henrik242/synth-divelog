@@ -6,8 +6,11 @@ import no.synth.divelog.core.divecomputer.DiveComputerProtocol
 import no.synth.divelog.core.divecomputer.DownloadCancelledException
 import no.synth.divelog.core.divecomputer.DownloadListener
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.newestUntil
+import no.synth.divelog.core.divecomputer.toHex
 import no.synth.divelog.core.divecomputer.transport.Transport
-import no.synth.divelog.core.divecomputer.transport.toHex
+import no.synth.divelog.core.divecomputer.u16be
+import no.synth.divelog.core.divecomputer.u32be
 
 /**
  * Downloads from a Shearwater Petrel 1. Unlike the Predator, the Petrel keeps a
@@ -30,26 +33,26 @@ class ShearwaterPetrelProtocol(
         limit: Int?,
     ): List<RawDive> {
         listener.onDeviceInfo(DeviceInfo(vendor = VENDOR, model = "Petrel"))
-        val entries = readManifest(cancel)
-        val new = if (knownFingerprint == null) {
-            entries
-        } else {
-            entries.takeWhile { it.fingerprint != knownFingerprint }
-        }
-        // The manifest is newest first, so the newest [limit] dives are just the
-        // head of the list; capping here skips the slow per-dive reads for the rest.
-        val fresh = if (limit != null && limit > 0) new.take(limit) else new
+        // The manifest is newest first, so the newest [limit] dives are just the head of
+        // the list; capping here skips the slow per-dive reads for the rest.
+        val fresh = readManifest(cancel).asSequence().newestUntil(knownFingerprint, limit) { it.fingerprint }.toList()
         listener.onDiveCount(fresh.size)
-        return fresh.mapIndexed { index, entry ->
+        // Read oldest first: if the link drops partway, the dives already read sit right
+        // after the stored ones, so the next incremental download picks up the rest.
+        val dives = arrayOfNulls<RawDive>(fresh.size)
+        for (index in fresh.indices.reversed()) {
             if (cancel.isCancelled()) throw DownloadCancelledException()
+            val entry = fresh[index]
             val blob = memory.readCompressed(
                 baseAddress = DIVE_BASE + entry.address,
                 onProgress = { listener.onProgress(it, 0) },
                 cancel = cancel,
             )
-            listener.onDiveDownloaded(index)
-            RawDive(fingerprint = entry.fingerprint, data = blob, formatId = PredatorParser.PETREL_FORMAT_ID)
+            val dive = RawDive(fingerprint = entry.fingerprint, data = blob, formatId = PredatorParser.PETREL_FORMAT_ID)
+            dives[index] = dive
+            listener.onDiveDownloaded(index, dive)
         }
+        return dives.filterNotNull()
     }
 
     private fun readManifest(cancel: CancellationSignal): List<ManifestEntry> {
@@ -94,11 +97,11 @@ class ShearwaterPetrelProtocol(
             val entries = mutableListOf<ManifestEntry>()
             var offset = 0
             while (offset + RECORD_SIZE <= page.size) {
-                val header = be16(page, offset)
+                val header = u16be(page, offset)
                 when (header) {
                     HEADER_VALID -> entries += ManifestEntry(
                         fingerprint = page.copyOfRange(offset + FINGERPRINT_OFFSET, offset + FINGERPRINT_OFFSET + FINGERPRINT_LEN).toHex(),
-                        address = be32(page, offset + ADDRESS_OFFSET),
+                        address = u32be(page, offset + ADDRESS_OFFSET),
                     )
                     HEADER_DELETED -> Unit // skip deleted dive
                     else -> return entries to true // terminator
@@ -106,15 +109,6 @@ class ShearwaterPetrelProtocol(
                 offset += RECORD_SIZE
             }
             return entries to false
-        }
-
-        private fun be16(d: ByteArray, o: Int): Int =
-            ((d[o].toInt() and 0xFF) shl 8) or (d[o + 1].toInt() and 0xFF)
-
-        private fun be32(d: ByteArray, o: Int): Long {
-            var v = 0L
-            for (i in 0 until 4) v = (v shl 8) or (d[o + i].toLong() and 0xFF)
-            return v
         }
     }
 }

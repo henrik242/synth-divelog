@@ -1,6 +1,9 @@
 package no.synth.divelog.core.db
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import no.synth.divelog.core.db.sql.DiveDatabase
+import no.synth.divelog.core.db.sql.SelectDiveSources
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.DiveComputerRecord
@@ -41,13 +44,18 @@ class DiveRepository(private val db: DiveDatabase) {
             dive.visibility?.toLong(),
             dive.siteId,
             dive.primaryComputerRecordId,
+            dive.visibilityRating?.toLong(),
         )
         dives.lastInsertRowId().executeAsOne()
     }
 
     fun getDive(id: Long): Dive? = dives.selectDiveById(id).executeAsOneOrNull()?.toDomain()
 
+    fun diveFlow(id: Long): Flow<Dive?> = dives.selectDiveById(id).oneOrNullFlow { it.toDomain() }
+
     fun allDives(): List<Dive> = dives.selectAllDives().executeAsList().map { it.toDomain() }
+
+    fun allDivesFlow(): Flow<List<Dive>> = dives.selectAllDives().listFlow { it.toDomain() }
 
     fun divesBySite(siteId: Long): List<Dive> =
         dives.selectDivesBySite(siteId).executeAsList().map { it.toDomain() }
@@ -66,6 +74,7 @@ class DiveRepository(private val db: DiveDatabase) {
         dive.visibility?.toLong(),
         dive.siteId,
         dive.primaryComputerRecordId,
+        dive.visibilityRating?.toLong(),
         dive.id,
     )
 
@@ -73,17 +82,28 @@ class DiveRepository(private val db: DiveDatabase) {
 
     fun setSite(diveId: Long, siteId: Long?) = dives.setDiveSite(siteId, diveId)
 
+    /** Run [body] in one transaction; transactions nest, so repository calls inside join it. */
+    fun <T> inTransaction(body: () -> T): T = db.transactionWithResult { body() }
+
     // --- Records, samples, events ---
 
     fun recordsForDive(diveId: Long): List<DiveComputerRecord> =
         records.selectRecordSummariesForDive(diveId).executeAsList().map { it.toDomain() }
 
+    fun recordsForDiveFlow(diveId: Long): Flow<List<DiveComputerRecord>> =
+        records.selectRecordSummariesForDive(diveId).listFlow { it.toDomain() }
+
     /**
      * Distinct source computers per dive id, for the whole log in one query. A null entry means a
      * record with no device (e.g. a file import). Only the identifying fields of [Device] are filled.
      */
-    fun sourcesByDive(): Map<Long, List<Device?>> =
-        records.selectDiveSources().executeAsList().groupBy({ it.diveId }) { row ->
+    fun sourcesByDive(): Map<Long, List<Device?>> = groupSources(records.selectDiveSources().executeAsList())
+
+    fun sourcesByDiveFlow(): Flow<Map<Long, List<Device?>>> =
+        records.selectDiveSources().listFlow { it }.map(::groupSources)
+
+    private fun groupSources(rows: List<SelectDiveSources>): Map<Long, List<Device?>> =
+        rows.groupBy({ it.diveId }) { row ->
             if (row.deviceId == null || row.vendor == null || row.model == null) null
             else Device(
                 id = row.deviceId,
@@ -93,6 +113,14 @@ class DiveRepository(private val db: DiveDatabase) {
                 nickname = row.nickname,
             )
         }
+
+    /** Every record's summary by dive id, in start order, in one query. */
+    fun recordsByDive(): Map<Long, List<DiveComputerRecord>> =
+        records.selectAllRecordSummaries().executeAsList().groupBy({ it.diveId }) { it.toDomain() }
+
+    /** Whether [diveId] already has a record from [deviceId]. */
+    fun hasRecordFromDevice(diveId: Long, deviceId: Long): Boolean =
+        records.selectRecordFromDeviceAmongDives(deviceId, listOf(diveId)).executeAsOneOrNull() != null
 
     fun record(id: Long): DiveComputerRecord? =
         records.selectRecordSummaryById(id).executeAsOneOrNull()?.toDomain()
@@ -115,6 +143,20 @@ class DiveRepository(private val db: DiveDatabase) {
 
     fun eventsForRecord(recordId: Long): List<Event> =
         events.selectEventsForRecord(recordId).executeAsList().map { it.toDomain() }
+
+    /** Every record's samples by record id, in two queries. */
+    fun samplesByRecord(): Map<Long, List<Sample>> {
+        val pressures: Map<Pair<Long, Long>, Map<Int, Int>> = samples.selectAllTankPressures().executeAsList()
+            .groupBy { it.recordId to it.timeOffsetSeconds }
+            .mapValues { (_, rows) -> rows.associate { it.tankIndex.toInt() to it.pressureMbar.toInt() } }
+        return samples.selectAllSamples().executeAsList().groupBy({ it.recordId }) { row ->
+            row.toDomain(pressures[row.recordId to row.timeOffsetSeconds] ?: emptyMap())
+        }
+    }
+
+    /** Every record's events by record id, in one query. */
+    fun eventsByRecord(): Map<Long, List<Event>> =
+        events.selectAllEvents().executeAsList().groupBy({ it.recordId }) { it.toDomain() }
 
     // --- Import ---
 
@@ -139,10 +181,8 @@ class DiveRepository(private val db: DiveDatabase) {
             .executeAsList()
         // One computer cannot log two dives at once: an overlapping dive that already has a
         // record from this computer is this dive, e.g. from another logbook of the same diver.
-        val sameComputer = incoming.deviceId?.let { deviceId ->
-            overlaps.firstNotNullOfOrNull { dive ->
-                records.selectRecordSummariesForDive(dive.id).executeAsList().firstOrNull { it.deviceId == deviceId }
-            }
+        val sameComputer = incoming.deviceId?.takeIf { overlaps.isNotEmpty() }?.let { deviceId ->
+            records.selectRecordFromDeviceAmongDives(deviceId, overlaps.map { it.id }).executeAsOneOrNull()
         }
         if (sameComputer != null) return ImportDecision.Duplicate(sameComputer.id)
 
@@ -166,9 +206,10 @@ class DiveRepository(private val db: DiveDatabase) {
             null,
             null,
             null,
+            null,
         )
         val diveId = dives.lastInsertRowId().executeAsOne()
-        val recordId = insertRecord(incoming, diveId)
+        val recordId = insertRecord(incoming, diveId, incoming.utcOffsetSeconds)
         dives.setPrimaryRecord(recordId, diveId)
         addMissingGases(diveId, incoming.gases)
         ImportResult.CreatedDive(diveId, recordId)
@@ -177,7 +218,8 @@ class DiveRepository(private val db: DiveDatabase) {
     /** Attach the incoming record to an existing dive as an extra computer. */
     fun attachToDive(incoming: IncomingDive, diveId: Long): ImportResult.AttachedToDive =
         db.transactionWithResult {
-            val recordId = insertRecord(incoming, diveId)
+            val diveOffset = dives.selectDiveById(diveId).executeAsOne().utcOffsetSeconds.toInt()
+            val recordId = insertRecord(incoming, diveId, diveOffset)
             addMissingGases(diveId, incoming.gases)
             ImportResult.AttachedToDive(diveId, recordId)
         }
@@ -187,7 +229,15 @@ class DiveRepository(private val db: DiveDatabase) {
      * [confirmMerge] approves the candidate dive; otherwise a new dive is made.
      */
     fun import(incoming: IncomingDive, confirmMerge: (candidateDiveId: Long) -> Boolean): ImportResult =
-        when (val decision = classify(incoming)) {
+        import(incoming, classify(incoming), confirmMerge)
+
+    /** [import] with the [decision] already made by [classify]. */
+    fun import(
+        incoming: IncomingDive,
+        decision: ImportDecision,
+        confirmMerge: (candidateDiveId: Long) -> Boolean,
+    ): ImportResult =
+        when (decision) {
             is ImportDecision.Duplicate -> ImportResult.SkippedDuplicate(decision.existingRecordId)
             is ImportDecision.MergeCandidate ->
                 if (confirmMerge(decision.diveId)) attachToDive(incoming, decision.diveId)
@@ -212,11 +262,18 @@ class DiveRepository(private val db: DiveDatabase) {
         }
     }
 
-    private fun insertRecord(incoming: IncomingDive, diveId: Long): Long {
+    /**
+     * [incoming]'s start in the time frame of a dive with offset [diveOffset]: the same wall
+     * clock. A record stores its start in its dive's frame, whichever frame its source used.
+     */
+    private fun startInDiveFrame(incoming: IncomingDive, diveOffset: Int): Long =
+        incoming.startEpochSeconds + incoming.utcOffsetSeconds - diveOffset
+
+    private fun insertRecord(incoming: IncomingDive, diveId: Long, diveOffset: Int): Long {
         records.insertRecord(
             diveId,
             incoming.deviceId,
-            incoming.startEpochSeconds,
+            startInDiveFrame(incoming, diveOffset),
             incoming.durationSeconds.toLong(),
             incoming.maxDepthMm?.toLong(),
             incoming.rawData,
@@ -266,24 +323,25 @@ class DiveRepository(private val db: DiveDatabase) {
      * Lets a parser fix reach already-imported dives without a re-download.
      */
     fun reparseRecord(recordId: Long, incoming: IncomingDive) = db.transaction {
+        val rec = records.selectRecordSummaryById(recordId).executeAsOne()
+        val dive = dives.selectDiveById(rec.diveId).executeAsOne().toDomain()
+        val start = startInDiveFrame(incoming, dive.utcOffsetSeconds)
         samples.deleteSamplesForRecord(recordId)
         samples.deleteTankPressuresForRecord(recordId)
         events.deleteEventsForRecord(recordId)
         records.updateRecordSummary(
-            incoming.startEpochSeconds,
+            start,
             incoming.durationSeconds.toLong(),
             incoming.maxDepthMm?.toLong(),
             recordId,
         )
         insertSamplesAndEvents(recordId, incoming)
 
-        val rec = records.selectRecordSummaryById(recordId).executeAsOne()
         addMissingGases(rec.diveId, incoming.gases)
-        val dive = dives.selectDiveById(rec.diveId).executeAsOneOrNull()?.toDomain()
-        if (dive != null && dive.primaryComputerRecordId == recordId) {
+        if (dive.primaryComputerRecordId == recordId) {
             updateDive(
                 dive.copy(
-                    startEpochSeconds = incoming.startEpochSeconds,
+                    startEpochSeconds = start,
                     durationSeconds = incoming.durationSeconds,
                     maxDepthMm = incoming.maxDepthMm,
                     meanDepthMm = incoming.meanDepthMm,
@@ -295,7 +353,7 @@ class DiveRepository(private val db: DiveDatabase) {
 
     // --- Manual merge and split ---
 
-    /** Move a record onto its own new dive, copying its summary. */
+    /** Move a record onto its own new dive, copying its summary. The record keeps its frame. */
     fun splitRecordIntoNewDive(recordId: Long): Long = db.transactionWithResult {
         val rec = records.selectRecordSummaryById(recordId).executeAsOne()
         val sourceDive = dives.selectDiveById(rec.diveId).executeAsOne()
@@ -316,6 +374,7 @@ class DiveRepository(private val db: DiveDatabase) {
             null,
             null,
             null,
+            null,
         )
         val newDiveId = dives.lastInsertRowId().executeAsOne()
         records.reassignRecordToDive(newDiveId, recordId)
@@ -328,17 +387,38 @@ class DiveRepository(private val db: DiveDatabase) {
         newDiveId
     }
 
-    /** Fold all of [sourceDiveId]'s records and buddies into [targetDiveId], then drop the source. */
+    /**
+     * Fold [sourceDiveId] into [targetDiveId], then drop the source: its records (moved into
+     * the target's time frame), buddies, tags and tanks (merged by gas, see
+     * [GasRepository.mergeTanks]) move over, and the target's empty fields take the
+     * source's values. The target keeps its primary record and start.
+     */
     fun mergeDives(sourceDiveId: Long, targetDiveId: Long) {
         require(sourceDiveId != targetDiveId) { "Cannot merge a dive into itself" }
         db.transaction {
-            records.selectRecordSummariesForDive(sourceDiveId).executeAsList().forEach {
-                records.reassignRecordToDive(targetDiveId, it.id)
-            }
-            val people = db.peopleQueries
-            people.selectBuddiesForDive(sourceDiveId).executeAsList().forEach {
-                people.linkDiveBuddy(targetDiveId, it.id)
-            }
+            val source = dives.selectDiveById(sourceDiveId).executeAsOne().toDomain()
+            val target = dives.selectDiveById(targetDiveId).executeAsOne().toDomain()
+            records.moveRecordsToDive(
+                targetDiveId = targetDiveId,
+                shiftSeconds = (source.utcOffsetSeconds - target.utcOffsetSeconds).toLong(),
+                sourceDiveId = sourceDiveId,
+            )
+            db.peopleQueries.copyDiveBuddies(targetDiveId = targetDiveId, sourceDiveId = sourceDiveId)
+            db.tagsQueries.copyDiveTags(targetDiveId = targetDiveId, sourceDiveId = sourceDiveId)
+            gases.mergeTanks(targetDiveId, gases.tanksForDive(sourceDiveId))
+            val filled = target.copy(
+                number = target.number ?: source.number,
+                maxDepthMm = target.maxDepthMm ?: source.maxDepthMm,
+                meanDepthMm = target.meanDepthMm ?: source.meanDepthMm,
+                waterTempMk = target.waterTempMk ?: source.waterTempMk,
+                airTempMk = target.airTempMk ?: source.airTempMk,
+                notes = target.notes?.takeIf { it.isNotBlank() } ?: source.notes,
+                rating = target.rating ?: source.rating,
+                visibility = target.visibility ?: source.visibility,
+                visibilityRating = target.visibilityRating ?: source.visibilityRating,
+                siteId = target.siteId ?: source.siteId,
+            )
+            if (filled != target) updateDive(filled)
             dives.deleteDive(sourceDiveId)
         }
     }

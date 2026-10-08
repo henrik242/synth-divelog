@@ -6,143 +6,77 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import no.synth.divelog.core.db.DriverFactory
-import no.synth.divelog.core.db.createDatabase
-import no.synth.divelog.core.model.units.UnitSystem
+import no.synth.divelog.core.logbook.download.AndroidSerialPorts
+import no.synth.divelog.core.logbook.io.ExportFile
 import no.synth.divelog.download.DownloadService
-import no.synth.divelog.ui.AppContainer
+import no.synth.divelog.ui.PlatformHooks
 import no.synth.divelog.ui.SynthDivelogApp
-import no.synth.divelog.ui.download.AndroidSerialPorts
-import no.synth.divelog.ui.io.ExportFile
-import no.synth.divelog.ui.io.LogbookIo
-import no.synth.divelog.ui.settings.AppSettings
-import no.synth.divelog.ui.settings.SettingsConnectionMemory
-import no.synth.divelog.ui.settings.SettingsStore
-import no.synth.divelog.ui.sync.CloudGit
 import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-
-        val container = AppContainer(DriverFactory(applicationContext).createDatabase())
-        val settings = AppSettings(SettingsStore(applicationContext))
-        val logbook = LogbookIo(container)
-        val cloud = CloudGit(File(applicationContext.filesDir, "cloud").absolutePath)
+        val services = (application as SynthDivelogApplication).services
 
         setContent {
-            no.synth.divelog.ui.SynthTheme {
-                val context = LocalContext.current
-                val scope = rememberCoroutineScope()
-                val prepareDownload = rememberDownloadPermissionRequest(context)
-                var dataVersion by remember { mutableIntStateOf(0) }
-                var unitSystem by remember { mutableStateOf(settings.unitSystem) }
-
-                // Picks a file and reads it; the shared app runs the import and shows progress.
-                val pickImportFile = rememberImportFilePick(context)
-
-                SynthDivelogApp(
-                    container = container,
-                    unitSystem = unitSystem,
-                    onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
-                    serialPorts = remember { AndroidSerialPorts(context.applicationContext) },
-                    connectionMemory = remember { SettingsConnectionMemory(settings) },
-                    // Request Bluetooth and notification permissions before the picker lists devices.
-                    onPrepareDownload = prepareDownload,
-                    // Hold the process awake with a foreground service for the length of the download.
+            val pickImportFile = rememberImportFilePick(this)
+            val prepareDownload = rememberDownloadPermissionRequest(this)
+            val hooks = remember {
+                PlatformHooks(
+                    serialPorts = AndroidSerialPorts(applicationContext),
+                    pickImportFile = pickImportFile,
+                    saveExport = ::shareExport,
+                    prepareDownload = prepareDownload,
+                    // A foreground service holds the process awake and shows the progress.
                     onDownloadActive = { active ->
-                        if (active) {
-                            DownloadService.start(context.applicationContext, "Downloading dives")
-                        } else {
-                            DownloadService.stop(context.applicationContext)
-                        }
+                        if (active) DownloadService.start(applicationContext, "Downloading dives") else DownloadService.stop(applicationContext)
                     },
-                    // Follow the download in the foreground-service notification.
-                    onDownloadProgress = { label -> DownloadService.publish(label) },
-                    // Save the wire exchange so a real download can be replayed as a test fixture.
-                    onRecordTranscript = { transcript ->
-                        runCatching {
-                            val dir = File(context.filesDir, "captures").apply { mkdirs() }
-                            val file = File(dir, "capture-${System.currentTimeMillis()}.transcript.txt")
-                            file.writeText(transcript)
-                            android.util.Log.i("SynthDivelog", "Saved download transcript to ${file.absolutePath}")
-                        }
-                    },
-                    onDownloaded = { dataVersion++ },
-                    onPickImportFile = pickImportFile,
-                    onExport = { formatId ->
-                        scope.launch(Dispatchers.IO) {
-                            logbook.export(formatId)?.let { shareExport(context, it) }
-                        }
-                    },
-                    onReparse = {
-                        scope.launch(Dispatchers.IO) {
-                            val count = logbook.reparseAll()
-                            dataVersion++
-                            withContext(Dispatchers.Main) {
-                                android.widget.Toast
-                                    .makeText(context, "Re-parsed $count dives", android.widget.Toast.LENGTH_SHORT)
-                                    .show()
-                            }
-                        }
-                    },
-                    cloudEnabled = true,
-                    initialCloudEmail = settings.cloudEmail,
-                    initialCloudPassword = settings.cloudPassword,
-                    onCloudConfigChange = { email, pass ->
-                        settings.cloudEmail = email
-                        settings.cloudPassword = pass
-                    },
-                    cloud = cloud,
-                    onCloudPush = { email, pass ->
-                        scope.launch(Dispatchers.IO) {
-                            val message = runCatching {
-                                cloud.push(email, pass, logbook.exportCloudTree())
-                                "Pushed to the cloud"
-                            }.getOrElse { "Push failed: ${it.message ?: it::class.simpleName}" }
-                            withContext(Dispatchers.Main) {
-                                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
-                    onExit = { this@MainActivity.finish() },
-                    dataVersion = dataVersion,
+                    onDownloadProgress = { DownloadService.publish(it) },
+                    recordTranscript = ::saveTranscript,
                 )
             }
+            SynthDivelogApp(services, hooks)
         }
     }
 
-    private fun shareExport(context: android.content.Context, export: ExportFile) {
-        val dir = File(context.filesDir, "exports").apply { mkdirs() }
-        val file = File(dir, export.name).apply { writeBytes(export.bytes) }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    /** Writes the export to app storage and offers it to the share sheet. */
+    private suspend fun shareExport(export: ExportFile) {
+        val file = withContext(Dispatchers.IO) {
+            val dir = File(filesDir, "exports").apply { mkdirs() }
+            File(dir, export.name).apply { writeBytes(export.bytes) }
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = export.mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(intent, "Export logbook").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        startActivity(Intent.createChooser(intent, "Export logbook"))
+    }
+
+    /** Saves a download's wire exchange so it can be replayed as a test fixture. */
+    private fun saveTranscript(transcript: String) {
+        runCatching {
+            val dir = File(filesDir, "captures").apply { mkdirs() }
+            val file = File(dir, "capture-${System.currentTimeMillis()}.transcript.txt")
+            file.writeText(transcript)
+            Log.i("SynthDivelog", "Saved download transcript to ${file.absolutePath}")
+        }
     }
 }
 

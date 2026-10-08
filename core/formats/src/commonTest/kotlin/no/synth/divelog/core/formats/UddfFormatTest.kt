@@ -235,4 +235,15 @@ class UddfFormatTest {
         assertTrue(xml.contains("<tankpressure ref=\"dive1_tank2\">15000000</tankpressure>"), xml)
         assertTrue(xml.contains("<dive id=\"dive1\">"), xml)
     }
+
+    @Test
+    fun notesKeepEveryParagraph() {
+        val dive = DiveEntry(startEpochSeconds = 1_761_475_582, durationSeconds = 60, notes = "First\n\nThird")
+        val xml = format.write(DiveLog(listOf(dive)))
+        assertTrue(xml.contains("<para>First</para>"), xml)
+        assertEquals("First\n\nThird", format.read(xml).dives.single().notes)
+
+        val twoParas = xml.replace(Regex("<notes>.*</notes>"), "<notes><para>One</para><para>Two</para></notes>")
+        assertEquals("One\nTwo", format.read(twoParas).dives.single().notes)
+    }
 }

@@ -3,7 +3,9 @@ package no.synth.divelog.core.divecomputer.suunto
 import no.synth.divelog.core.divecomputer.CancellationSignal
 import no.synth.divelog.core.divecomputer.DownloadCancelledException
 import no.synth.divelog.core.divecomputer.ProtocolException
+import no.synth.divelog.core.divecomputer.hex
 import no.synth.divelog.core.divecomputer.transport.Transport
+import no.synth.divelog.core.divecomputer.u16be
 
 /**
  * Reads device memory from the old Suunto Vyper family (Zoop, Vyper, Vytec,
@@ -41,7 +43,7 @@ class SuuntoVyperMemory(
         if (reply[0] != CMD_READ) {
             throw ProtocolException("Vyper read: bad command echo 0x${hex(reply[0])}")
         }
-        val echoedAddr = ((reply[1].toInt() and 0xFF) shl 8) or (reply[2].toInt() and 0xFF)
+        val echoedAddr = u16be(reply, 1)
         val echoedCount = reply[3].toInt() and 0xFF
         if (echoedAddr != address || echoedCount != count) {
             throw ProtocolException(
@@ -83,8 +85,7 @@ class SuuntoVyperMemory(
 
     /** Read a big-endian 16-bit value at [address] (used for the write pointer). */
     fun readU16BE(address: Int): Int {
-        val b = readPage(address, 2)
-        return ((b[0].toInt() and 0xFF) shl 8) or (b[1].toInt() and 0xFF)
+        return u16be(readPage(address, 2), 0)
     }
 
     private fun readExact(n: Int): ByteArray {
@@ -97,8 +98,6 @@ class SuuntoVyperMemory(
         }
         return buffer
     }
-
-    private fun hex(b: Byte): String = (b.toInt() and 0xFF).toString(16).padStart(2, '0')
 
     companion object {
         const val MAX_PAGE = 32

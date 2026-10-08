@@ -1,14 +1,18 @@
 package no.synth.divelog.core.divecomputer.transport
 
+import no.synth.divelog.core.divecomputer.toHex
+
 /**
  * Plays back a captured [Transcript] so protocol code can be tested without a
  * device. Reads serve the recorded READ bytes in order; a recorded timeout read
  * throws [TransportTimeoutException]. Writes are checked against recorded WRITE
- * bytes when [strictWrites] is set, which catches protocol regressions.
+ * bytes when [strictWrites] is set, which catches protocol regressions; [sameWrite]
+ * decides a match (exact bytes by default).
  */
 class ReplayTransport(
     transcript: Transcript,
     private val strictWrites: Boolean = true,
+    private val sameWrite: (expected: ByteArray, actual: ByteArray) -> Boolean = { e, a -> e.contentEquals(a) },
 ) : Transport {
     private val events = transcript.events
     private var index = 0
@@ -28,7 +32,7 @@ class ReplayTransport(
         if (!strictWrites) return // lenient: writes are not part of the fixture
         val event = nextEvent(Direction.WRITE)
             ?: throw TransportException("Unexpected write of ${data.size} bytes")
-        if (!event.data.contentEquals(data)) {
+        if (!sameWrite(event.data, data)) {
             throw TransportException(
                 "Write mismatch:\n  expected ${event.data.toHex()}\n  actual   ${data.toHex()}",
             )

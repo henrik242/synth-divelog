@@ -1,47 +1,38 @@
 package no.synth.divelog.ui.tools
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.gas.AscentRates
 import no.synth.divelog.core.gas.BreathingGas
@@ -54,12 +45,20 @@ import no.synth.divelog.core.gas.PlanLevel
 import no.synth.divelog.core.gas.PlanSegment
 import no.synth.divelog.core.gas.PlanWarning
 import no.synth.divelog.core.gas.Water
+import no.synth.divelog.core.logbook.format.Format
+import no.synth.divelog.core.model.units.LITRES_PER_CUFT
+import no.synth.divelog.core.model.units.MM_PER_FOOT
 import no.synth.divelog.core.model.units.UnitSystem
-import no.synth.divelog.ui.format.Format
+import no.synth.divelog.ui.components.CheckRow
+import no.synth.divelog.ui.components.DecimalField
+import no.synth.divelog.ui.components.OptionPicker
+import no.synth.divelog.ui.components.ToolCard
+import no.synth.divelog.ui.components.parseDecimal
+import no.synth.divelog.ui.components.trimmedDecimal
+import no.synth.divelog.ui.components.twoDecimals
 import kotlin.math.round
 
-private const val MM_PER_FOOT = 304.8
-private const val ML_PER_CUFT = 28316.8466
+private const val ML_PER_CUFT = LITRES_PER_CUFT * 1000
 
 /** One bottom level, as typed: depth in the state's units, minutes including the travel to it. */
 @Stable
@@ -75,10 +74,9 @@ class PlannerGas(o2: String, he: String) {
     var he by mutableStateOf(he)
 
     fun parsed(): BreathingGas? {
-        val o2 = parse(o2)?.let { round(it * 10).toInt() } ?: return null
-        val he = parse(he)?.let { round(it * 10).toInt() } ?: return null
-        if (o2 <= 0 || he < 0 || o2 + he > 1000) return null
-        return BreathingGas(o2, he)
+        val o2 = parseDecimal(o2) ?: return null
+        val he = parseDecimal(he) ?: return null
+        return BreathingGas.ofPercent(o2, he)?.takeIf { it.o2 > 0 }
     }
 }
 
@@ -111,12 +109,12 @@ class DivePlannerState {
     fun useUnits(system: UnitSystem) {
         if (system == units) return
         val toFeet = system == UnitSystem.IMPERIAL
-        fun length(text: String): String = parse(text)?.let { v ->
+        fun length(text: String): String = parseDecimal(text)?.let { v ->
             val mm = if (toFeet) v * 1000 else v * MM_PER_FOOT
-            trimmed(if (toFeet) mm / MM_PER_FOOT else mm / 1000)
+            trimmedDecimal(if (toFeet) mm / MM_PER_FOOT else mm / 1000)
         } ?: text
-        fun sac(text: String): String = parse(text)?.let { v ->
-            if (toFeet) twoDecimals(v * 1000 / ML_PER_CUFT) else trimmed(v * ML_PER_CUFT / 1000)
+        fun sac(text: String): String = parseDecimal(text)?.let { v ->
+            if (toFeet) twoDecimals(v * 1000 / ML_PER_CUFT) else trimmedDecimal(v * ML_PER_CUFT / 1000)
         } ?: text
         levels.forEach { it.depth = length(it.depth) }
         descentRate = length(descentRate)
@@ -130,18 +128,18 @@ class DivePlannerState {
 
     private val metric get() = units == UnitSystem.METRIC
 
-    fun depthMm(text: String): Int? = parse(text)?.takeIf { it > 0 }
+    fun depthMm(text: String): Int? = parseDecimal(text)?.takeIf { it > 0 }
         ?.let { round(if (metric) it * 1000 else it * MM_PER_FOOT).toInt() }
         ?.takeIf { it <= 300_000 }
 
-    fun minutes(text: String): Int? = parse(text)?.takeIf { it > 0 && it <= 600 }?.let { round(it * 60).toInt() }
+    fun minutes(text: String): Int? = parseDecimal(text)?.takeIf { it > 0 && it <= 600 }?.let { round(it * 60).toInt() }
 
     fun rate(text: String): Int? = depthMm(text)?.takeIf { it >= 1000 }
 
-    fun sacMl(text: String): Int? = parse(text)?.takeIf { it > 0 && it < 100 }
+    fun sacMl(text: String): Int? = parseDecimal(text)?.takeIf { it > 0 && it < 100 }
         ?.let { round(if (metric) it * 1000 else it * ML_PER_CUFT).toInt() }
 
-    fun gf(text: String): Int? = parse(text)?.takeIf { it >= 10 && it <= 100 }?.let { round(it).toInt() }
+    fun gf(text: String): Int? = parseDecimal(text)?.takeIf { it >= 10 && it <= 100 }?.let { round(it).toInt() }
 
     fun gfValid(): Boolean {
         val low = gf(gfLow) ?: return false
@@ -149,7 +147,7 @@ class DivePlannerState {
         return low <= high
     }
 
-    fun surface(): Int? = parse(surfaceMbar)?.takeIf { it >= 500 && it <= 1100 }?.let { round(it).toInt() }
+    fun surface(): Int? = parseDecimal(surfaceMbar)?.takeIf { it >= 500 && it <= 1100 }?.let { round(it).toInt() }
 
     fun maxEndMm(): Int? = if (maxEnd.isBlank()) null else depthMm(maxEnd)
 
@@ -169,10 +167,10 @@ class DivePlannerState {
             bottomGas = bottom,
             decoGases = deco,
             gf = GradientFactors((gf(gfLow) ?: return null) / 100.0, (gf(gfHigh) ?: return null) / 100.0),
-            bottomPpO2Mbar = round((parse(bottomPpO2) ?: return null) * 1000).toInt(),
-            decoPpO2Mbar = round((parse(decoPpO2) ?: return null) * 1000).toInt(),
+            bottomPpO2Mbar = round((parseDecimal(bottomPpO2) ?: return null) * 1000).toInt(),
+            decoPpO2Mbar = round((parseDecimal(decoPpO2) ?: return null) * 1000).toInt(),
             descentRate = rate(descentRate) ?: return null,
-            ascentRates = AscentRates(ascent, ascent, ascent, last),
+            ascentRates = AscentRates(ascent, last),
             lastStopDeep = lastStopDeep,
             imperialStops = !metric,
             water = if (saltWater) Water.SALT else Water.FRESH,
@@ -186,7 +184,8 @@ class DivePlannerState {
 
 @Composable
 fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
-    LaunchedEffect(unitSystem) { state.useUnits(unitSystem) }
+    // Convert before anything reads the fields, so the frame after a unit switch is already right.
+    Snapshot.withoutReadObservation { state.useUnits(unitSystem) }
     val metric = state.units == UnitSystem.METRIC
     val unit = if (metric) "m" else "ft"
     val input = state.plan()
@@ -198,7 +197,7 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
     ) {
         ModelNote()
 
-        PlannerCard("Bottom profile") {
+        ToolCard("Bottom profile") {
             state.levels.forEachIndexed { i, level ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     DecimalField(level.depth, { level.depth = it }, "Depth ($unit)", Modifier.weight(1f), state.depthMm(level.depth) == null)
@@ -218,7 +217,7 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
             }
         }
 
-        PlannerCard("Gases") {
+        ToolCard("Gases") {
             GasFields("Bottom", state.bottomGas, onRemove = null)
             state.decoGases.forEachIndexed { i, gas ->
                 GasFields("Deco ${i + 1}", gas, onRemove = { state.decoGases.removeAt(i) })
@@ -228,13 +227,13 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
                 Text("Add deco gas")
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Picker("Bottom pO2 (bar)", state.bottomPpO2, listOf("1.2", "1.3", "1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.bottomPpO2 = it }
-                Picker("Deco pO2 (bar)", state.decoPpO2, listOf("1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.decoPpO2 = it }
+                OptionPicker("Bottom pO2 (bar)", state.bottomPpO2, listOf("1.2", "1.3", "1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.bottomPpO2 = it }
+                OptionPicker("Deco pO2 (bar)", state.decoPpO2, listOf("1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.decoPpO2 = it }
             }
             Hint("Deco gases are switched to at the stop where they reach the deco pO2.")
         }
 
-        PlannerCard("Settings") {
+        ToolCard("Settings") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DecimalField(state.gfLow, { state.gfLow = it }, "GF low", Modifier.weight(1f), !state.gfValid())
                 DecimalField(state.gfHigh, { state.gfHigh = it }, "GF high", Modifier.weight(1f), !state.gfValid())
@@ -254,7 +253,7 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
                 )
                 val shallow = if (metric) "3 m" else "10 ft"
                 val deep = if (metric) "6 m" else "20 ft"
-                Picker("Last stop", if (state.lastStopDeep) deep else shallow, listOf(shallow, deep), Modifier.weight(1f)) {
+                OptionPicker("Last stop", if (state.lastStopDeep) deep else shallow, listOf(shallow, deep), Modifier.weight(1f)) {
                     state.lastStopDeep = it == deep
                 }
             }
@@ -313,7 +312,7 @@ private fun GasFields(label: String, gas: PlannerGas, onRemove: (() -> Unit)?) {
 
 @Composable
 private fun ResultCard(plan: DecoPlan, units: UnitSystem) {
-    PlannerCard("Plan", MaterialTheme.colorScheme.secondaryContainer) {
+    ToolCard("Plan", MaterialTheme.colorScheme.secondaryContainer) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Tile("Runtime", minutes(plan.runtimeS), Modifier.weight(1f))
             Tile("TTS", minutes(plan.ttsS), Modifier.weight(1f))
@@ -339,7 +338,7 @@ private fun ResultCard(plan: DecoPlan, units: UnitSystem) {
 
 @Composable
 private fun WarningsCard(warnings: List<PlanWarning>, units: UnitSystem) {
-    PlannerCard("Warnings", MaterialTheme.colorScheme.errorContainer) {
+    ToolCard("Warnings", MaterialTheme.colorScheme.errorContainer) {
         warnings.forEach { w ->
             val text = when (w) {
                 is PlanWarning.HighPpO2 ->
@@ -385,7 +384,7 @@ private fun phaseOf(s: PlanSegment): String = when {
 
 @Composable
 private fun RuntimeTable(plan: DecoPlan, units: UnitSystem) {
-    PlannerCard("Runtime table") {
+    ToolCard("Runtime table") {
         TableRow(header = true, cells = listOf("", "Depth", "Time", "Run", "Gas"))
         HorizontalDivider()
         tableLines(plan).forEach { line ->
@@ -429,81 +428,18 @@ private fun Tile(label: String, value: String, modifier: Modifier) {
 }
 
 @Composable
-private fun PlannerCard(title: String, container: Color? = null, content: @Composable () -> Unit) {
-    val colors = container?.let { CardDefaults.elevatedCardColors(containerColor = it) } ?: CardDefaults.elevatedCardColors()
-    ElevatedCard(Modifier.fillMaxWidth(), colors = colors) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            content()
-        }
-    }
-}
-
-/** A fixed choice; a read-only field that opens a menu. */
-@Composable
-private fun Picker(label: String, value: String, options: List<String>, modifier: Modifier, onChange: (String) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box(modifier) {
-        OutlinedTextField(
-            value,
-            {},
-            readOnly = true,
-            label = { Text(label) },
-            trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        // The field swallows taps for focus; this layer opens the menu instead.
-        Box(Modifier.matchParentSize().clickable { open = true })
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            options.forEach { v -> DropdownMenuItem(text = { Text(v) }, onClick = { onChange(v); open = false }) }
-        }
-    }
-}
-
-@Composable
-private fun CheckRow(label: String, checked: Boolean, modifier: Modifier = Modifier, onChange: (Boolean) -> Unit) {
-    Row(modifier.clickable { onChange(!checked) }, verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(checked = checked, onCheckedChange = onChange)
-        Text(label)
-    }
-}
-
-@Composable
-private fun DecimalField(value: String, onChange: (String) -> Unit, label: String, modifier: Modifier, isError: Boolean = false) {
-    OutlinedTextField(
-        value,
-        { onChange(it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
-        label = { Text(label) },
-        singleLine = true,
-        isError = isError,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        modifier = modifier,
-    )
-}
-
-@Composable
 private fun Hint(text: String) =
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
 @Composable
 private fun ErrorText(text: String) = Text(text, color = MaterialTheme.colorScheme.error)
 
-private fun parse(text: String): Double? = text.trim().replace(',', '.').toDoubleOrNull()
-
 /** Whole metres or feet: stops sit on whole units. */
 private fun depth(mm: Int, units: UnitSystem): String =
     if (units == UnitSystem.METRIC) "${round(mm / 1000.0).toInt()} m" else "${round(mm / MM_PER_FOOT).toInt()} ft"
 
 private fun volume(litres: Double, units: UnitSystem): String =
-    if (units == UnitSystem.METRIC) "${round(litres).toInt()} L" else "${trimmed(litres * 1000 / ML_PER_CUFT)} cuft"
+    if (units == UnitSystem.METRIC) "${round(litres).toInt()} L" else "${trimmedDecimal(litres * 1000 / ML_PER_CUFT)} cuft"
 
 /** Runtime in minutes, rounded up as dive tables show it. */
 private fun minutes(seconds: Int): String = "${(seconds + 59) / 60} min"
-
-private fun trimmed(v: Double): String = Format.oneDecimal(v).removeSuffix(".0")
-
-private fun twoDecimals(v: Double): String {
-    val hundredths = round(v * 100).toLong()
-    return "${hundredths / 100}.${(hundredths % 100).toString().padStart(2, '0')}"
-}

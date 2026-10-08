@@ -4,36 +4,40 @@ import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** The scuba-tools web blender's test suite, case for case. */
+/**
+ * Blending scenarios, first ported from the scuba-tools web blender's suite. Results are what the
+ * blender itself predicts; [BlendReferenceTest] checks the steps against an independent model.
+ */
 class GasBlenderTest {
-    private val air = SourceGas("Air", 21.0, 0.0)
-    private val o2 = SourceGas("O2", 100.0, 0.0)
-    private val helium = SourceGas("Helium", 0.0, 100.0)
-    private val ean32 = SourceGas("Nitrox 32", 32.0, 0.0)
-    private val tx1070 = SourceGas("10/70", 10.0, 70.0)
+    private val air = SourceGas("Air", pct(21.0, 0.0))
+    private val o2 = SourceGas("O2", pct(100.0, 0.0))
+    private val helium = SourceGas("Helium", pct(0.0, 100.0))
+    private val ean32 = SourceGas("Nitrox 32", pct(32.0, 0.0))
+    private val tx1070 = SourceGas("10/70", pct(10.0, 70.0))
     private val standard = listOf(air, o2, helium, ean32, tx1070)
 
     private fun blend(
         volume: Double, startBar: Double, startO2: Double, startHe: Double,
         targetO2: Double, targetHe: Double, targetBar: Double,
         gases: List<SourceGas> = standard,
-    ) = planBlend(Cylinder(volume, startBar, startO2, startHe), Fill(targetO2, targetHe, targetBar), gases)
+    ) = planBlend(Cylinder(volume, startBar, pct(startO2, startHe)), Fill(pct(targetO2, targetHe), targetBar), gases)
 
+    /** An empty cylinder still holds 1 atm of air. */
     private fun empty(targetO2: Double, targetHe: Double, targetBar: Double, gases: List<SourceGas> = standard, volume: Double = 12.0) =
-        blend(volume, 0.0, 0.0, 0.0, targetO2, targetHe, targetBar, gases)
+        blend(volume, 0.0, 21.0, 0.0, targetO2, targetHe, targetBar, gases)
 
     private val BlendPlan.drain get() = steps.firstOrNull { it is BlendStep.Drain }
-    private fun BlendPlan.addOf(name: String) = steps.firstOrNull { it is BlendStep.Add && it.gas.name == name }
+    private fun BlendPlan.addOf(name: String) = steps.firstOrNull { it is BlendStep.Add && it.source.name == name }
 
     // Input validation
 
     @Test
     fun rejectsTargetWithO2PlusHeOver100() {
-        val r = blend(12.0, 0.0, 21.0, 0.0, 60.0, 50.0, 200.0)
-        assertTrue(!r.ok)
-        assertEquals(BlendProblem.MIX_OVER_100, r.problem)
+        assertNull(BreathingGas.ofPercent(60.0, 50.0))
+        assertEquals(BreathingGas(325, 0), BreathingGas.ofPercent(32.5, 0.0))
     }
 
     // Empty tank
@@ -73,7 +77,7 @@ class GasBlenderTest {
         assertClose(21.0, r.result.o2)
         assertEquals(0.0, r.result.he)
         assertEquals(200.0, r.result.pressureBar)
-        assertEquals("Air", (r.steps.single() as BlendStep.Add).gas.name)
+        assertEquals("Air", (r.steps.single() as BlendStep.Add).source.name)
     }
 
     // Partial tank topping
@@ -101,11 +105,10 @@ class GasBlenderTest {
     @Test
     fun drainsWhenStartO2IsTooHigh() {
         val r = blend(12.0, 100.0, 32.0, 0.0, 21.0, 0.0, 200.0)
+        // Air cannot dilute 32 % to 21 % without draining everything; only check a success.
         if (r.ok) {
-            assertTrue(r.steps.isNotEmpty())
+            assertNotNull(r.drain)
             assertClose(21.0, r.result.o2)
-        } else {
-            assertEquals(BlendProblem.OFF_TARGET, r.problem)
         }
     }
 
@@ -342,7 +345,8 @@ class GasBlenderTest {
     fun fillsPureO2() {
         val r = empty(100.0, 0.0, 200.0, listOf(o2), volume = 7.0)
         assertTrue(r.ok)
-        assertEquals(100.0, r.result.o2)
+        // The 1 atm of air left in the cylinder: 99.6 %.
+        assertTrue(r.result.o2 in 99.5..99.7, "${r.result}")
         assertEquals(1, r.steps.size)
     }
 
@@ -424,13 +428,13 @@ class GasBlenderTest {
 
     @Test
     fun industrialO2At99Point5() {
-        val r = empty(32.0, 0.0, 200.0, listOf(air, SourceGas("Industrial O2", 99.5, 0.0), helium))
+        val r = empty(32.0, 0.0, 200.0, listOf(air, SourceGas("Industrial O2", pct(99.5, 0.0)), helium))
         if (r.ok) assertTrue(abs(r.result.o2 - 32) <= 1.0)
     }
 
     @Test
     fun commercialHeliumWithTraceO2() {
-        val r = empty(10.0, 70.0, 200.0, listOf(air, o2, SourceGas("Commercial He", 0.5, 99.5)))
+        val r = empty(10.0, 70.0, 200.0, listOf(air, o2, SourceGas("Commercial He", pct(0.5, 99.5))))
         if (r.ok) assertTrue(abs(r.result.he - 70) <= 2.0)
     }
 
@@ -439,7 +443,7 @@ class GasBlenderTest {
     @Test
     fun picksEan32FromSeveralNitroxBanks() {
         val banks = listOf(
-            air, SourceGas("EAN28", 28.0, 0.0), SourceGas("EAN32", 32.0, 0.0), SourceGas("EAN36", 36.0, 0.0), o2,
+            air, SourceGas("EAN28", pct(28.0, 0.0)), SourceGas("EAN32", pct(32.0, 0.0)), SourceGas("EAN36", pct(36.0, 0.0)), o2,
         )
         val r = empty(32.0, 0.0, 200.0, banks)
         assertTrue(r.ok)
@@ -541,22 +545,30 @@ class GasBlenderTest {
 
     @Test
     fun keepsAirWhenO2CanMakeUpTheDifference() {
-        // 100 bar air holds less O2 and N2 than 18/45 at 220 needs, so nothing has to go.
-        val r = blend(12.0, 100.0, 21.0, 0.0, 18.0, 45.0, 220.0, listOf(air, o2, helium))
+        // 90 bar air holds 72 ideal bar of N2; 18/45 at 220 needs 77 (221 bar / Z 1.066 x 0.37),
+        // so nothing has to go.
+        val r = blend(12.0, 90.0, 21.0, 0.0, 18.0, 45.0, 220.0, listOf(air, o2, helium))
         assertTrue(r.ok, "result ${r.result}")
         assertTrue(r.steps.none { it is BlendStep.Drain }, "steps ${r.steps}")
-        assertEquals(listOf("Helium", "O2", "Air"), r.steps.map { (it as BlendStep.Add).gas.name })
+        assertEquals(listOf("Helium", "O2", "Air"), r.steps.map { (it as BlendStep.Add).source.name })
     }
 
     @Test
     fun drainsOnlyTheExcessNitrogen() {
-        // 100 bar air holds 79 bar N2; 18/45 at 200 wants about 74, so drain a little, not all.
+        // 100 bar air holds 80 ideal bar of N2 (101 bar / Z 0.995 x 0.79); 18/45 at 200 wants
+        // 70 (201 bar / Z 1.056 x 0.37), so keep 89 ideal bar, about 87.7 bar gauge.
         val r = blend(12.0, 100.0, 21.0, 0.0, 18.0, 45.0, 200.0, listOf(air, o2, helium))
         assertTrue(r.ok, "result ${r.result}")
         val drain = assertNotNull(r.drain)
-        assertTrue(drain.toBar in 90.0..99.0, "drain to ${drain.toBar}")
+        assertTrue(drain.toBar in 86.5..89.0, "drain to ${drain.toBar}")
     }
 }
+
+/** Percent as typed to permille. */
+internal fun pct(o2: Double, he: Double): BreathingGas = requireNotNull(BreathingGas.ofPercent(o2, he))
+
+internal val Fill.o2: Double get() = gas.o2 / 10.0
+internal val Fill.he: Double get() = gas.he / 10.0
 
 /** Jest's toBeCloseTo: |expected - actual| < 10^-digits / 2. */
 internal fun assertClose(expected: Double, actual: Double, digits: Int = 0) {

@@ -3,6 +3,7 @@ package no.synth.divelog.core.db
 import no.synth.divelog.core.model.Site
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -17,7 +18,7 @@ class SiteRepositoryTest {
 
         assertEquals(listOf("Norway"), repo.countries().map { it.name })
         assertEquals(listOf("Oslofjorden"), repo.places(norway).map { it.name })
-        val site = repo.site(siteId)!!
+        val site = assertNotNull(repo.site(siteId))
         assertEquals("Drøbak", site.name)
         assertEquals(59.66, site.latitude)
     }
@@ -51,8 +52,8 @@ class SiteRepositoryTest {
             repo.addPlace(c, "Red Sea")
         }
         val id = repo.addSite(Site(placeId = place, name = "Thistlegorm"))
-        repo.updateSite(repo.site(id)!!.copy(notes = "wreck", latitude = 27.81))
-        val updated = repo.site(id)!!
+        repo.updateSite(assertNotNull(repo.site(id)).copy(notes = "wreck", latitude = 27.81))
+        val updated = assertNotNull(repo.site(id))
         assertEquals("wreck", updated.notes)
         assertEquals(27.81, updated.latitude)
     }

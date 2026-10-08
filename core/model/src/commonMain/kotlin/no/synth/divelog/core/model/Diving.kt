@@ -4,8 +4,15 @@ package no.synth.divelog.core.model
  * A logged dive. Summary fields are copied from the primary computer record; a
  * dive may hold several records (e.g. two computers worn together).
  *
- * Depths are millimetres, temperatures millikelvin, durations seconds. Start
- * time is epoch seconds in UTC with a separate local offset.
+ * Depths are millimetres, temperatures millikelvin, durations seconds.
+ *
+ * Start time: [startEpochSeconds] + [utcOffsetSeconds] is the local wall clock. With a
+ * known zone (e.g. a zoned UDDF), [startEpochSeconds] is the real UTC instant. Most
+ * sources know only the wall clock: then the offset is 0 and [startEpochSeconds] is the
+ * wall clock read as UTC, zone unknown.
+ *
+ * [visibility] is the horizontal visibility as a distance in millimetres (UDDF, MacDive);
+ * [visibilityRating] is Subsurface's 0..5 star visibility, which is not a distance.
  */
 data class Dive(
     val id: Long = UNSAVED_ID,
@@ -22,6 +29,7 @@ data class Dive(
     val visibility: Int? = null,
     val siteId: Long? = null,
     val primaryComputerRecordId: Long? = null,
+    val visibilityRating: Int? = null,
 ) {
     /** Exclusive end of the dive's time range, epoch seconds. */
     val endEpochSeconds: Long get() = startEpochSeconds + durationSeconds
@@ -30,7 +38,8 @@ data class Dive(
 /**
  * Summary of one computer's recording of a dive. The raw download blob lives in
  * storage and is fetched on demand; parsed samples and events are keyed by this
- * record's id.
+ * record's id. [startEpochSeconds] is in its dive's time frame: add the dive's
+ * utcOffsetSeconds for the wall clock.
  */
 data class DiveComputerRecord(
     val id: Long = UNSAVED_ID,
