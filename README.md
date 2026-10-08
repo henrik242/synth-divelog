@@ -10,9 +10,8 @@ Licence: [MPL-2.0](LICENSE)
 - **Download from dive computers**: Shearwater Predator and Petrel 1 over
   Bluetooth, Suunto Zoop/Vyper and HelO2/Vyper2 over the USB cable. New dives
   only, or a chosen number.
-- **File import/export**: Subsurface XML, UDDF and MacDive XML; import also reads a
-  Shearwater Cloud database export. Duplicates are skipped, and the same dive from
-  two computers is merged.
+- **File import/export**: Subsurface XML, UDDF, MacDive XML and Shearwater Cloud
+  databases. Duplicates are skipped, and the same dive from two computers is merged.
 - **Cloud import/export**: your Subsurface cloud logbook (Android and desktop).
 - **Browse and edit**: dive profiles, search and sort, merge and split dives,
   sites on a map, buddies, tags and dive computers. Metric or imperial units.

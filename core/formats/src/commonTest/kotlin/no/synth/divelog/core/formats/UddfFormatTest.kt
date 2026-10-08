@@ -6,6 +6,7 @@ import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.Sample
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class UddfFormatTest {
     private val format = UddfFormat()
@@ -129,5 +130,38 @@ class UddfFormatTest {
         assertEquals(1_800, dive.durationSeconds)
         assertEquals("Suunto ZOOP", dive.computers.single().model)
         assertEquals("123", dive.computers.single().serial)
+    }
+
+    private fun startOf(datetime: String): Pair<Long, Int> {
+        val xml = """<uddf version="3.2.1"><profiledata><repetitiongroup><dive>
+            <informationbeforedive><datetime>$datetime</datetime></informationbeforedive>
+            </dive></repetitiongroup></profiledata></uddf>"""
+        val dive = UddfFormat().read(xml).dives.single()
+        return dive.startEpochSeconds to dive.utcOffsetSeconds
+    }
+
+    @Test
+    fun readsTheDateTimeAsIso8601() {
+        val wallClock = 1_224_950_700L // 2008-10-25 16:05 as wall clock
+        // No zone: local time, kept as the wall clock.
+        assertEquals(wallClock to 0, startOf("2008-10-25T16:05:00"))
+        assertEquals(wallClock to 0, startOf("2008-10-25T16:05"))
+        // A zone gives the real instant and keeps the offset.
+        assertEquals(wallClock to 0, startOf("2008-10-25T16:05Z"))
+        assertEquals(wallClock to 0, startOf("20081025T1605+0000"))
+        assertEquals(wallClock - 7_200 to 7_200, startOf("2008-10-25T16:05:00+02:00"))
+        assertEquals(wallClock + 18_000 to -18_000, startOf("2008-10-25T16:05-05"))
+    }
+
+    @Test
+    fun writesTheOffsetWhenTheDiveHasOne() {
+        val dive = DiveEntry(startEpochSeconds = 1_224_943_500, utcOffsetSeconds = 7_200, durationSeconds = 600)
+        val xml = format.write(DiveLog(listOf(dive)))
+        assertTrue(xml.contains("<datetime>2008-10-25T16:05:00+02:00</datetime>"), xml)
+        val back = format.read(xml).dives.single()
+        assertEquals(dive.startEpochSeconds to dive.utcOffsetSeconds, back.startEpochSeconds to back.utcOffsetSeconds)
+
+        val local = format.write(DiveLog(listOf(dive.copy(startEpochSeconds = 1_224_950_700, utcOffsetSeconds = 0))))
+        assertTrue(local.contains("<datetime>2008-10-25T16:05:00</datetime>"), local)
     }
 }

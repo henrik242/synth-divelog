@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.uikit.LocalUIViewController
 import androidx.compose.ui.window.ComposeUIViewController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -12,6 +13,8 @@ import kotlinx.coroutines.withContext
 import no.synth.divelog.core.db.DriverFactory
 import no.synth.divelog.core.db.createDatabase
 import no.synth.divelog.ui.io.LogbookIo
+import no.synth.divelog.ui.io.pickDocument
+import no.synth.divelog.ui.io.shareDocument
 import no.synth.divelog.ui.settings.AppSettings
 import no.synth.divelog.ui.settings.SettingsStore
 import no.synth.divelog.ui.sync.CloudGit
@@ -20,9 +23,8 @@ import platform.UIKit.UIViewController
 /**
  * iOS entry point: hosts the shared Compose UI in a UIViewController for the Swift
  * app to present. Reuses the shared repositories, settings and cloud sync. Dive-computer
- * download is unavailable on iOS (no serial layer), so the Download button says so; file
- * import/export awaits a native document picker, so import/export on iOS goes through the
- * Subsurface cloud.
+ * download is unavailable on iOS (no serial layer), so the Download button says so. Files
+ * are imported through the document picker and exported through the share sheet.
  */
 fun MainViewController(): UIViewController = ComposeUIViewController {
     val settings = remember { AppSettings(SettingsStore()) }
@@ -33,6 +35,7 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
     var unitSystem by remember { mutableStateOf(settings.unitSystem) }
     var dataVersion by remember { mutableStateOf(0) }
     var status by remember { mutableStateOf<String?>(null) }
+    val host = LocalUIViewController.current
 
     SynthTheme {
         SynthDivelogApp(
@@ -50,6 +53,14 @@ fun MainViewController(): UIViewController = ComposeUIViewController {
                 }
             },
             onDownloaded = { dataVersion++ },
+            onPickImportFile = { pickDocument(host) },
+            onExport = { formatId ->
+                scope.launch {
+                    val export = withContext(Dispatchers.Default) { runCatching { logbook.export(formatId) } }
+                    export.onSuccess { file -> file?.let { shareDocument(host, it) } }
+                        .onFailure { status = "Export failed: ${it.message ?: it::class.simpleName}" }
+                }
+            },
             cloudEnabled = true,
             initialCloudEmail = settings.cloudEmail,
             initialCloudPassword = settings.cloudPassword,

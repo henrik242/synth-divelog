@@ -33,6 +33,7 @@ import no.synth.divelog.download.DownloadService
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.SynthDivelogApp
 import no.synth.divelog.ui.download.AndroidSerialPorts
+import no.synth.divelog.ui.io.ExportFile
 import no.synth.divelog.ui.io.LogbookIo
 import no.synth.divelog.ui.settings.AppSettings
 import no.synth.divelog.ui.settings.SettingsConnectionMemory
@@ -92,9 +93,7 @@ class MainActivity : ComponentActivity() {
                     onPickImportFile = pickImportFile,
                     onExport = { formatId ->
                         scope.launch(Dispatchers.IO) {
-                            val format = LogbookIo.formats().first { it.id == formatId }
-                            val text = logbook.exportAll(format)
-                            shareExport(context, formatId, text)
+                            logbook.export(formatId)?.let { shareExport(context, it) }
                         }
                     },
                     onReparse = {
@@ -134,13 +133,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun shareExport(context: android.content.Context, formatId: String, text: String) {
+    private fun shareExport(context: android.content.Context, export: ExportFile) {
         val dir = File(context.filesDir, "exports").apply { mkdirs() }
-        val ext = if (formatId == "uddf") "uddf" else "xml"
-        val file = File(dir, "synth-divelog.$ext").apply { writeText(text) }
+        val file = File(dir, export.name).apply { writeBytes(export.bytes) }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/xml"
+            type = export.mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

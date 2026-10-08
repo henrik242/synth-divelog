@@ -103,15 +103,14 @@ private fun cloudDir(): String =
     File(System.getProperty("user.home"), ".synth-divelog/cloud").apply { mkdirs() }.absolutePath
 
 private fun exportToFile(logbook: LogbookIo, formatId: String) {
-    val format = LogbookIo.formats().firstOrNull { it.id == formatId } ?: return
-    val ext = if (formatId == "uddf") "uddf" else "xml"
+    val export = logbook.export(formatId) ?: return
     val dialog = FileDialog(null as Frame?, "Export logbook", FileDialog.SAVE).apply {
-        file = "synth-divelog.$ext"
+        file = export.name
         isVisible = true
     }
     val dir = dialog.directory ?: return
     val name = dialog.file ?: return
-    File(dir, name).writeText(logbook.exportAll(format))
+    File(dir, name).writeBytes(export.bytes)
 }
 
 /** Opens a file dialog, returning the chosen absolute path or null if cancelled. */

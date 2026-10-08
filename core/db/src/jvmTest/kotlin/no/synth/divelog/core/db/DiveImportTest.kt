@@ -170,4 +170,15 @@ class DiveImportTest {
         val zero = incoming(deviceId = other, start = 10_000, duration = 0, fingerprint = "b")
         assertTrue(dives.classify(zero) is ImportDecision.MergeCandidate)
     }
+
+    @Test
+    fun overlapComparesLocalTimesWhenOneSideKnowsItsZone() {
+        // Downloaded: the computer's wall clock, 12:00, no zone.
+        val first = dives.import(incoming(deviceId = predator(), start = 1_700_000_000, duration = 3_600)) { false }
+        val diveId = assertIs<ImportResult.CreatedDive>(first).diveId
+        // The same dive from a logbook that knows the zone: 12:05 at +02:00 is 10:05 UTC.
+        val zoned = incoming(deviceId = petrel(), start = 1_700_000_300 - 7_200, fingerprint = "zoned")
+            .copy(utcOffsetSeconds = 7_200)
+        assertEquals(ImportDecision.MergeCandidate(diveId), dives.classify(zoned))
+    }
 }

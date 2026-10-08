@@ -32,11 +32,12 @@ SELECT * FROM dive WHERE id = ?;
 selectDivesBySite:
 SELECT * FROM dive WHERE siteId = ? ORDER BY startEpochSeconds DESC;
 
--- Dives whose [start, end) time range overlaps the given range.
+-- Dives whose [start, end) range in local time overlaps the given local range. Local,
+-- since most sources know only the wall clock and some also the zone.
 selectOverlappingDives:
 SELECT * FROM dive
-WHERE startEpochSeconds < :rangeEnd
-  AND (startEpochSeconds + durationSeconds) > :rangeStart
+WHERE (startEpochSeconds + utcOffsetSeconds) < :rangeEnd
+  AND (startEpochSeconds + utcOffsetSeconds + durationSeconds) > :rangeStart
 ORDER BY startEpochSeconds;
 
 updateDive:

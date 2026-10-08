@@ -25,13 +25,31 @@ import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.ui.AppContainer
+import kotlin.time.Clock
 
 data class ImportCounts(val imported: Int, val merged: Int, val skipped: Int)
+
+/** An export to save or share: suggested file name, media type and content. */
+class ExportFile(val name: String, val mimeType: String, val bytes: ByteArray)
+
+/** An export the user can pick: [id] goes to [LogbookIo.export]. */
+data class ExportTarget(val id: String, val displayName: String)
 
 /** Exports the logbook to, and imports it from, the file formats. */
 class LogbookIo(private val container: AppContainer) {
 
     fun exportAll(format: DiveFormat): String = format.write(buildDiveLog())
+
+    /** The whole logbook in export [targetId] (see [exportTargets]), or null for an unknown id. */
+    fun export(targetId: String): ExportFile? {
+        if (targetId == SHEARWATER_CLOUD) {
+            val bytes = ShearwaterCloudWriter.write(buildDiveLog(), Clock.System.now().epochSeconds)
+            return ExportFile("synth-divelog.db", "application/vnd.sqlite3", bytes)
+        }
+        val format = formats().firstOrNull { it.id == targetId } ?: return null
+        val ext = if (format is UddfFormat) "uddf" else "xml"
+        return ExportFile("synth-divelog.$ext", "application/xml", exportAll(format).encodeToByteArray())
+    }
 
     /** Serialize the whole logbook into the cloud git storage format. */
     fun exportCloudTree(): Map<String, String> = GitLogFormat().write(buildDiveLog())
@@ -433,6 +451,12 @@ class LogbookIo(private val container: AppContainer) {
         }
 
         fun formats(): List<DiveFormat> = listOf(SubsurfaceXml(), UddfFormat(), MacDiveXml())
+
+        private const val SHEARWATER_CLOUD = "shearwater-cloud-db"
+
+        /** Every export: the text formats, then a Shearwater Cloud database. */
+        fun exportTargets(): List<ExportTarget> =
+            formats().map { ExportTarget(it.id, it.displayName) } + ExportTarget(SHEARWATER_CLOUD, "Shearwater Cloud database")
 
         /** Guess the format from the file content. */
         fun detect(text: String): DiveFormat? = when {

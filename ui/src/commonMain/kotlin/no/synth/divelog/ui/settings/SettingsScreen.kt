@@ -63,10 +63,10 @@ fun SettingsSection(
         // Cloud import lives with the Add-dives button; only cloud export stays here.
         Text("Export", style = MaterialTheme.typography.titleMedium)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // One button per registered file format, so a new format appears here too.
-            LogbookIo.formats().forEach { format ->
-                OutlinedButton(onClick = { onExport(format.id) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Export ${format.displayName}")
+            // One button per export, so a new format appears here too.
+            LogbookIo.exportTargets().forEach { target ->
+                OutlinedButton(onClick = { onExport(target.id) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Export ${target.displayName}")
                 }
             }
             if (cloudEnabled) {

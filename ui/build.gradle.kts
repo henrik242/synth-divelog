@@ -118,6 +118,10 @@ kotlin {
             // Metal renderer for the desktop map (Apple Silicon).
             runtimeOnly(libs.maplibre.compose.runtime.metal.macos.arm64)
         }
+        iosMain.dependencies {
+            // Reads and writes Shearwater Cloud database files.
+            implementation(libs.sqliter)
+        }
         androidMain.dependencies {
             implementation(libs.jgit)
             // USB-serial adapters and the USB permission flow for the shared wired download.

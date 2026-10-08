@@ -304,7 +304,7 @@ class UddfFormat : DiveFormat {
                             "latitude" -> site?.lat = t.toDoubleOrNull()
                             "longitude" -> site?.lon = t.toDoubleOrNull()
                             "site" -> site?.let { b -> b.id?.let { sites[it] = parseSite(b) } }
-                            "datetime" -> dive?.epoch = FormatDateTime.epochFromIso(t)
+                            "datetime" -> dive?.let { d -> FormatDateTime.fromIso(t).let { (epoch, offset) -> d.epoch = epoch; d.utcOffset = offset } }
                             "divenumber" -> dive?.number = t.toIntOrNull()
                             "depth" -> waypoint?.depthMm = FormatUnits.siMetresToMm(t)
                             "divetime" -> waypoint?.time = seconds(t)
@@ -374,6 +374,7 @@ class UddfFormat : DiveFormat {
     private class DiveB(
         var number: Int? = null,
         var epoch: Long = 0,
+        var utcOffset: Int = 0,
         var duration: Int? = null,
         var maxDepthMm: Int? = null,
         var meanDepthMm: Int? = null,
@@ -421,7 +422,7 @@ class UddfFormat : DiveFormat {
             return DiveEntry(
                 number = number,
                 startEpochSeconds = epoch,
-                utcOffsetSeconds = 0,
+                utcOffsetSeconds = utcOffset,
                 // Some writers leave the duration out; the profile still spans the dive.
                 durationSeconds = duration ?: waypoints.mapNotNull { it.time }.maxOrNull() ?: 0,
                 maxDepthMm = maxDepthMm,

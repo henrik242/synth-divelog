@@ -7,9 +7,9 @@ import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
 
 /**
- * Dive start times are stored as epoch seconds plus a UTC offset. The file
- * formats mostly carry local wall-clock times with no zone, so we render the
- * wall clock and, on read, keep the value with a zero offset.
+ * Dive start times are stored as epoch seconds plus a UTC offset. Subsurface, MacDive and
+ * Shearwater write the local wall clock with no zone; UDDF writes ISO 8601, which may carry
+ * one. A time with no zone is kept as the wall clock with a zero offset.
  */
 internal object FormatDateTime {
     private fun wallClock(epochSeconds: Long, utcOffsetSeconds: Int): LocalDateTime =
@@ -27,9 +27,17 @@ internal object FormatDateTime {
         return "${p2(t.hour)}:${p2(t.minute)}:${p2(t.second)}"
     }
 
-    /** ISO-8601 local date-time, e.g. 2024-05-30T04:14:00 (used by UDDF). */
-    fun isoDateTime(epochSeconds: Long, utcOffsetSeconds: Int): String =
-        "${date(epochSeconds, utcOffsetSeconds)}T${time(epochSeconds, utcOffsetSeconds)}"
+    /**
+     * ISO 8601 date-time as UDDF writes it: the local time, followed by the UTC offset
+     * when the dive has one ("2024-05-30T04:14:00+02:00"). With no offset known the zone
+     * is left out, which ISO 8601 reads as local time.
+     */
+    fun isoDateTime(epochSeconds: Long, utcOffsetSeconds: Int): String {
+        val local = "${date(epochSeconds, utcOffsetSeconds)}T${time(epochSeconds, utcOffsetSeconds)}"
+        if (utcOffsetSeconds == 0) return local
+        val abs = kotlin.math.abs(utcOffsetSeconds)
+        return local + (if (utcOffsetSeconds < 0) "-" else "+") + "${p2(abs / 3600)}:${p2(abs % 3600 / 60)}"
+    }
 
     /** "YYYY-MM-DD HH:MM:SS" local wall clock, space-separated (used by MacDive). */
     fun spaceDateTime(epochSeconds: Long, utcOffsetSeconds: Int): String =
@@ -53,22 +61,25 @@ internal object FormatDateTime {
         return LocalDateTime(y, mo, d, h, mi, s).toInstant(TimeZone.UTC).epochSeconds
     }
 
-    /** Parse an ISO-8601 local date-time (optionally with zone, which is ignored). */
-    fun epochFromIso(iso: String): Long {
-        val core = iso.trim()
-        val tIndex = core.indexOf('T')
-        if (tIndex < 0) return epochFromDateTime(core, "00:00:00")
-        val datePart = core.substring(0, tIndex)
-        var timePart = core.substring(tIndex + 1)
-        // Drop any timezone suffix.
-        val zoneChars = listOf('Z', '+')
-        for (z in zoneChars) {
-            val idx = timePart.indexOf(z)
-            if (idx > 0) timePart = timePart.substring(0, idx)
+    /**
+     * Parse an ISO 8601 date-time into epoch seconds and UTC offset. Extended
+     * ("2008-10-25T16:05:00+02:00") and basic ("20081025T1605+0200") forms, a space for
+     * the "T", and missing seconds or time are accepted. A "Z" or offset gives the real
+     * instant and that offset; without one the time is local, kept with a zero offset.
+     */
+    fun fromIso(iso: String): Pair<Long, Int> {
+        val m = ISO.matchEntire(iso.trim()) ?: throw FormatException("Not an ISO 8601 date-time: $iso")
+        val g = m.groupValues
+        fun num(i: Int) = g[i].ifEmpty { "0" }.toInt()
+        val wall = LocalDateTime(num(1), num(2), num(3), num(4), num(5), num(6)).toInstant(TimeZone.UTC).epochSeconds
+        val offset = when {
+            g[7].isEmpty() || g[7] == "Z" -> 0
+            else -> (if (g[8] == "-") -1 else 1) * (num(9) * 3600 + num(10) * 60)
         }
-        // A '-' in the time part would only be a zone offset.
-        val minusIdx = timePart.indexOf('-')
-        if (minusIdx > 0) timePart = timePart.substring(0, minusIdx)
-        return epochFromDateTime(datePart, timePart)
+        return (wall - offset) to offset
     }
+
+    private val ISO = Regex(
+        """(\d{4})-?(\d{2})-?(\d{2})(?:[T ](\d{2}):?(\d{2})(?::?(\d{2})(?:[.,]\d+)?)?)?(Z|([+-])(\d{2}):?(\d{2})?)?""",
+    )
 }
