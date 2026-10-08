@@ -80,4 +80,23 @@ class LogbookIoGasTest {
         assertEquals(320, tank.gasMixId?.let { container.gases.gasMix(it) }?.o2Permille)
         assertEquals(200_000, tank.startPressureMbar)
     }
+
+    @Test
+    fun aSecondComputersOwnStartAndDurationSurviveImportAndExport() {
+        val dive = DiveEntry(
+            startEpochSeconds = 1_700_000_000,
+            durationSeconds = 2_400,
+            computers = listOf(
+                ComputerEntry(model = "Shearwater Petrel", serial = "A1", maxDepthMm = 20_000),
+                ComputerEntry(model = "Suunto HelO2", serial = "B2", maxDepthMm = 19_800, startEpochSeconds = 1_700_000_030, durationSeconds = 2_300),
+            ),
+        )
+        io.importMessage(SubsurfaceXml().write(DiveLog(listOf(dive))))
+
+        val exported = SubsurfaceXml().read(io.exportAll(SubsurfaceXml())).dives.single()
+        val second = exported.computers.single { it.serial == "B2" }
+        assertEquals(1_700_000_030, second.startEpochSeconds)
+        assertEquals(2_300, second.durationSeconds)
+        assertEquals(null, exported.computers.single { it.serial == "A1" }.startEpochSeconds)
+    }
 }

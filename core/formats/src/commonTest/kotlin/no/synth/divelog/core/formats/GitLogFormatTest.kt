@@ -3,6 +3,7 @@ package no.synth.divelog.core.formats
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.GasSwitch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -178,5 +179,38 @@ class GitLogFormatTest {
         val computers = format.read(tree).dives.single().computers
         assertEquals("A1B2C3D4", computers[0].serial)
         assertEquals(null, computers[1].serial)
+    }
+
+    @Test
+    fun keepsDivesThatStartTheSameSecond() {
+        val dive = DiveEntry(startEpochSeconds = 1_700_000_000, durationSeconds = 600, notes = "first")
+        val tree = format.write(DiveLog(listOf(dive, dive.copy(notes = "second"))))
+        assertEquals(2, tree.keys.count { it.substringAfterLast('/').startsWith("Dive") && !it.contains("Divecomputer") })
+        assertEquals(setOf("first", "second"), format.read(tree).dives.map { it.notes }.toSet())
+    }
+
+    @Test
+    fun readsTagsGeoAndGasSwitchesByCylinder() {
+        val tree = mapOf(
+            "00-Subsurface" to "version 3\n",
+            "01-Divesites/Site-0a0b0c0d" to "name \"The Wall\"\ngps 59.660000 10.630000\ngeo cat 2 origin 0 \"Norway\"\ngeo cat 3 origin 0 \"Drøbak\"\n",
+            "2024/05/30-Thu-06=14=00/Dive-7" to "duration 40:00 min\ntags \"wreck\", \"night\"\ndivesiteid 0a0b0c0d\n" +
+                "cylinder vol=12.0l\ncylinder vol=7.0l o2=50.0%\n",
+            "2024/05/30-Thu-06=14=00/Divecomputer" to "model \"X\"\nevent 0:10 type=11 value=50 name=\"gaschange\" cylinder=1\n" +
+                "  0:00 1.0m 12.0°C ndl=20:00\n  0:10 5.0m\n",
+        )
+        val d = format.read(tree).dives.single()
+        assertEquals(listOf("wreck", "night"), d.tags)
+        assertEquals(SiteRef("The Wall", "Norway", "Drøbak", 59.66, 10.63), d.site)
+        assertEquals(listOf(null, 500), d.tanks.map { it.o2Permille })
+        assertEquals(GasSwitch.value(50, 0), d.computers.single().events.single().value)
+        assertEquals(Sample(10, depthMm = 5_000, temperatureMk = 285_150, ndlSeconds = 1_200), d.computers.single().samples[1])
+    }
+
+    @Test
+    fun writesTheSettingsFile() {
+        val tree = format.write(withSerial(sampleLog(), "abc"))
+        assertTrue(tree.getValue("00-Subsurface").startsWith("version 3\n"))
+        assertTrue(tree.getValue("00-Subsurface").contains("deviceid=363e99a9 serial=\"abc\""))
     }
 }

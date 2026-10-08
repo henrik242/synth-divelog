@@ -64,6 +64,9 @@ class LogbookIo(private val container: AppContainer) {
                     maxDepthMm = r.maxDepthMm,
                     samples = container.dives.samplesForRecord(r.id),
                     events = container.dives.eventsForRecord(r.id),
+                    // Only a recording that starts or ends apart from the dive carries its own times.
+                    startEpochSeconds = r.startEpochSeconds.takeIf { it != dive.startEpochSeconds },
+                    durationSeconds = r.durationSeconds.takeIf { it != dive.durationSeconds },
                 )
             }
             val site = dive.siteId?.let { siteRef(it) }
@@ -390,9 +393,9 @@ class LogbookIo(private val container: AppContainer) {
             container.dives.attachToDive(
                 IncomingDive(
                     deviceId = importDeviceId(computer.model, computer.serial),
-                    startEpochSeconds = entry.startEpochSeconds,
+                    startEpochSeconds = computer.startEpochSeconds ?: entry.startEpochSeconds,
                     utcOffsetSeconds = entry.utcOffsetSeconds,
-                    durationSeconds = entry.durationSeconds,
+                    durationSeconds = computer.durationSeconds ?: entry.durationSeconds,
                     maxDepthMm = computer.maxDepthMm,
                     rawData = ByteArray(0),
                     rawFormatId = "import-extra",

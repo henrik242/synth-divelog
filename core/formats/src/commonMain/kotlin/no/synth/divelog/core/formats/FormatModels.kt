@@ -58,6 +58,10 @@ data class ComputerEntry(
     val events: List<Event> = emptyList(),
     /** The computer's serial number, when the log records one. */
     val serial: String? = null,
+    /** When this computer's recording starts, epoch seconds; null when it starts with the dive. */
+    val startEpochSeconds: Long? = null,
+    /** Length of this computer's recording; null when it is the dive's duration. */
+    val durationSeconds: Int? = null,
 )
 
 /** A dive-log file format reader/writer over the domain-neutral [DiveLog]. */

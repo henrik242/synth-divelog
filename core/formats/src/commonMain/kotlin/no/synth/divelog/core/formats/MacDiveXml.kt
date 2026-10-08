@@ -121,7 +121,8 @@ class MacDiveXml : DiveFormat {
         w.startTag(NS, "sample", "")
         text(w, "time", FormatUnits.twoDecimals(s.timeOffsetSeconds.toDouble()))
         s.depthMm?.let { text(w, "depth", FormatUnits.macDepth(it)) }
-        s.tankPressuresMbar.values.firstOrNull()?.let { text(w, "pressure", FormatUnits.macBar(it)) }
+        // One pressure per sample: the first tank's.
+        s.tankPressuresMbar.minByOrNull { it.key }?.value?.let { text(w, "pressure", FormatUnits.macBar(it)) }
         s.temperatureMk?.let { text(w, "temperature", FormatUnits.macCelsius(it)) }
         s.ppO2Mbar?.let { text(w, "ppo2", FormatUnits.macBar(it)) }
         s.ndlSeconds?.let { text(w, "ndt", FormatUnits.macMinutes(it)) }
@@ -284,17 +285,17 @@ class MacDiveXml : DiveFormat {
         DiveEventType.ASCENT_RATE -> "Ascent Rate Warning"
         DiveEventType.DECO -> "Deco"
         DiveEventType.SURFACE -> "Surface"
-        DiveEventType.WARNING -> "Warning"
+        DiveEventType.WARNING -> "Attention"
         DiveEventType.OTHER -> "Event"
     }
 
     private fun eventTypeCode(type: DiveEventType): Int = when (type) {
-        DiveEventType.GAS_SWITCH -> 10
+        DiveEventType.GAS_SWITCH -> GAS_SWITCH_CODE
         DiveEventType.BOOKMARK -> 28
         DiveEventType.ASCENT_RATE -> 2
         DiveEventType.DECO -> 8
         DiveEventType.SURFACE -> 1
-        DiveEventType.WARNING -> 20
+        DiveEventType.WARNING -> 3
         DiveEventType.OTHER -> 0
     }
 
@@ -313,7 +314,8 @@ class MacDiveXml : DiveFormat {
         val name = b.name ?: ""
         val lower = name.lowercase()
         val type = when {
-            lower.startsWith("switched to gas") -> DiveEventType.GAS_SWITCH
+            // Some computers name a gas switch only by its mix ("32").
+            b.typeCode == GAS_SWITCH_CODE || lower.startsWith("switched to gas") -> DiveEventType.GAS_SWITCH
             name == "User Bookmark" -> DiveEventType.BOOKMARK
             lower.contains("ascent rate") -> DiveEventType.ASCENT_RATE
             name == "Surface" -> DiveEventType.SURFACE
@@ -480,6 +482,7 @@ class MacDiveXml : DiveFormat {
     private companion object {
         const val NS = ""
         const val SCHEMA = "2.2.0"
+        const val GAS_SWITCH_CODE = 10
         const val DOCTYPE_URL = "http://www.mac-dive.com/macdive_logbook.dtd"
     }
 }

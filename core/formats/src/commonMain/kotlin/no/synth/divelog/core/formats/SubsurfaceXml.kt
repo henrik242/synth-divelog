@@ -1,9 +1,11 @@
 package no.synth.divelog.core.formats
 
 import nl.adaptivity.xmlutil.EventType
+import nl.adaptivity.xmlutil.XmlReader
 import nl.adaptivity.xmlutil.XmlWriter
 import nl.adaptivity.xmlutil.core.KtXmlWriter
 import nl.adaptivity.xmlutil.xmlStreaming
+import no.synth.divelog.core.formats.SubsurfaceShared.milli
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType as DiveEventType
 import no.synth.divelog.core.model.GasSwitch
@@ -14,7 +16,10 @@ import no.synth.divelog.core.model.Sample
  * to the user so they recognise what they are importing or exporting.
  *
  * Multiple `divecomputer` elements per dive are supported; depths are metres,
- * temperatures Celsius, times "M:SS min".
+ * temperatures Celsius, times "M:SS min". Dive times are the local wall clock; the
+ * UTC offset, when known, rides on the first dive computer as extra data. Sample
+ * values other than tank pressures are written when they change and carry forward
+ * on read.
  */
 class SubsurfaceXml : DiveFormat {
     override val id: String = "subsurface-xml"
@@ -29,31 +34,38 @@ class SubsurfaceXml : DiveFormat {
         w.attribute(NS, "program", "", "synth-divelog")
         w.attribute(NS, "version", "", "3")
 
-        // Serials live in the settings, keyed by a device id each dive computer refers to.
+        // Serials live in the settings, keyed by the device id each dive computer refers to.
         val serialComputers = log.dives.flatMap { it.computers }.filter { it.serial != null }
             .distinctBy { it.model to it.serial }
         if (serialComputers.isNotEmpty()) {
             w.startTag(NS, "settings", "")
             for (c in serialComputers) {
+                val serial = c.serial ?: continue
                 w.startTag(NS, "divecomputerid", "")
                 c.model?.let { w.attribute(NS, "model", "", it) }
-                w.attribute(NS, "deviceid", "", deviceId(c))
-                c.serial?.let { w.attribute(NS, "serial", "", it) }
+                w.attribute(NS, "deviceid", "", SubsurfaceShared.deviceId(serial))
+                w.attribute(NS, "serial", "", serial)
                 w.endTag(NS, "divecomputerid", "")
             }
             w.endTag(NS, "settings", "")
         }
 
-        val siteIds = log.dives.mapNotNull { it.site }.map { it.name }.distinct()
-            .associateWith { siteUuid(it) }
-        if (siteIds.isNotEmpty()) {
+        val sites = log.dives.mapNotNull { it.site }.distinct()
+        if (sites.isNotEmpty()) {
             w.startTag(NS, "divesites", "")
-            log.dives.mapNotNull { it.site }.distinctBy { it.name }.forEach { site ->
+            for (site in sites) {
                 w.startTag(NS, "site", "")
-                w.attribute(NS, "uuid", "", siteIds.getValue(site.name))
-                w.attribute(NS, "name", "", fullSiteName(site))
+                w.attribute(NS, "uuid", "", SubsurfaceShared.siteUuid(site))
+                w.attribute(NS, "name", "", site.name)
                 if (site.latitude != null && site.longitude != null) {
-                    w.attribute(NS, "gps", "", "${site.latitude} ${site.longitude}")
+                    w.attribute(NS, "gps", "", "${SubsurfaceShared.deg6(site.latitude)} ${SubsurfaceShared.deg6(site.longitude)}")
+                }
+                for ((cat, value) in SubsurfaceShared.geoOf(site)) {
+                    w.startTag(NS, "geo", "")
+                    w.attribute(NS, "cat", "", cat.toString())
+                    w.attribute(NS, "origin", "", SubsurfaceShared.GEO_MANUAL.toString())
+                    w.attribute(NS, "value", "", value)
+                    w.endTag(NS, "geo", "")
                 }
                 w.endTag(NS, "site", "")
             }
@@ -61,7 +73,7 @@ class SubsurfaceXml : DiveFormat {
         }
 
         w.startTag(NS, "dives", "")
-        for (dive in log.dives) writeDive(w, dive, dive.site?.let { siteIds[it.name] })
+        for (dive in log.dives) writeDive(w, dive)
         w.endTag(NS, "dives", "")
 
         w.endTag(NS, "divelog", "")
@@ -69,78 +81,137 @@ class SubsurfaceXml : DiveFormat {
         return out.toString()
     }
 
-    private fun writeDive(w: XmlWriter, dive: DiveEntry, siteUuid: String?) {
+    private fun writeDive(w: XmlWriter, dive: DiveEntry) {
         w.startTag(NS, "dive", "")
         dive.number?.let { w.attribute(NS, "number", "", it.toString()) }
-        w.attribute(NS, "date", "", FormatDateTime.date(dive.startEpochSeconds, dive.utcOffsetSeconds))
-        w.attribute(NS, "time", "", FormatDateTime.time(dive.startEpochSeconds, dive.utcOffsetSeconds))
-        w.attribute(NS, "duration", "", FormatUnits.secondsToClock(dive.durationSeconds))
         dive.rating?.let { w.attribute(NS, "rating", "", it.toString()) }
         dive.visibility?.let { w.attribute(NS, "visibility", "", it.toString()) }
         if (dive.tags.isNotEmpty()) w.attribute(NS, "tags", "", dive.tags.joinToString(", "))
-        siteUuid?.let { w.attribute(NS, "divesiteid", "", it) }
+        dive.site?.let { w.attribute(NS, "divesiteid", "", SubsurfaceShared.siteUuid(it)) }
+        w.attribute(NS, "date", "", FormatDateTime.date(dive.startEpochSeconds, dive.utcOffsetSeconds))
+        w.attribute(NS, "time", "", FormatDateTime.time(dive.startEpochSeconds, dive.utcOffsetSeconds))
+        if (dive.durationSeconds > 0) w.attribute(NS, "duration", "", "${SubsurfaceShared.clock(dive.durationSeconds)} min")
 
-        for (buddy in dive.buddies) textElement(w, "buddy", buddy)
-        dive.notes?.let { textElement(w, "notes", it) }
+        // One buddy element; several buddies are comma-separated.
+        if (dive.buddies.isNotEmpty()) textElement(w, "buddy", dive.buddies.joinToString(", "))
+        dive.notes?.takeIf { it.isNotBlank() }?.let { textElement(w, "notes", it) }
 
-        for (tank in dive.tanks) {
+        val tanks = SubsurfaceShared.tanksToWrite(dive)
+        for (tank in tanks) {
             w.startTag(NS, "cylinder", "")
-            w.attribute(NS, "index", "", tank.index.toString())
-            tank.volumeMl?.let { w.attribute(NS, "size", "", FormatUnits.mlToLitres(it)) }
-            tank.workingPressureMbar?.let { w.attribute(NS, "workpressure", "", FormatUnits.mbarToBar(it)) }
-            tank.startPressureMbar?.let { w.attribute(NS, "start", "", FormatUnits.mbarToBar(it)) }
-            tank.endPressureMbar?.let { w.attribute(NS, "end", "", FormatUnits.mbarToBar(it)) }
-            tank.o2Permille?.let { w.attribute(NS, "o2", "", FormatUnits.permilleToPercent(it)) }
-            tank.hePermille?.let { w.attribute(NS, "he", "", FormatUnits.permilleToPercent(it)) }
+            tank.volumeMl?.let { w.attribute(NS, "size", "", "${milli(it)} l") }
+            tank.workingPressureMbar?.let { w.attribute(NS, "workpressure", "", "${milli(it)} bar") }
+            tank.o2Permille?.let { o2 ->
+                w.attribute(NS, "o2", "", SubsurfaceShared.percent(o2))
+                tank.hePermille?.takeIf { it > 0 }?.let { w.attribute(NS, "he", "", SubsurfaceShared.percent(it)) }
+            }
+            tank.startPressureMbar?.let { w.attribute(NS, "start", "", "${milli(it)} bar") }
+            tank.endPressureMbar?.let { w.attribute(NS, "end", "", "${milli(it)} bar") }
             w.endTag(NS, "cylinder", "")
         }
 
-        for (computer in dive.computers) writeComputer(w, computer)
+        // The dive's summary is its first computer's; a dive without one gets a bare
+        // computer carrying the summary.
+        val computers = dive.computers.ifEmpty {
+            val summary = listOf(dive.maxDepthMm, dive.meanDepthMm, dive.waterTempMk, dive.airTempMk)
+            if (summary.any { it != null } || dive.utcOffsetSeconds != 0) listOf(ComputerEntry()) else emptyList()
+        }
+        val primary = computers.firstOrNull()?.let { withDiveSummary(it, dive) }
+        val written = listOfNotNull(primary) + computers.drop(1)
+        // Dive temperatures are written only where they differ from what the computers give.
+        val air = dive.airTempMk?.takeIf { it != SubsurfaceShared.meanTemp(written.map { c -> c.airTempMk }) }
+        val water = dive.waterTempMk?.takeIf { it != SubsurfaceShared.meanTemp(written.map { c -> c.waterTempMk }) }
+        if (air != null || water != null) {
+            w.startTag(NS, "divetemperature", "")
+            air?.let { w.attribute(NS, "air", "", "${milli(it - ZERO_C_MK)} C") }
+            water?.let { w.attribute(NS, "water", "", "${milli(it - ZERO_C_MK)} C") }
+            w.endTag(NS, "divetemperature", "")
+        }
+
+        computers.forEachIndexed { i, c ->
+            if (i == 0) writeComputer(w, dive, primary ?: c, tanks, dive.utcOffsetSeconds)
+            else writeComputer(w, dive, c, tanks, 0)
+        }
         w.endTag(NS, "dive", "")
     }
 
-    private fun writeComputer(w: XmlWriter, computer: ComputerEntry) {
+    private fun writeComputer(w: XmlWriter, dive: DiveEntry, computer: ComputerEntry, tanks: List<TankEntry>, utcOffset: Int) {
         w.startTag(NS, "divecomputer", "")
         computer.model?.let { w.attribute(NS, "model", "", it) }
-        if (computer.serial != null) w.attribute(NS, "deviceid", "", deviceId(computer))
+        computer.serial?.let { w.attribute(NS, "deviceid", "", SubsurfaceShared.deviceId(it)) }
+        computer.startEpochSeconds?.takeIf { it != dive.startEpochSeconds }?.let { start ->
+            w.attribute(NS, "date", "", FormatDateTime.date(start, dive.utcOffsetSeconds))
+            w.attribute(NS, "time", "", FormatDateTime.time(start, dive.utcOffsetSeconds))
+        }
+        computer.durationSeconds?.takeIf { it != dive.durationSeconds && it > 0 }?.let {
+            w.attribute(NS, "duration", "", "${SubsurfaceShared.clock(it)} min")
+        }
 
         if (computer.maxDepthMm != null || computer.meanDepthMm != null) {
             w.startTag(NS, "depth", "")
-            computer.maxDepthMm?.let { w.attribute(NS, "max", "", FormatUnits.depthToMetres(it)) }
-            computer.meanDepthMm?.let { w.attribute(NS, "mean", "", FormatUnits.depthToMetres(it)) }
+            computer.maxDepthMm?.let { w.attribute(NS, "max", "", "${milli(it)} m") }
+            computer.meanDepthMm?.let { w.attribute(NS, "mean", "", "${milli(it)} m") }
             w.endTag(NS, "depth", "")
         }
         if (computer.waterTempMk != null || computer.airTempMk != null) {
             w.startTag(NS, "temperature", "")
-            computer.waterTempMk?.let { w.attribute(NS, "water", "", FormatUnits.tempToCelsius(it)) }
-            computer.airTempMk?.let { w.attribute(NS, "air", "", FormatUnits.tempToCelsius(it)) }
+            computer.airTempMk?.let { w.attribute(NS, "air", "", "${milli(it - ZERO_C_MK)} C") }
+            computer.waterTempMk?.let { w.attribute(NS, "water", "", "${milli(it - ZERO_C_MK)} C") }
             w.endTag(NS, "temperature", "")
         }
+        computer.serial?.let { extraData(w, SubsurfaceShared.KEY_SERIAL, it) }
+        if (utcOffset != 0) extraData(w, SubsurfaceShared.KEY_UTC_OFFSET, SubsurfaceShared.offsetText(utcOffset))
 
-        for (s in computer.samples) {
-            w.startTag(NS, "sample", "")
-            w.attribute(NS, "time", "", FormatUnits.secondsToClock(s.timeOffsetSeconds))
-            s.depthMm?.let { w.attribute(NS, "depth", "", FormatUnits.depthToMetres(it)) }
-            s.temperatureMk?.let { w.attribute(NS, "temp", "", FormatUnits.tempToCelsius(it)) }
-            s.ndlSeconds?.let { w.attribute(NS, "ndl", "", FormatUnits.secondsToClock(it)) }
-            s.stopDepthMm?.let { w.attribute(NS, "stopdepth", "", FormatUnits.depthToMetres(it)) }
-            s.stopTimeSeconds?.let { w.attribute(NS, "stoptime", "", FormatUnits.secondsToClock(it)) }
-            w.endTag(NS, "sample", "")
-        }
         for (e in computer.events) {
             w.startTag(NS, "event", "")
-            w.attribute(NS, "time", "", FormatUnits.secondsToClock(e.timeOffsetSeconds))
-            w.attribute(NS, "name", "", eventName(e.type))
-            val gasValue = e.value
-            if (e.type == DiveEventType.GAS_SWITCH && gasValue != null) {
-                val o2 = GasSwitch.o2Percent(gasValue)
-                val he = GasSwitch.hePercent(gasValue)
+            w.attribute(NS, "time", "", "${SubsurfaceShared.clock(e.timeOffsetSeconds)} min")
+            SubsurfaceShared.eventTypeNumber(e)?.let { w.attribute(NS, "type", "", it.toString()) }
+            SubsurfaceShared.eventValue(e)?.let { w.attribute(NS, "value", "", it.toString()) }
+            w.attribute(NS, "name", "", SubsurfaceShared.eventName(e.type))
+            val value = e.value
+            if (e.type == DiveEventType.GAS_SWITCH && value != null) {
+                val o2 = GasSwitch.o2Percent(value)
+                val he = GasSwitch.hePercent(value)
+                SubsurfaceShared.cylinderOf(tanks, o2, he)?.let { w.attribute(NS, "cylinder", "", it.toString()) }
                 w.attribute(NS, "o2", "", "$o2.0%")
                 if (he > 0) w.attribute(NS, "he", "", "$he.0%")
             }
             w.endTag(NS, "event", "")
         }
+
+        var last = Sample(timeOffsetSeconds = 0)
+        for (s in computer.samples) {
+            w.startTag(NS, "sample", "")
+            w.attribute(NS, "time", "", "${SubsurfaceShared.clock(s.timeOffsetSeconds)} min")
+            s.depthMm?.let { w.attribute(NS, "depth", "", "${milli(it)} m") }
+            s.temperatureMk?.takeIf { it != last.temperatureMk }?.let { w.attribute(NS, "temp", "", "${milli(it - ZERO_C_MK)} C") }
+            for ((tank, mbar) in s.tankPressuresMbar.entries.sortedBy { it.key }) {
+                w.attribute(NS, "pressure$tank", "", "${milli(mbar)} bar")
+            }
+            s.ndlSeconds?.takeIf { it != last.ndlSeconds }?.let { w.attribute(NS, "ndl", "", "${SubsurfaceShared.clock(it)} min") }
+            s.stopTimeSeconds?.takeIf { it != last.stopTimeSeconds }?.let { w.attribute(NS, "stoptime", "", "${SubsurfaceShared.clock(it)} min") }
+            s.stopDepthMm?.takeIf { it != last.stopDepthMm }?.let { w.attribute(NS, "stopdepth", "", "${milli(it)} m") }
+            s.cnsPermille?.takeIf { it != last.cnsPermille }?.let { w.attribute(NS, "cns", "", "${it / 10}%") }
+            s.ppO2Mbar?.takeIf { it != last.ppO2Mbar }?.let { w.attribute(NS, "dc_supplied_ppo2", "", "${milli(it)} bar") }
+            w.endTag(NS, "sample", "")
+            last = SubsurfaceShared.carried(last, s)
+        }
         w.endTag(NS, "divecomputer", "")
+    }
+
+    /** The first computer, with the dive's summary filling what it lacks. */
+    private fun withDiveSummary(c: ComputerEntry, dive: DiveEntry) = c.copy(
+        maxDepthMm = c.maxDepthMm ?: dive.maxDepthMm,
+        meanDepthMm = c.meanDepthMm ?: dive.meanDepthMm,
+        waterTempMk = c.waterTempMk ?: dive.waterTempMk,
+        airTempMk = c.airTempMk ?: dive.airTempMk,
+    )
+
+    private fun extraData(w: XmlWriter, key: String, value: String) {
+        w.startTag(NS, "extradata", "")
+        w.attribute(NS, "key", "", key)
+        w.attribute(NS, "value", "", value)
+        w.endTag(NS, "extradata", "")
     }
 
     private fun textElement(w: XmlWriter, name: String, value: String) {
@@ -161,31 +232,43 @@ class SubsurfaceXml : DiveFormat {
         val serialsByDeviceId = mutableMapOf<String, String>()
         val dives = mutableListOf<DiveEntry>()
 
+        var site: SiteBuilder? = null
         var dive: DiveBuilder? = null
         var computer: ComputerBuilder? = null
         var capture: StringBuilder? = null
-        var captureName: String? = null
 
         try {
             while (reader.hasNext()) {
                 when (reader.next()) {
                     EventType.START_ELEMENT -> when (reader.localName) {
-                        "site" -> {
-                            val uuid = attr(reader, "uuid")
-                            val name = attr(reader, "name")
-                            if (uuid != null && name != null) sitesByUuid[uuid] = parseSite(name, attr(reader, "gps"))
+                        "site" -> site = SiteBuilder(
+                            uuid = attr(reader, "uuid")?.trim()?.lowercase(),
+                            name = attr(reader, "name").orEmpty(),
+                            gps = attr(reader, "gps"),
+                        )
+                        "geo" -> site?.let { s ->
+                            val cat = attr(reader, "cat")?.toIntOrNull()
+                            val value = attr(reader, "value")?.trim()
+                            if (cat != null && !value.isNullOrEmpty()) s.geo.getOrPut(cat) { value }
                         }
                         "divecomputerid" -> {
-                            val id = attr(reader, "deviceid")
+                            val id = attr(reader, "deviceid")?.trim()?.lowercase()
                             val serial = attr(reader, "serial")?.trim()
                             if (id != null && !serial.isNullOrEmpty()) serialsByDeviceId[id] = serial
                         }
                         "dive" -> dive = startDive(reader)
-                        "buddy", "notes" -> { capture = StringBuilder(); captureName = reader.localName }
-                        "cylinder" -> dive?.tanks?.add(parseTank(reader))
+                        "buddy", "notes" -> if (dive != null && site == null) capture = StringBuilder()
+                        "cylinder" -> dive?.let { it.tanks.add(parseTank(reader, it.tanks.size)) }
+                        "divetemperature" -> dive?.let {
+                            it.airTempMk = attr(reader, "air")?.let(FormatUnits::celsiusToMk)
+                            it.waterTempMk = attr(reader, "water")?.let(FormatUnits::celsiusToMk)
+                        }
                         "divecomputer" -> computer = ComputerBuilder(
                             model = attr(reader, "model"),
-                            serial = attr(reader, "deviceid")?.let { serialsByDeviceId[it] },
+                            deviceId = attr(reader, "deviceid")?.trim()?.lowercase(),
+                            date = attr(reader, "date"),
+                            time = attr(reader, "time"),
+                            durationSeconds = attr(reader, "duration")?.let(FormatUnits::clockToSeconds),
                         )
                         "depth" -> computer?.let {
                             it.maxDepthMm = attr(reader, "max")?.let(FormatUnits::metresToMm)
@@ -195,17 +278,37 @@ class SubsurfaceXml : DiveFormat {
                             it.waterTempMk = attr(reader, "water")?.let(FormatUnits::celsiusToMk)
                             it.airTempMk = attr(reader, "air")?.let(FormatUnits::celsiusToMk)
                         }
-                        "sample" -> computer?.samples?.add(parseSample(reader))
-                        "event" -> computer?.events?.add(parseEvent(reader))
+                        "extradata" -> computer?.let { c ->
+                            val key = attr(reader, "key")
+                            val value = attr(reader, "value")?.trim()
+                            if (key != null && !value.isNullOrEmpty()) c.extra[key] = value
+                        }
+                        "tanksensormapping" -> computer?.let { c ->
+                            val sensor = attr(reader, "sensorid")?.toIntOrNull()
+                            val tank = attr(reader, "cylinderindex")?.toIntOrNull()
+                            if (sensor != null && tank != null) c.sensorTanks[sensor] = tank
+                        }
+                        "sample" -> computer?.let { it.samples.add(parseSample(reader, it.samples.lastOrNull())) }
+                        "event" -> computer?.let { c -> dive?.let { d -> c.events.add(parseEvent(reader, d.tanks)) } }
                     }
 
-                    EventType.TEXT, EventType.CDSECT -> capture?.append(reader.text)
+                    EventType.TEXT, EventType.CDSECT, EventType.ENTITY_REF -> capture?.append(reader.text)
 
                     EventType.END_ELEMENT -> when (reader.localName) {
-                        "buddy" -> { dive?.buddies?.add(capture.toString().trim()); capture = null; captureName = null }
-                        "notes" -> { dive?.notes = capture.toString().trim(); capture = null; captureName = null }
+                        "site" -> {
+                            site?.let { s -> s.uuid?.let { sitesByUuid[it] = s.build() } }
+                            site = null
+                        }
+                        "buddy" -> capture?.let { c ->
+                            dive?.buddies?.addAll(SubsurfaceShared.splitList(c.toString()))
+                            capture = null
+                        }
+                        "notes" -> capture?.let { c ->
+                            dive?.notes = c.toString().trim().ifEmpty { null }
+                            capture = null
+                        }
                         "divecomputer" -> { computer?.let { dive?.computers?.add(it) }; computer = null }
-                        "dive" -> { dive?.let { dives.add(it.build(sitesByUuid)) }; dive = null }
+                        "dive" -> { dive?.let { dives.add(it.build(sitesByUuid, serialsByDeviceId)) }; dive = null }
                     }
 
                     else -> {}
@@ -217,125 +320,109 @@ class SubsurfaceXml : DiveFormat {
         return DiveLog(dives)
     }
 
-    private fun startDive(reader: nl.adaptivity.xmlutil.XmlReader): DiveBuilder {
+    private fun startDive(reader: XmlReader): DiveBuilder {
         val date = attr(reader, "date")
         val time = attr(reader, "time") ?: "00:00:00"
         return DiveBuilder(
             number = attr(reader, "number")?.toIntOrNull(),
-            startEpochSeconds = if (date != null) FormatDateTime.epochFromDateTime(date, time) else 0L,
+            wallEpochSeconds = if (date != null) FormatDateTime.epochFromDateTime(date, time) else 0L,
             durationSeconds = attr(reader, "duration")?.let(FormatUnits::clockToSeconds) ?: 0,
             rating = attr(reader, "rating")?.toIntOrNull(),
             visibility = attr(reader, "visibility")?.toIntOrNull(),
-            siteUuid = attr(reader, "divesiteid"),
-            tags = attr(reader, "tags")
-                ?.split(",")
-                ?.map { it.trim() }
-                ?.filter { it.isNotBlank() }
-                ?: emptyList(),
+            siteUuid = attr(reader, "divesiteid")?.trim()?.lowercase(),
+            tags = attr(reader, "tags")?.let(SubsurfaceShared::splitList) ?: emptyList(),
         )
     }
 
-    private fun parseTank(reader: nl.adaptivity.xmlutil.XmlReader): TankEntry = TankEntry(
-        index = attr(reader, "index")?.toIntOrNull() ?: 0,
-        volumeMl = attr(reader, "size")?.let(FormatUnits::litresToMl),
-        workingPressureMbar = attr(reader, "workpressure")?.let(FormatUnits::barToMbar),
-        startPressureMbar = attr(reader, "start")?.let(FormatUnits::barToMbar),
-        endPressureMbar = attr(reader, "end")?.let(FormatUnits::barToMbar),
-        o2Permille = attr(reader, "o2")?.let(FormatUnits::percentToPermille),
-        hePermille = attr(reader, "he")?.let(FormatUnits::percentToPermille),
-    )
+    /** A cylinder. One written without a mix is left without a gas rather than assumed to be air. */
+    private fun parseTank(reader: XmlReader, index: Int): TankEntry {
+        val o2 = attr(reader, "o2")?.let(FormatUnits::percentToPermille)
+        return TankEntry(
+            index = index,
+            volumeMl = attr(reader, "size")?.let(FormatUnits::litresToMl),
+            workingPressureMbar = attr(reader, "workpressure")?.let(FormatUnits::barToMbar),
+            startPressureMbar = attr(reader, "start")?.let(FormatUnits::barToMbar),
+            endPressureMbar = attr(reader, "end")?.let(FormatUnits::barToMbar),
+            o2Permille = o2,
+            hePermille = attr(reader, "he")?.let(FormatUnits::percentToPermille) ?: o2?.let { 0 },
+        )
+    }
 
-    private fun parseSample(reader: nl.adaptivity.xmlutil.XmlReader): Sample = Sample(
-        timeOffsetSeconds = attr(reader, "time")?.let(FormatUnits::clockToSeconds) ?: 0,
-        depthMm = attr(reader, "depth")?.let(FormatUnits::metresToMm),
-        temperatureMk = attr(reader, "temp")?.let(FormatUnits::celsiusToMk),
-        ndlSeconds = attr(reader, "ndl")?.let(FormatUnits::clockToSeconds),
-        stopDepthMm = attr(reader, "stopdepth")?.let(FormatUnits::metresToMm),
-        stopTimeSeconds = attr(reader, "stoptime")?.let(FormatUnits::clockToSeconds),
-    )
+    /** A sample; values it leaves out carry over from [previous], except tank pressures. */
+    private fun parseSample(reader: XmlReader, previous: Sample?): Sample {
+        val pressures = mutableMapOf<Int, Int>()
+        for (i in 0 until reader.attributeCount) {
+            val name = reader.getAttributeLocalName(i)
+            val tank = when {
+                name == "pressure" -> 0
+                name.startsWith("pressure") -> name.removePrefix("pressure").toIntOrNull()
+                else -> null
+            } ?: continue
+            FormatUnits.barToMbar(reader.getAttributeValue(i))?.takeIf { it > 0 }?.let { pressures[tank] = it }
+        }
+        return Sample(
+            timeOffsetSeconds = attr(reader, "time")?.let(FormatUnits::clockToSeconds) ?: 0,
+            depthMm = attr(reader, "depth")?.let(FormatUnits::metresToMm) ?: previous?.depthMm,
+            temperatureMk = attr(reader, "temp")?.let(FormatUnits::celsiusToMk) ?: previous?.temperatureMk,
+            // Earlier exports of this app wrote the computer's ppO2 as po2.
+            ppO2Mbar = (attr(reader, "dc_supplied_ppo2") ?: attr(reader, "po2"))?.let(FormatUnits::barToMbar) ?: previous?.ppO2Mbar,
+            ndlSeconds = attr(reader, "ndl")?.let(FormatUnits::clockToSeconds) ?: previous?.ndlSeconds,
+            stopDepthMm = attr(reader, "stopdepth")?.let(FormatUnits::metresToMm) ?: previous?.stopDepthMm,
+            stopTimeSeconds = attr(reader, "stoptime")?.let(FormatUnits::clockToSeconds) ?: previous?.stopTimeSeconds,
+            cnsPermille = attr(reader, "cns")?.let(FormatUnits::percentToPermille) ?: previous?.cnsPermille,
+            tankPressuresMbar = pressures,
+        )
+    }
 
-    private fun parseEvent(reader: nl.adaptivity.xmlutil.XmlReader): Event {
-        val type = eventType(attr(reader, "name"))
+    private fun parseEvent(reader: XmlReader, tanks: List<TankEntry>): Event {
+        val type = SubsurfaceShared.eventType(attr(reader, "name"))
         val time = attr(reader, "time")?.let(FormatUnits::clockToSeconds) ?: 0
         val value = if (type == DiveEventType.GAS_SWITCH) {
-            val o2 = attr(reader, "o2")?.let(FormatUnits::leadingNumber)?.toInt() ?: 0
-            val he = attr(reader, "he")?.let(FormatUnits::leadingNumber)?.toInt() ?: 0
-            GasSwitch.value(o2, he)
+            SubsurfaceShared.gasSwitchValue(attr(reader, "o2"), attr(reader, "he"), attr(reader, "cylinder"), attr(reader, "value"), tanks)
         } else {
-            null
+            attr(reader, "value")?.trim()?.toLongOrNull()
         }
         return Event(timeOffsetSeconds = time, type = type, value = value)
     }
 
-    private fun parseSite(name: String, gps: String?): SiteRef {
-        val coords = gps?.trim()?.split(Regex("\\s+"))
-        val lat = coords?.getOrNull(0)?.toDoubleOrNull()
-        val lon = coords?.getOrNull(1)?.toDoubleOrNull()
-        // Split "Country / Place / Site" best-effort.
-        val parts = name.split(" / ")
-        return when (parts.size) {
-            3 -> SiteRef(parts[2], parts[0], parts[1], lat, lon)
-            2 -> SiteRef(parts[1], parts[0], null, lat, lon)
-            else -> SiteRef(name, null, null, lat, lon)
-        }
-    }
-
-    private fun attr(reader: nl.adaptivity.xmlutil.XmlReader, name: String): String? =
+    private fun attr(reader: XmlReader, name: String): String? =
         reader.getAttributeValue(null, name)
 
-    private fun fullSiteName(site: SiteRef): String =
-        listOfNotNull(site.country, site.place, site.name).joinToString(" / ")
-
-    private fun siteUuid(name: String): String {
-        var h = 2166136261u
-        for (c in name) { h = h xor c.code.toUInt(); h *= 16777619u }
-        return h.toString(16).padStart(8, '0').take(8)
-    }
-
-    private fun eventName(type: DiveEventType): String = when (type) {
-        DiveEventType.GAS_SWITCH -> "gaschange"
-        DiveEventType.BOOKMARK -> "bookmark"
-        DiveEventType.WARNING -> "warning"
-        DiveEventType.DECO -> "deco"
-        DiveEventType.SURFACE -> "surface"
-        DiveEventType.ASCENT_RATE -> "ascent"
-        DiveEventType.OTHER -> "event"
-    }
-
-    private fun eventType(name: String?): DiveEventType = when (name) {
-        "gaschange" -> DiveEventType.GAS_SWITCH
-        "bookmark" -> DiveEventType.BOOKMARK
-        "warning" -> DiveEventType.WARNING
-        "deco" -> DiveEventType.DECO
-        "surface" -> DiveEventType.SURFACE
-        "ascent" -> DiveEventType.ASCENT_RATE
-        else -> DiveEventType.OTHER
+    private class SiteBuilder(val uuid: String?, val name: String, val gps: String?, val geo: MutableMap<Int, String> = mutableMapOf()) {
+        fun build(): SiteRef {
+            val coords = gps?.trim()?.split(Regex("\\s+"))
+            return SubsurfaceShared.site(name, coords?.getOrNull(0)?.toDoubleOrNull(), coords?.getOrNull(1)?.toDoubleOrNull(), geo)
+        }
     }
 
     private class DiveBuilder(
         val number: Int?,
-        val startEpochSeconds: Long,
+        val wallEpochSeconds: Long,
         val durationSeconds: Int,
         val rating: Int?,
         val visibility: Int?,
         val siteUuid: String?,
         val tags: List<String> = emptyList(),
         var notes: String? = null,
+        var airTempMk: Int? = null,
+        var waterTempMk: Int? = null,
         val buddies: MutableList<String> = mutableListOf(),
         val tanks: MutableList<TankEntry> = mutableListOf(),
         val computers: MutableList<ComputerBuilder> = mutableListOf(),
     ) {
-        fun build(sites: Map<String, SiteRef>): DiveEntry {
-            val primary = computers.firstOrNull()
+        fun build(sites: Map<String, SiteRef>, serials: Map<String, String>): DiveEntry {
+            val offset = computers.firstOrNull()?.extra?.get(SubsurfaceShared.KEY_UTC_OFFSET)?.trim()?.removePrefix("+")?.toIntOrNull() ?: 0
+            val built = computers.map { it.build(serials, offset) }
+            val primary = built.firstOrNull()
             return DiveEntry(
                 number = number,
-                startEpochSeconds = startEpochSeconds,
-                utcOffsetSeconds = 0,
+                startEpochSeconds = wallEpochSeconds - offset,
+                utcOffsetSeconds = offset,
                 durationSeconds = durationSeconds,
                 maxDepthMm = primary?.maxDepthMm,
                 meanDepthMm = primary?.meanDepthMm,
-                waterTempMk = primary?.waterTempMk,
-                airTempMk = primary?.airTempMk,
+                waterTempMk = waterTempMk ?: SubsurfaceShared.meanTemp(built.map { it.waterTempMk }),
+                airTempMk = airTempMk ?: SubsurfaceShared.meanTemp(built.map { it.airTempMk }),
                 notes = notes,
                 rating = rating,
                 visibility = visibility,
@@ -343,29 +430,47 @@ class SubsurfaceXml : DiveFormat {
                 buddies = buddies,
                 tags = tags,
                 tanks = tanks,
-                computers = computers.map { it.build() },
+                gasMixes = SubsurfaceShared.gasesOf(tanks),
+                computers = built.filterNot(SubsurfaceShared::isBare),
             )
         }
     }
 
     private class ComputerBuilder(
         val model: String?,
-        val serial: String? = null,
+        val deviceId: String?,
+        val date: String?,
+        val time: String?,
+        val durationSeconds: Int?,
         var maxDepthMm: Int? = null,
         var meanDepthMm: Int? = null,
         var waterTempMk: Int? = null,
         var airTempMk: Int? = null,
+        val extra: MutableMap<String, String> = mutableMapOf(),
+        val sensorTanks: MutableMap<Int, Int> = mutableMapOf(),
         val samples: MutableList<Sample> = mutableListOf(),
         val events: MutableList<Event> = mutableListOf(),
     ) {
-        fun build() = ComputerEntry(model, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, samples, events, serial)
+        fun build(serials: Map<String, String>, utcOffset: Int): ComputerEntry {
+            val serial = extra[SubsurfaceShared.KEY_SERIAL] ?: deviceId?.let { serials[it] }
+            val start = date?.let { FormatDateTime.epochFromDateTime(it, time ?: "00:00:00") - utcOffset }
+            return ComputerEntry(
+                model = model?.takeIf { it.isNotBlank() },
+                maxDepthMm = maxDepthMm,
+                meanDepthMm = meanDepthMm,
+                waterTempMk = waterTempMk,
+                airTempMk = airTempMk,
+                samples = SubsurfaceShared.mapSensors(samples, sensorTanks),
+                events = events,
+                serial = serial,
+                startEpochSeconds = start,
+                durationSeconds = durationSeconds,
+            )
+        }
     }
-
-    /** A stable 8-hex-digit id tying a dive computer to its settings entry. */
-    private fun deviceId(c: ComputerEntry): String =
-        "${c.model}:${c.serial}".hashCode().toUInt().toString(16).padStart(8, '0')
 
     private companion object {
         const val NS = ""
+        const val ZERO_C_MK = 273_150
     }
 }

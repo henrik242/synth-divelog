@@ -195,4 +195,44 @@ class UddfFormatTest {
         assertTrue(xml.contains("<address><country>Norway</country></address><location>Drøbak</location>"), xml)
         assertTrue(xml.contains("xmlns=\"http://www.streit.cc/uddf/3.2/\""), xml)
     }
+
+    @Test
+    fun readsWaypointsAsTheSpecWritesThem() {
+        val xml = """<uddf xmlns="http://www.streit.cc/uddf/3.2/" version="3.2.1">
+            <diver><buddy id="b1"><personal><firstname>Ola</firstname><lastname>Nordmann</lastname></personal></buddy></diver>
+            <profiledata><repetitiongroup><dive id="d1">
+            <informationbeforedive><datetime>2020-01-01T10:00:00</datetime><airtemperature>293.15</airtemperature><link ref="b1"/></informationbeforedive>
+            <tankdata id="t1"><tankvolume>0.012</tankvolume></tankdata><tankdata id="t2"><tankvolume>0.007</tankvolume></tankdata>
+            <samples><waypoint><alarm level="2.0">ascent</alarm><depth>10.0</depth><divetime>60.0</divetime>
+            <calculatedpo2>1.2e5</calculatedpo2><cns>12.5</cns><decostop kind="mandatory" decodepth="3.0" duration="120.0"/>
+            <nodecotime>0.0</nodecotime><tankpressure>20000000.0</tankpressure><tankpressure ref="t2">0.0</tankpressure>
+            <tankpressure ref="t2">18000000.0</tankpressure></waypoint></samples>
+            <informationafterdive><rating><ratingvalue>10</ratingvalue></rating></informationafterdive>
+            </dive></repetitiongroup></profiledata></uddf>"""
+        val d = UddfFormat().read(xml).dives.single()
+        assertEquals(listOf("Ola Nordmann"), d.buddies)
+        assertEquals(293_150, d.airTempMk)
+        assertEquals(5, d.rating)
+        val c = d.computers.single()
+        assertEquals(
+            Sample(60, depthMm = 10_000, ppO2Mbar = 1_200, ndlSeconds = 0, stopDepthMm = 3_000, stopTimeSeconds = 120, cnsPermille = 125, tankPressuresMbar = mapOf(0 to 200_000, 1 to 180_000)),
+            c.samples.single(),
+        )
+        assertEquals(listOf(Event(60, EventType.ASCENT_RATE, 2)), c.events)
+    }
+
+    @Test
+    fun writesStopsAndTankPressuresAsTheSpecDoes() {
+        val dive = DiveEntry(
+            startEpochSeconds = 0,
+            durationSeconds = 60,
+            tanks = listOf(TankEntry(0, o2Permille = 210, hePermille = 0), TankEntry(1, o2Permille = 500, hePermille = 0)),
+            computers = listOf(ComputerEntry(samples = listOf(Sample(0, depthMm = 9_000, stopDepthMm = 3_000, stopTimeSeconds = 60, tankPressuresMbar = mapOf(1 to 150_000))))),
+        )
+        val xml = format.write(DiveLog(listOf(dive)))
+        assertTrue(xml.contains("<decostop kind=\"mandatory\" decodepth=\"3.0\" duration=\"60\""), xml)
+        assertTrue(xml.contains("<tankdata id=\"dive1_tank2\">"), xml)
+        assertTrue(xml.contains("<tankpressure ref=\"dive1_tank2\">15000000</tankpressure>"), xml)
+        assertTrue(xml.contains("<dive id=\"dive1\">"), xml)
+    }
 }

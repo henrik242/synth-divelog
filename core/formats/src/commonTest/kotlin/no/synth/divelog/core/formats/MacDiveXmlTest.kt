@@ -3,6 +3,7 @@ package no.synth.divelog.core.formats
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.GasSwitch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -150,5 +151,16 @@ class MacDiveXmlTest {
         val noSerial = format.write(sampleLog())
             .replace("</dive>", "<gear><item><name>Regulator</name><serial>GEAR999</serial></item></gear></dive>")
         assertEquals(null, format.read(noSerial).dives.single().computers.first().serial)
+    }
+
+    @Test
+    fun aGasSwitchNamedOnlyByItsMixIsStillOne() {
+        val xml = format.write(sampleLog()).replace(
+            "</dive>",
+            "<events><event><type>10</type><time>60.00</time><name>32</name></event></events></dive>",
+        )
+        val switch = format.read(xml).dives.single().computers.single().events.last()
+        assertEquals(EventType.GAS_SWITCH, switch.type)
+        assertEquals(GasSwitch.value(32, 0), switch.value)
     }
 }

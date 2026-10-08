@@ -71,17 +71,20 @@ internal object FormatUnits {
     fun mlToLitres(ml: Int): String = "${oneDecimal(ml / 1000.0)} l"
     fun litresToMl(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
 
+    /** A plain SI number, which may use an exponent ("1.2e5"). */
+    private fun si(text: String): Double? = text.trim().toDoubleOrNull() ?: leadingNumber(text)
+
     // SI plain decimals (UDDF): metres, Kelvin, gas fraction
     fun siMetres(mm: Int): String = (mm / 1000.0).toString()
-    fun siMetresToMm(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+    fun siMetresToMm(text: String): Int? = si(text)?.let { (it * 1000).roundToInt() }
     fun siKelvin(mk: Int): String = (mk / 1000.0).toString()
-    fun siKelvinToMk(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+    fun siKelvinToMk(text: String): Int? = si(text)?.let { (it * 1000).roundToInt() }
     fun siFraction(permille: Int): String = (permille / 1000.0).toString()
     fun siCubicMetres(ml: Int): String = (ml / 1_000_000.0).toString()
-    fun siCubicMetresToMl(text: String): Int? = leadingNumber(text)?.let { (it * 1_000_000).roundToInt() }
+    fun siCubicMetresToMl(text: String): Int? = si(text)?.let { (it * 1_000_000).roundToInt() }
     fun siPascal(mbar: Int): String = (mbar * 100L).toString()
-    fun siPascalToMbar(text: String): Int? = leadingNumber(text)?.let { (it / 100).roundToInt() }
-    fun siFractionToPermille(text: String): Int? = leadingNumber(text)?.let { (it * 1000).roundToInt() }
+    fun siPascalToMbar(text: String): Int? = si(text)?.let { (it / 100).roundToInt() }
+    fun siFractionToPermille(text: String): Int? = si(text)?.let { (it * 1000).roundToInt() }
 
     // MacDive plain decimals: metres, Celsius, bar, integer percent, litres, minutes
     fun macDepth(mm: Int): String = twoDecimals(mm / 1000.0)

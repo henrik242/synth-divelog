@@ -16,7 +16,7 @@ import kotlin.math.roundToInt
  * Reads and writes UDDF (Universal Dive Data Format). UDDF carries one profile
  * per dive, so on export a dive's primary computer is used, falling back to a
  * secondary computer that has a profile. Units are SI: metres, seconds, Kelvin,
- * gas fractions 0..1.
+ * Pascal, gas fractions 0..1; CNS is a percentage and ratings run 1..10.
  */
 class UddfFormat : DiveFormat {
     override val id: String = "uddf"
@@ -89,18 +89,21 @@ class UddfFormat : DiveFormat {
                 w.startTag(NS, "buddy", "")
                 w.attribute(null, "id", "", id)
                 w.startTag(NS, "personal", "")
-                text(w, "firstname", name)
+                // First word as the first name, the rest as the last name.
+                val first = name.substringBefore(' ')
+                text(w, "firstname", first)
+                name.substringAfter(' ', "").takeIf { it.isNotEmpty() }?.let { text(w, "lastname", it) }
                 w.endTag(NS, "personal", "")
                 w.endTag(NS, "buddy", "")
             }
             w.endTag(NS, "diver", "")
         }
 
-        val siteIds = log.dives.mapNotNull { it.site }.distinctBy { it.name }.withIndex()
-            .associate { (i, site) -> site.name to ("site${i + 1}" to site) }
+        val siteIds = log.dives.mapNotNull { it.site }.distinct().withIndex()
+            .associate { (i, site) -> site to "site${i + 1}" }
         if (siteIds.isNotEmpty()) {
             w.startTag(NS, "divesite", "")
-            siteIds.values.forEach { (id, site) ->
+            siteIds.forEach { (site, id) ->
                 w.startTag(NS, "site", "")
                 w.attribute(null, "id", "", id)
                 text(w, "name", site.name)
@@ -126,9 +129,9 @@ class UddfFormat : DiveFormat {
 
         w.startTag(NS, "profiledata", "")
         w.startTag(NS, "repetitiongroup", "")
-        for (dive in log.dives) {
+        log.dives.forEachIndexed { i, dive ->
             val computerId = exportComputer(dive)?.let { computerIds[it.model to it.serial] }
-            writeDive(w, dive, siteIds[dive.site?.name]?.first, buddyIds, computerId, ::mixId)
+            writeDive(w, dive, "dive${i + 1}", dive.site?.let { siteIds[it] }, buddyIds, computerId, ::mixId)
         }
         w.endTag(NS, "repetitiongroup", "")
         w.endTag(NS, "profiledata", "")
@@ -141,6 +144,7 @@ class UddfFormat : DiveFormat {
     private fun writeDive(
         w: XmlWriter,
         dive: DiveEntry,
+        diveId: String,
         siteId: String?,
         buddyIds: Map<String, String>,
         computerId: String?,
@@ -148,16 +152,21 @@ class UddfFormat : DiveFormat {
     ) {
         val computer = exportComputer(dive)
         w.startTag(NS, "dive", "")
+        w.attribute(null, "id", "", diveId)
 
         w.startTag(NS, "informationbeforedive", "")
         text(w, "datetime", FormatDateTime.isoDateTime(dive.startEpochSeconds, dive.utcOffsetSeconds))
         dive.number?.let { text(w, "divenumber", it.toString()) }
+        dive.airTempMk?.let { text(w, "airtemperature", FormatUnits.siKelvin(it)) }
         siteId?.let { linkRef(w, it) }
         dive.buddies.forEach { b -> buddyIds[b]?.let { linkRef(w, it) } }
         w.endTag(NS, "informationbeforedive", "")
 
-        for (tank in dive.tanks) {
+        // Waypoint tank pressures refer to their tank by its tankdata id.
+        val tankIds = dive.tanks.withIndex().associate { (i, t) -> t.index to "${diveId}_tank${i + 1}" }
+        dive.tanks.forEachIndexed { i, tank ->
             w.startTag(NS, "tankdata", "")
+            w.attribute(null, "id", "", "${diveId}_tank${i + 1}")
             tank.o2Permille?.let { linkRef(w, mixId(it, tank.hePermille ?: 0)) }
             tank.volumeMl?.let { text(w, "tankvolume", FormatUnits.siCubicMetres(it)) }
             tank.startPressureMbar?.let { text(w, "tankpressurebegin", FormatUnits.siPascal(it)) }
@@ -165,29 +174,51 @@ class UddfFormat : DiveFormat {
             w.endTag(NS, "tankdata", "")
         }
 
-        val switches = computer?.events.orEmpty().filter { it.type == DiveEventType.GAS_SWITCH }
-            .associateBy { it.timeOffsetSeconds }
         if (computer != null && computer.samples.isNotEmpty()) {
+            // Each event goes on the first waypoint at or after its time.
+            val eventsAt = HashMap<Int, MutableList<Event>>()
+            for (e in computer.events) {
+                val at = computer.samples.indexOfFirst { it.timeOffsetSeconds >= e.timeOffsetSeconds }
+                if (at >= 0) eventsAt.getOrPut(at) { mutableListOf() }.add(e)
+            }
             w.startTag(NS, "samples", "")
-            for (s in computer.samples) {
+            computer.samples.forEachIndexed { i, s ->
+                val events = eventsAt[i].orEmpty()
                 w.startTag(NS, "waypoint", "")
+                for (e in events) {
+                    val alarm = alarmName(e.type) ?: continue
+                    w.startTag(NS, "alarm", "")
+                    e.value?.let { w.attribute(null, "level", "", it.toString()) }
+                    w.text(alarm)
+                    w.endTag(NS, "alarm", "")
+                }
                 text(w, "depth", FormatUnits.siMetres(s.depthMm ?: 0))
                 text(w, "divetime", s.timeOffsetSeconds.toString())
-                s.temperatureMk?.let { text(w, "temperature", FormatUnits.siKelvin(it)) }
-                switches[s.timeOffsetSeconds]?.let { e ->
+                s.ppO2Mbar?.let { text(w, "calculatedpo2", FormatUnits.siPascal(it)) }
+                s.cnsPermille?.let { text(w, "cns", (it / 10.0).toString()) }
+                val stopDepthMm = s.stopDepthMm
+                val stopTimeSeconds = s.stopTimeSeconds
+                if (stopDepthMm != null && stopTimeSeconds != null) {
+                    w.startTag(NS, "decostop", "")
+                    w.attribute(null, "kind", "", "mandatory")
+                    w.attribute(null, "decodepth", "", FormatUnits.siMetres(stopDepthMm))
+                    w.attribute(null, "duration", "", stopTimeSeconds.toString())
+                    w.endTag(NS, "decostop", "")
+                }
+                s.ndlSeconds?.let { text(w, "nodecotime", it.toString()) }
+                for (e in events.filter { it.type == DiveEventType.GAS_SWITCH }) {
                     val (o2, he) = gasOf(e)
                     w.startTag(NS, "switchmix", "")
                     w.attribute(null, "ref", "", mixId(o2, he))
                     w.endTag(NS, "switchmix", "")
                 }
-                val stopDepthMm = s.stopDepthMm
-                val stopTimeSeconds = s.stopTimeSeconds
-                if (stopDepthMm != null && stopTimeSeconds != null) {
-                    w.startTag(NS, "decostop", "")
-                    text(w, "decodepth", FormatUnits.siMetres(stopDepthMm))
-                    text(w, "duration", stopTimeSeconds.toString())
-                    w.endTag(NS, "decostop", "")
+                for ((tank, mbar) in s.tankPressuresMbar.entries.sortedBy { it.key }) {
+                    w.startTag(NS, "tankpressure", "")
+                    tankIds[tank]?.let { w.attribute(null, "ref", "", it) }
+                    w.text(FormatUnits.siPascal(mbar))
+                    w.endTag(NS, "tankpressure", "")
                 }
+                s.temperatureMk?.let { text(w, "temperature", FormatUnits.siKelvin(it)) }
                 w.endTag(NS, "waypoint", "")
             }
             w.endTag(NS, "samples", "")
@@ -198,9 +229,10 @@ class UddfFormat : DiveFormat {
         (computer?.meanDepthMm ?: dive.meanDepthMm)?.let { text(w, "averagedepth", FormatUnits.siMetres(it)) }
         text(w, "diveduration", dive.durationSeconds.toString())
         (computer?.waterTempMk ?: dive.waterTempMk)?.let { text(w, "lowesttemperature", FormatUnits.siKelvin(it)) }
-        dive.rating?.let {
+        // UDDF rates 1..10; the logbook rates 0..5 stars.
+        dive.rating?.takeIf { it > 0 }?.let {
             w.startTag(NS, "rating", "")
-            text(w, "ratingvalue", it.toString())
+            text(w, "ratingvalue", (it * 2).toString())
             w.endTag(NS, "rating", "")
         }
         dive.visibility?.let { text(w, "visibility", FormatUnits.siMetres(it)) }
@@ -222,6 +254,15 @@ class UddfFormat : DiveFormat {
     private fun gasOf(event: Event): Pair<Int, Int> {
         val v = event.value ?: 0L
         return GasSwitch.o2Percent(v) * 10 to GasSwitch.hePercent(v) * 10 // permille
+    }
+
+    /** The UDDF alarm for an event; bookmarks and unclassified events have none. */
+    private fun alarmName(type: DiveEventType): String? = when (type) {
+        DiveEventType.ASCENT_RATE -> "ascent"
+        DiveEventType.DECO -> "deco"
+        DiveEventType.SURFACE -> "surface"
+        DiveEventType.WARNING -> "error"
+        DiveEventType.GAS_SWITCH, DiveEventType.BOOKMARK, DiveEventType.OTHER -> null
     }
 
     private fun linkRef(w: XmlWriter, ref: String) {
@@ -256,6 +297,8 @@ class UddfFormat : DiveFormat {
         var dive: DiveB? = null
         var waypoint: WaypointB? = null
         var tank: TankB? = null
+        var alarmLevel: String? = null
+        var tankPressureRef: String? = null
         // The owner's dive computers by id, and the one being read: only its direct children
         // count, as its manufacturer and purchase details carry names of their own.
         val computers = mutableMapOf<String, ComputerB>()
@@ -272,28 +315,35 @@ class UddfFormat : DiveFormat {
                         depth++
                         buf = StringBuilder()
                         when (reader.localName) {
-                            "mix" -> mix = MixBuilder(reader.getAttributeValue(null, "id"))
-                            "buddy" -> buddy = BuddyBuilder(reader.getAttributeValue(null, "id"))
+                            "mix" -> mix = MixBuilder(attr(reader, "id"))
+                            "buddy" -> buddy = BuddyBuilder(attr(reader, "id"))
                             "site" -> {
-                                site = SiteBuilder(reader.getAttributeValue(null, "id"), reader.getAttributeValue(null, "name"))
+                                site = SiteBuilder(attr(reader, "id"), attr(reader, "name"))
                                 siteDepth = depth
                             }
                             "dive" -> dive = DiveB()
                             "waypoint" -> waypoint = WaypointB()
-                            "tankdata" -> tank = TankB()
+                            "tankdata" -> tank = TankB(attr(reader, "id"))
                             "divecomputer" -> {
-                                computer = ComputerB(reader.getAttributeValue(null, "id"))
+                                computer = ComputerB(attr(reader, "id"))
                                 computerDepth = depth
                             }
-                            "link" -> reader.getAttributeValue(null, "ref")?.let { ref ->
+                            "link" -> attr(reader, "ref")?.let { ref ->
                                 val open = tank
                                 if (open != null) open.mixRef = ref else dive?.links?.add(ref)
                             }
-                            "switchmix" -> waypoint?.switchMix = reader.getAttributeValue(null, "ref")
+                            "switchmix" -> attr(reader, "ref")?.let { waypoint?.switchMixes?.add(it) }
+                            "decostop" -> waypoint?.let { wp ->
+                                attr(reader, "decodepth")?.let { wp.stopDepthMm = FormatUnits.siMetresToMm(it) }
+                                attr(reader, "duration")?.let { wp.stopTime = seconds(it) }
+                            }
+                            "alarm" -> alarmLevel = attr(reader, "level")
+                            // The spec's attribute is "ref"; its examples write "tankref".
+                            "tankpressure" -> tankPressureRef = attr(reader, "ref") ?: attr(reader, "tankref")
                         }
                     }
 
-                    EventType.TEXT, EventType.CDSECT -> buf.append(reader.text)
+                    EventType.TEXT, EventType.CDSECT, EventType.ENTITY_REF -> buf.append(reader.text)
 
                     EventType.END_ELEMENT -> {
                         val t = buf.toString().trim()
@@ -301,7 +351,9 @@ class UddfFormat : DiveFormat {
                             "o2" -> mix?.o2 = FormatUnits.siFractionToPermille(t)
                             "he" -> mix?.he = FormatUnits.siFractionToPermille(t)
                             "mix" -> mix?.let { b -> b.id?.let { mixes[it] = GasMix(o2Permille = b.o2 ?: 0, hePermille = b.he ?: 0) } }
-                            "firstname" -> buddy?.name = t
+                            "firstname" -> buddy?.first = t.ifEmpty { null }
+                            "middlename" -> buddy?.middle = t.ifEmpty { null }
+                            "lastname" -> buddy?.last = t.ifEmpty { null }
                             "name" -> when (depth) {
                                 computerDepth + 1 -> computer?.name = t.ifEmpty { null }
                                 siteDepth + 1 -> site?.name = t.ifEmpty { null }
@@ -314,7 +366,7 @@ class UddfFormat : DiveFormat {
                                 computer = null
                                 computerDepth = -1
                             }
-                            "buddy" -> buddy?.let { b -> b.id?.let { buddies[it] = b.name ?: "" } }
+                            "buddy" -> buddy?.let { b -> b.id?.let { buddies[it] = b.name() } }
                             "latitude" -> site?.lat = t.toDoubleOrNull()
                             "longitude" -> site?.lon = t.toDoubleOrNull()
                             "site" -> {
@@ -324,24 +376,35 @@ class UddfFormat : DiveFormat {
                             }
                             "datetime" -> dive?.let { d -> FormatDateTime.fromIso(t).let { (epoch, offset) -> d.epoch = epoch; d.utcOffset = offset } }
                             "divenumber" -> dive?.number = t.toIntOrNull()
+                            "airtemperature" -> dive?.airTempMk = FormatUnits.siKelvinToMk(t)
                             "depth" -> waypoint?.depthMm = FormatUnits.siMetresToMm(t)
                             "divetime" -> waypoint?.time = seconds(t)
                             "temperature" -> waypoint?.tempMk = FormatUnits.siKelvinToMk(t)
+                            "calculatedpo2" -> waypoint?.calculatedPo2Mbar = FormatUnits.siPascalToMbar(t)
+                            "measuredpo2" -> waypoint?.let { if (it.measuredPo2Mbar == null) it.measuredPo2Mbar = FormatUnits.siPascalToMbar(t) }
+                            "cns" -> waypoint?.cnsPermille = FormatUnits.leadingNumber(t)?.let { (it * 10).roundToInt() }
+                            "nodecotime" -> waypoint?.ndl = seconds(t)
+                            "alarm" -> waypoint?.alarms?.add(t to alarmLevel)
+                            "tankpressure" -> waypoint?.let { wp ->
+                                FormatUnits.siPascalToMbar(t)?.takeIf { it > 0 }?.let { wp.pressures.add(tankPressureRef to it) }
+                            }
+                            // Earlier exports of this app wrote the stop as child elements.
                             "decodepth" -> waypoint?.stopDepthMm = FormatUnits.siMetresToMm(t)
                             "duration" -> waypoint?.stopTime = seconds(t)
-                            "waypoint" -> waypoint?.let { dive?.waypoints?.add(it) }
-                            "tankvolume" -> tank?.volumeMl = FormatUnits.siCubicMetresToMl(t)
-                            "tankpressurebegin" -> tank?.startMbar = FormatUnits.siPascalToMbar(t)
-                            "tankpressureend" -> tank?.endMbar = FormatUnits.siPascalToMbar(t)
+                            "waypoint" -> { waypoint?.let { dive?.waypoints?.add(it) }; waypoint = null }
+                            "tankvolume" -> tank?.volumeMl = FormatUnits.siCubicMetresToMl(t)?.takeIf { it > 0 }
+                            "tankpressurebegin" -> tank?.startMbar = FormatUnits.siPascalToMbar(t)?.takeIf { it > 0 }
+                            "tankpressureend" -> tank?.endMbar = FormatUnits.siPascalToMbar(t)?.takeIf { it > 0 }
                             "tankdata" -> { tank?.let { dive?.tanks?.add(it) }; tank = null }
                             "greatestdepth" -> dive?.maxDepthMm = FormatUnits.siMetresToMm(t)
                             "averagedepth" -> dive?.meanDepthMm = FormatUnits.siMetresToMm(t)
                             "diveduration" -> dive?.duration = seconds(t)
                             "lowesttemperature" -> dive?.waterTempMk = FormatUnits.siKelvinToMk(t)
-                            "ratingvalue" -> dive?.rating = t.toIntOrNull()
+                            // UDDF rates 1..10; the logbook rates 0..5 stars.
+                            "ratingvalue" -> dive?.rating = FormatUnits.leadingNumber(t)?.let { ((it + 1) / 2).toInt() }
                             "visibility" -> dive?.visibilityMm = FormatUnits.siMetresToMm(t)
                             "para" -> dive?.notes = t
-                            "dive" -> dive?.let { dives.add(it.build(mixes, sites, buddies, computers)) }
+                            "dive" -> { dive?.let { dives.add(it.build(mixes, sites, buddies, computers)) }; dive = null }
                         }
                         depth--
                     }
@@ -354,6 +417,8 @@ class UddfFormat : DiveFormat {
         }
         return DiveLog(dives)
     }
+
+    private fun attr(reader: XmlReader, name: String): String? = reader.getAttributeValue(null, name)
 
     /**
      * A site from its `<name>` and `<geography>` (`<location>`, `<address><country>`). Files
@@ -369,7 +434,9 @@ class UddfFormat : DiveFormat {
     }
 
     private class MixBuilder(val id: String?, var o2: Int? = null, var he: Int? = null)
-    private class BuddyBuilder(val id: String?, var name: String? = null)
+    private class BuddyBuilder(val id: String?, var first: String? = null, var middle: String? = null, var last: String? = null) {
+        fun name() = listOfNotNull(first, middle, last).joinToString(" ")
+    }
     private class SiteBuilder(
         val id: String?,
         val legacyName: String?,
@@ -385,6 +452,7 @@ class UddfFormat : DiveFormat {
     private class ComputerB(val id: String?, var name: String? = null, var serial: String? = null)
 
     private class TankB(
+        val id: String?,
         var mixRef: String? = null,
         var volumeMl: Int? = null,
         var startMbar: Int? = null,
@@ -395,9 +463,15 @@ class UddfFormat : DiveFormat {
         var depthMm: Int? = null,
         var time: Int? = null,
         var tempMk: Int? = null,
-        var switchMix: String? = null,
+        var calculatedPo2Mbar: Int? = null,
+        var measuredPo2Mbar: Int? = null,
+        var cnsPermille: Int? = null,
+        var ndl: Int? = null,
         var stopDepthMm: Int? = null,
         var stopTime: Int? = null,
+        val switchMixes: MutableList<String> = mutableListOf(),
+        val alarms: MutableList<Pair<String, String?>> = mutableListOf(),
+        val pressures: MutableList<Pair<String?, Int>> = mutableListOf(),
     )
 
     private class DiveB(
@@ -408,6 +482,7 @@ class UddfFormat : DiveFormat {
         var maxDepthMm: Int? = null,
         var meanDepthMm: Int? = null,
         var waterTempMk: Int? = null,
+        var airTempMk: Int? = null,
         var rating: Int? = null,
         var visibilityMm: Int? = null,
         var notes: String? = null,
@@ -424,20 +499,29 @@ class UddfFormat : DiveFormat {
             val site = links.firstNotNullOfOrNull { sites[it] }
             val used = links.firstNotNullOfOrNull { computers[it] }
             val buddyNames = links.mapNotNull { buddies[it] }
+            // A pressure without a tank reference belongs to the first tank.
+            val tankIndex = tanks.withIndex().mapNotNull { (i, t) -> t.id?.let { it to i } }.toMap()
             val samples = waypoints.map { wp ->
                 Sample(
                     timeOffsetSeconds = wp.time ?: 0,
                     depthMm = wp.depthMm,
                     temperatureMk = wp.tempMk,
+                    ppO2Mbar = wp.calculatedPo2Mbar ?: wp.measuredPo2Mbar,
+                    ndlSeconds = wp.ndl,
                     stopDepthMm = wp.stopDepthMm,
                     stopTimeSeconds = wp.stopTime,
+                    cnsPermille = wp.cnsPermille,
+                    tankPressuresMbar = wp.pressures.associate { (ref, mbar) -> (ref?.let { tankIndex[it] } ?: 0) to mbar },
                 )
             }
-            val events = waypoints.mapNotNull { wp ->
-                val ref = wp.switchMix ?: return@mapNotNull null
-                val gas = mixes[ref] ?: return@mapNotNull null
-                val value = GasSwitch.value(gas.o2Permille / 10, gas.hePermille / 10)
-                Event(timeOffsetSeconds = wp.time ?: 0, type = DiveEventType.GAS_SWITCH, value = value)
+            val events = waypoints.flatMap { wp ->
+                val time = wp.time ?: 0
+                wp.alarms.map { (name, level) ->
+                    Event(timeOffsetSeconds = time, type = alarmType(name), value = level?.let(FormatUnits::leadingNumber)?.toLong())
+                } + wp.switchMixes.mapNotNull { ref ->
+                    val gas = mixes[ref] ?: return@mapNotNull null
+                    Event(timeOffsetSeconds = time, type = DiveEventType.GAS_SWITCH, value = GasSwitch.value(gas.o2Permille / 10, gas.hePermille / 10))
+                }
             }
             val computer = ComputerEntry(
                 model = used?.name,
@@ -445,6 +529,7 @@ class UddfFormat : DiveFormat {
                 maxDepthMm = maxDepthMm,
                 meanDepthMm = meanDepthMm,
                 waterTempMk = waterTempMk,
+                airTempMk = airTempMk,
                 samples = samples,
                 events = events,
             )
@@ -457,6 +542,7 @@ class UddfFormat : DiveFormat {
                 maxDepthMm = maxDepthMm,
                 meanDepthMm = meanDepthMm,
                 waterTempMk = waterTempMk,
+                airTempMk = airTempMk,
                 notes = notes,
                 rating = rating,
                 visibility = visibilityMm,
@@ -473,10 +559,18 @@ class UddfFormat : DiveFormat {
                         hePermille = gas?.hePermille,
                     )
                 },
-                // Mixes switched to but carried by no tank still count as gases of the dive.
-                gasMixes = waypoints.mapNotNull { wp -> wp.switchMix?.let { mixes[it] } }.distinct(),
-                computers = if (samples.isNotEmpty() || maxDepthMm != null || used != null) listOf(computer) else emptyList(),
+                // The tanks' gases, then mixes switched to but carried by no tank.
+                gasMixes = (tanks.mapNotNull { t -> t.mixRef?.let { mixes[it] } } + waypoints.flatMap { wp -> wp.switchMixes.mapNotNull { mixes[it] } }).distinct(),
+                // A dive without a profile or a linked computer was logged by hand.
+                computers = if (samples.isNotEmpty() || used != null) listOf(computer) else emptyList(),
             )
+        }
+
+        private fun alarmType(name: String): DiveEventType = when (name.trim()) {
+            "ascent" -> DiveEventType.ASCENT_RATE
+            "deco" -> DiveEventType.DECO
+            "surface" -> DiveEventType.SURFACE
+            else -> DiveEventType.WARNING
         }
     }
 
