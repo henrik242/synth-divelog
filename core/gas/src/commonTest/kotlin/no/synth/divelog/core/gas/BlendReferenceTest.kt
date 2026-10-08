@@ -79,6 +79,16 @@ class BlendReferenceTest {
         check(Cylinder(12.0, 50.0, BreathingGas.AIR), Fill(BreathingGas(320), 200.0), listOf(air, oxygen))
     }
 
+    /** Rich nitrox to leaner: the air topping brings O2 too, so the drain must allow for it. */
+    @Test
+    fun drainsRichNitroxEnoughForTheTopUp() {
+        val target = Fill(BreathingGas(320), 232.0)
+        check(Cylinder(12.0, 200.0, BreathingGas(400)), target, listOf(air, oxygen, helium))
+        check(Cylinder(12.0, 190.0, BreathingGas(380)), target, listOf(air, oxygen, helium))
+        check(Cylinder(12.0, 150.0, BreathingGas(500)), target, listOf(air, oxygen))
+        check(Cylinder(12.0, 200.0, BreathingGas(400)), target, listOf(air))
+    }
+
     @Test
     fun trimix() {
         val sources = listOf(air, oxygen, helium)

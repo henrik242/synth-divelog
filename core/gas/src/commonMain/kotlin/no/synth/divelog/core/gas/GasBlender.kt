@@ -190,6 +190,16 @@ private class Blender(private val start: Cylinder, private val target: Fill, sou
             }
         }
 
+        // Without a helium step the top-up gas brings O2 too, so the caps above can keep too
+        // much, or miss a needed drain altogether.
+        if (missingHe <= MIN_DELTA && goalHe <= MIN_DELTA && topUpGas != null) {
+            val solved = keepWithoutHelium(now, Parts.of(topUpGas.gas))
+            if (solved != null && solved < totalNow - MIN_DELTA) {
+                drain = true
+                keep = min(keep, solved)
+            }
+        }
+
         if (!drain) return
         // An empty cylinder still holds 1 atm, so the gauge cannot go below 0.
         val toBar = roundHalfUp(max(0.0, gaugeBar(keep, now)), 1)
@@ -220,6 +230,35 @@ private class Blender(private val start: Cylinder, private val target: Fill, sou
                 if (abs(coeff) < NEAR_ZERO) null else rhs / coeff
             }
         }
+    }
+
+    /**
+     * Ideal bar to keep when no helium is added: optional pure O2, then [topUpGas]. N2 comes
+     * only from what is kept and the top-up, O2 makes up the rest, and neither fill can be
+     * negative; keep the most that allows. With only the top-up gas the amount is the unique
+     * solution. Null when nothing works.
+     */
+    private fun keepWithoutHelium(now: Parts, topUpGas: Parts): Double? {
+        if (pureO2 == null) {
+            val den = now.o2 - topUpGas.o2
+            if (abs(den) < NEAR_ZERO) return null
+            val kept = (goalO2 - goal * topUpGas.o2) / den
+            return if (kept >= -NEAR_ZERO && kept <= total + NEAR_ZERO) max(0.0, kept) else null
+        }
+        if (topUpGas.n2 < NEAR_ZERO) return null
+        // top-up = (goalN2 - k * n2) / topN2; O2 fill = goalO2 - k * o2 - top-up * topO2
+        val ratio = topUpGas.o2 / topUpGas.n2
+        var upper = total
+        var lower = 0.0
+        if (now.n2 > NEAR_ZERO) upper = min(upper, goalN2 / now.n2)
+        val perKept = now.o2 - now.n2 * ratio
+        val fromEmpty = goalO2 - goalN2 * ratio
+        when {
+            perKept > NEAR_ZERO -> upper = min(upper, fromEmpty / perKept)
+            perKept < -NEAR_ZERO -> lower = max(lower, fromEmpty / perKept)
+            fromEmpty < -NEAR_ZERO -> return null
+        }
+        return if (lower <= upper + NEAR_ZERO) max(0.0, upper) else null
     }
 
     /**
