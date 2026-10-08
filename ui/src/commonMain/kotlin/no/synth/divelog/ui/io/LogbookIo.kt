@@ -268,10 +268,17 @@ class LogbookIo(private val container: AppContainer) {
             val bare = t.volumeMl == null && t.startPressureMbar == null && t.endPressureMbar == null
             // A tank that only names a gas adds nothing once the dive has that gas.
             if (bare && (gas == null || gas in gasesOnDive)) continue
-            val match = existing.firstOrNull { gasOf(it) == gas }
+            // Same gas first; a tank without a gas pairs with one of the same size, and a
+            // known gas fills in a gas-less tank of that size. No gas is ever assumed.
+            val match = gas?.let { g -> existing.firstOrNull { gasOf(it) == g } }
+                ?: existing.firstOrNull { e ->
+                    val sameSize = e.volumeMl == null || t.volumeMl == null || e.volumeMl == t.volumeMl
+                    if (gas == null) t.volumeMl != null && e.volumeMl == t.volumeMl else gasOf(e) == null && sameSize
+                }
             if (match != null) {
                 existing.remove(match)
                 val filled = match.copy(
+                    gasMixId = match.gasMixId ?: gas?.let { (o2, he) -> container.gases.getOrCreateGasMix(o2, he) },
                     volumeMl = match.volumeMl ?: t.volumeMl,
                     workingPressureMbar = match.workingPressureMbar ?: t.workingPressureMbar,
                     startPressureMbar = match.startPressureMbar ?: t.startPressureMbar,

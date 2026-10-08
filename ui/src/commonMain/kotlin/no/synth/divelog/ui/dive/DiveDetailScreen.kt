@@ -83,7 +83,7 @@ fun DiveDetailScreen(
     val buddies = remember(diveId, reloadKey) { container.buddies.buddiesForDive(diveId) }
     val tags = remember(diveId, reloadKey) { container.tags.tagsForDive(diveId) }
     val gases = remember(diveId, reloadKey) {
-        container.gases.tanksForDive(diveId).map { t -> tankLabel(t, t.gasMixId?.let { container.gases.gasMix(it) }, unitSystem) }
+        container.gases.tanksForDive(diveId).mapNotNull { t -> tankLabel(t, t.gasMixId?.let { container.gases.gasMix(it) }, unitSystem) }
     }
 
     // Previous/next step through [orderedDiveIds] (index-1 / index+1).
@@ -338,18 +338,21 @@ private fun SummaryRow(label: String, value: String, onClick: (() -> Unit)? = nu
     }
 }
 
-/** "EAN32 · 12 L · 210 → 60 bar", leaving out what the tank does not record. */
-private fun tankLabel(tank: Tank, gas: GasMix?, system: UnitSystem): String {
-    val start = tank.startPressureMbar
-    val end = tank.endPressureMbar
+/**
+ * "EAN32 · 12 L · 210 → 60 bar", with only what the tank records (0 counts as not
+ * recorded); null when it records nothing.
+ */
+private fun tankLabel(tank: Tank, gas: GasMix?, system: UnitSystem): String? {
+    val start = tank.startPressureMbar?.takeIf { it > 0 }
+    val end = tank.endPressureMbar?.takeIf { it > 0 }
     val pressures = when {
         start != null && end != null ->
             "${Units.pressure(start, system).value.roundToInt()} → ${Format.pressure(end, system)}"
         else -> (start ?: end)?.let { Format.pressure(it, system) }
     }
     return listOfNotNull(
-        gas?.let { Format.gasName(it.o2Permille, it.hePermille) } ?: "Unknown gas",
-        tank.volumeMl?.let { "${Format.oneDecimal(it / 1000.0).removeSuffix(".0")} L" },
+        gas?.takeIf { it.o2Permille > 0 }?.let { Format.gasName(it.o2Permille, it.hePermille) },
+        tank.volumeMl?.takeIf { it > 0 }?.let { "${Format.oneDecimal(it / 1000.0).removeSuffix(".0")} L" },
         pressures,
-    ).joinToString(" · ")
+    ).joinToString(" · ").ifEmpty { null }
 }

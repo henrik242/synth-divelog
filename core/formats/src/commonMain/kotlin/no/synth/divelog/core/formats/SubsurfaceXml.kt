@@ -241,8 +241,7 @@ class SubsurfaceXml : DiveFormat {
         workingPressureMbar = attr(reader, "workpressure")?.let(FormatUnits::barToMbar),
         startPressureMbar = attr(reader, "start")?.let(FormatUnits::barToMbar),
         endPressureMbar = attr(reader, "end")?.let(FormatUnits::barToMbar),
-        // Subsurface leaves O2 out for air.
-        o2Permille = attr(reader, "o2")?.let(FormatUnits::percentToPermille) ?: AIR_O2_PERMILLE,
+        o2Permille = attr(reader, "o2")?.let(FormatUnits::percentToPermille),
         hePermille = attr(reader, "he")?.let(FormatUnits::percentToPermille),
     )
 
@@ -368,6 +367,5 @@ class SubsurfaceXml : DiveFormat {
 
     private companion object {
         const val NS = ""
-        const val AIR_O2_PERMILLE = 210
     }
 }

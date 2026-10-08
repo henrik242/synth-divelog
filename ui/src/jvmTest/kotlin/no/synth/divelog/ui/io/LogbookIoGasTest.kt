@@ -63,4 +63,21 @@ class LogbookIoGasTest {
         assertEquals(60_000, tank.endPressureMbar)
         assertEquals(listOf("Alex"), container.buddies.buddiesForDive(diveId).map { it.name })
     }
+
+    @Test
+    fun aTankWithoutAGasStaysWithoutOneAndPairsBySize() {
+        fun log(vararg tanks: TankEntry) = SubsurfaceXml().write(
+            DiveLog(listOf(DiveEntry(startEpochSeconds = 1_700_000_000, durationSeconds = 2_400, tanks = tanks.toList()))),
+        )
+        // First a logbook that names no gas: the tank keeps no gas.
+        io.importMessage(log(TankEntry(index = 0, volumeMl = 24_000, startPressureMbar = 200_000)))
+        val diveId = container.dives.allDives().single().id
+        assertEquals(null, container.gases.tanksForDive(diveId).single().gasMixId)
+
+        // Then one that knows it: the same-size tank gets the gas instead of a second tank.
+        io.importMessage(log(TankEntry(index = 0, volumeMl = 24_000, o2Permille = 320, hePermille = 0)))
+        val tank = container.gases.tanksForDive(diveId).single()
+        assertEquals(320, tank.gasMixId?.let { container.gases.gasMix(it) }?.o2Permille)
+        assertEquals(200_000, tank.startPressureMbar)
+    }
 }

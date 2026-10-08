@@ -2,15 +2,12 @@ package no.synth.divelog.ui.dive
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -41,6 +38,8 @@ import no.synth.divelog.core.model.UNSAVED_ID
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.components.CountryField
+import no.synth.divelog.ui.components.NameChipsField
+import no.synth.divelog.ui.components.NamedItem
 import no.synth.divelog.ui.components.SiteField
 import no.synth.divelog.ui.components.SiteOption
 import kotlin.math.roundToLong
@@ -51,7 +50,6 @@ import kotlin.math.roundToLong
  * dive differs from how it was opened, an "Undo changes" action restores the original
  * number, notes, site and buddies. [onCancel] is used only when the dive is missing.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DiveEditScreen(
     container: AppContainer,
@@ -91,8 +89,6 @@ fun DiveEditScreen(
     var newPlace by remember(diveId) { mutableStateOf("") }
     var newSite by remember(diveId) { mutableStateOf("") }
     var addingSite by remember(diveId) { mutableStateOf(false) }
-    var newBuddy by remember(diveId) { mutableStateOf("") }
-    var newTag by remember(diveId) { mutableStateOf("") }
 
     // Tanks autosave like the rest; working pressure is not edited, so it is carried over.
     fun draftOf(tank: Tank): TankDraft {
@@ -266,61 +262,35 @@ fun DiveEditScreen(
                 }
             }
 
-            Column {
-                Text("Buddies", style = MaterialTheme.typography.titleSmall)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    availableBuddies.forEach { buddy ->
-                        FilterChip(
-                            selected = buddy.id in buddySelection,
-                            onClick = { toggleBuddy(buddy.id) },
-                            label = { Text(buddy.name) },
-                        )
-                    }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(newBuddy, { newBuddy = it }, label = { Text("Add buddy") }, modifier = Modifier.weight(1f))
-                    OutlinedButton(
-                        onClick = {
-                            if (newBuddy.isNotBlank()) {
-                                val id = container.buddies.add(newBuddy.trim())
-                                container.buddies.linkToDive(diveId, id)
-                                availableBuddies = availableBuddies + Buddy(id, newBuddy.trim())
-                                buddySelection = buddySelection + id
-                                newBuddy = ""
-                            }
-                        },
-                    ) { Text("Add") }
-                }
-            }
+            NameChipsField(
+                title = "Buddies",
+                fieldLabel = "Add buddy",
+                selected = availableBuddies.filter { it.id in buddySelection }.map { NamedItem(it.id, it.name) },
+                all = availableBuddies.map { NamedItem(it.id, it.name) },
+                onAdd = { toggleBuddy(it.id) },
+                onAddNew = { name ->
+                    val id = container.buddies.add(name)
+                    container.buddies.linkToDive(diveId, id)
+                    availableBuddies = availableBuddies + Buddy(id, name)
+                    buddySelection = buddySelection + id
+                },
+                onRemove = { toggleBuddy(it.id) },
+            )
 
-            Column {
-                Text("Tags", style = MaterialTheme.typography.titleSmall)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    availableTags.forEach { tag ->
-                        FilterChip(
-                            selected = tag.id in tagSelection,
-                            onClick = { toggleTag(tag.id) },
-                            label = { Text(tag.name) },
-                        )
-                    }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(newTag, { newTag = it }, label = { Text("Add tag") }, modifier = Modifier.weight(1f))
-                    OutlinedButton(
-                        onClick = {
-                            if (newTag.isNotBlank()) {
-                                val id = container.tags.getOrCreate(newTag.trim())
-                                container.tags.linkToDive(diveId, id)
-                                if (availableTags.none { it.id == id }) {
-                                    availableTags = availableTags + Tag(id, newTag.trim())
-                                }
-                                tagSelection = tagSelection + id
-                                newTag = ""
-                            }
-                        },
-                    ) { Text("Add") }
-                }
-            }
+            NameChipsField(
+                title = "Tags",
+                fieldLabel = "Add tag",
+                selected = availableTags.filter { it.id in tagSelection }.map { NamedItem(it.id, it.name) },
+                all = availableTags.map { NamedItem(it.id, it.name) },
+                onAdd = { toggleTag(it.id) },
+                onAddNew = { name ->
+                    val id = container.tags.getOrCreate(name)
+                    container.tags.linkToDive(diveId, id)
+                    if (availableTags.none { it.id == id }) availableTags = availableTags + Tag(id, name)
+                    tagSelection = tagSelection + id
+                },
+                onRemove = { toggleTag(it.id) },
+            )
 
             TanksEditor(
                 drafts = tankDrafts,

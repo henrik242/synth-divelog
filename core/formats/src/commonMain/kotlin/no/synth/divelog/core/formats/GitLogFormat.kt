@@ -332,8 +332,7 @@ class GitLogFormat {
             workingPressureMbar = kv["workpressure"]?.let { mbar(it) },
             startPressureMbar = kv["start"]?.let { mbar(it) },
             endPressureMbar = kv["end"]?.let { mbar(it) },
-            // The cloud leaves O2 out for air.
-            o2Permille = kv["o2"]?.let { FormatUnits.percentToPermille(it) } ?: AIR_O2_PERMILLE,
+            o2Permille = kv["o2"]?.let { FormatUnits.percentToPermille(it) },
             hePermille = kv["he"]?.let { FormatUnits.percentToPermille(it) },
         )
     }
@@ -503,7 +502,6 @@ class GitLogFormat {
     private companion object {
         const val SITES_DIR = "01-Divesites"
         const val SETTINGS_FILE = "00-Subsurface"
-        const val AIR_O2_PERMILLE = 210
         const val ZERO_C_MK = 273_150
         val WEEKDAYS = arrayOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
         // "07-Sun-13=08=10", with "~<hash>" appended when two dives share a start time.

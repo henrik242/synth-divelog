@@ -36,7 +36,10 @@ internal data class TankDraft(
     val start: String,
     val end: String,
 ) {
-    /** O2 and He permille, or null while the mix is not a valid one. */
+    /** Whether a mix has been typed at all; an empty one is no gas, not an error. */
+    fun hasMix(): Boolean = o2.isNotBlank() || he.isNotBlank()
+
+    /** O2 and He permille, or null when there is no mix or it is not a valid one. */
     fun gas(): Pair<Int, Int>? {
         val o2 = parse(o2) ?: return null
         val he = parse(he) ?: 0.0
@@ -60,7 +63,7 @@ internal data class TankDraft(
             end = tank.endPressureMbar?.let { fromMbar(it, system) } ?: "",
         )
 
-        fun blank() = TankDraft(id = null, o2 = "21", he = "", size = "", start = "", end = "")
+        fun blank() = TankDraft(id = null, o2 = "", he = "", size = "", start = "", end = "")
 
         private fun parse(text: String): Double? = text.trim().replace(',', '.').toDoubleOrNull()
 
@@ -93,16 +96,18 @@ internal fun TanksEditor(
         drafts.forEachIndexed { i, d ->
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val invalid = d.hasMix() && d.gas() == null
                     Text(
-                        d.gas()?.let { (o2, he) -> Format.gasName(o2, he) } ?: "Invalid mix",
+                        d.gas()?.let { (o2, he) -> Format.gasName(o2, he) } ?: if (invalid) "Invalid mix" else "",
                         Modifier.weight(1f),
-                        color = if (d.gas() == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                        color = if (invalid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     )
                     IconButton(onClick = { onRemove(i) }) { Icon(Icons.Filled.Close, contentDescription = "Remove gas") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Field(d.o2, "O2 %", Modifier.weight(1f), isError = d.gas() == null) { onChange(i, d.copy(o2 = it)) }
-                    Field(d.he, "He %", Modifier.weight(1f), isError = d.gas() == null) { onChange(i, d.copy(he = it)) }
+                    val invalid = d.hasMix() && d.gas() == null
+                    Field(d.o2, "O2 %", Modifier.weight(1f), isError = invalid) { onChange(i, d.copy(o2 = it)) }
+                    Field(d.he, "He %", Modifier.weight(1f), isError = invalid) { onChange(i, d.copy(he = it)) }
                     Field(d.size, "Size (L)", Modifier.weight(1f)) { onChange(i, d.copy(size = it)) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
