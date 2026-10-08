@@ -536,6 +536,26 @@ class GasBlenderTest {
         assertClose(220.0, r.result.pressureBar)
         assertEquals(0.0, assertNotNull(r.drain).toBar)
     }
+
+    // Drain only what overshoots (not in the web suite)
+
+    @Test
+    fun keepsAirWhenO2CanMakeUpTheDifference() {
+        // 100 bar air holds less O2 and N2 than 18/45 at 220 needs, so nothing has to go.
+        val r = blend(12.0, 100.0, 21.0, 0.0, 18.0, 45.0, 220.0, listOf(air, o2, helium))
+        assertTrue(r.ok, "result ${r.result}")
+        assertTrue(r.steps.none { it is BlendStep.Drain }, "steps ${r.steps}")
+        assertEquals(listOf("Helium", "O2", "Air"), r.steps.map { (it as BlendStep.Add).gas.name })
+    }
+
+    @Test
+    fun drainsOnlyTheExcessNitrogen() {
+        // 100 bar air holds 79 bar N2; 18/45 at 200 wants about 74, so drain a little, not all.
+        val r = blend(12.0, 100.0, 21.0, 0.0, 18.0, 45.0, 200.0, listOf(air, o2, helium))
+        assertTrue(r.ok, "result ${r.result}")
+        val drain = assertNotNull(r.drain)
+        assertTrue(drain.toBar in 90.0..99.0, "drain to ${drain.toBar}")
+    }
 }
 
 /** Jest's toBeCloseTo: |expected - actual| < 10^-digits / 2. */
