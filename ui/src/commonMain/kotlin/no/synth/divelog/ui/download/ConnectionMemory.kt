@@ -12,6 +12,11 @@ interface ConnectionMemory {
 
     fun remember(deviceKey: String, portDescriptor: String)
 
+    /** The key of the device downloaded from most recently, to preselect it next time. */
+    fun lastDevice(): String? = null
+
+    fun rememberLastDevice(deviceKey: String) {}
+
     /** Remembers nothing; used where no preference store is wired. */
     object None : ConnectionMemory {
         override fun recall(deviceKey: String): String? = null

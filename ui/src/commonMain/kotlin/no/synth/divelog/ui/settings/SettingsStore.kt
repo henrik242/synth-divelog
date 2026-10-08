@@ -33,8 +33,13 @@ class AppSettings(private val store: SettingsStore) {
     fun rememberConnection(deviceKey: String, portDescriptor: String) =
         store.putString(KEY_CONN_PREFIX + deviceKey, portDescriptor)
 
+    fun lastDownloadDevice(): String? = store.getString(KEY_LAST_DEVICE)
+
+    fun rememberLastDownloadDevice(deviceKey: String) = store.putString(KEY_LAST_DEVICE, deviceKey)
+
     private companion object {
         const val KEY_UNITS = "unit_system"
+        const val KEY_LAST_DEVICE = "last_download_device"
         const val KEY_CLOUD_EMAIL = "cloud_email"
         const val KEY_CLOUD_PASS = "cloud_pass"
         const val KEY_CONN_PREFIX = "conn:"
@@ -47,4 +52,8 @@ class SettingsConnectionMemory(private val settings: AppSettings) : ConnectionMe
 
     override fun remember(deviceKey: String, portDescriptor: String) =
         settings.rememberConnection(deviceKey, portDescriptor)
+
+    override fun lastDevice(): String? = settings.lastDownloadDevice()
+
+    override fun rememberLastDevice(deviceKey: String) = settings.rememberLastDownloadDevice(deviceKey)
 }

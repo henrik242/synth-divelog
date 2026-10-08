@@ -61,6 +61,12 @@ countDivesByDevice:
 SELECT deviceId, count(DISTINCT diveId) AS dives FROM diveComputerRecord
 WHERE deviceId IS NOT NULL GROUP BY deviceId;
 
+-- The newest dive per device; SQLite returns the offset from the row holding the max.
+newestDiveByDevice:
+SELECT r.deviceId, max(d.startEpochSeconds) AS newest, d.utcOffsetSeconds
+FROM diveComputerRecord r JOIN dive d ON d.id = r.diveId
+WHERE r.deviceId IS NOT NULL GROUP BY r.deviceId;
+
 deleteRecord:
 DELETE FROM diveComputerRecord WHERE id = ?;
 

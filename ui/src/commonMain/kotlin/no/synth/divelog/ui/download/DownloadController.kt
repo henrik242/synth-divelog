@@ -108,6 +108,26 @@ private val SHEARWATER_SPP_PARAMS = SerialParams(
 data class MergeReview(val incomingLabel: String, val existingLabel: String)
 
 /**
+ * A dive computer already in the logbook that the picker can download from again: its
+ * [type], how many dives it has recorded, its newest dive, and the port it was last
+ * reached on ([lastPort], a [SerialPortInfo.descriptor]).
+ */
+data class KnownComputer(
+    val device: Device,
+    val type: DiveComputerType,
+    val diveCount: Long,
+    val newestDive: Pair<Long, Int>?,
+    val lastPort: String?,
+) {
+    /** The device identity, the key its connection is remembered under. */
+    val key: String get() = device.bluetoothAddress.orEmpty()
+
+    val title: String get() = device.nickname?.takeIf { it.isNotBlank() } ?: device.model
+
+    val subtitle: String get() = "${device.vendor} ${device.model}" + (device.serial?.let { " #$it" } ?: "")
+}
+
+/**
  * How much of the device to pull. [NewOnly] is incremental: the download stops at the
  * newest dive already stored for this device, so a repeat download fetches nothing (and
  * for devices served one dive at a time, reads nothing) past what is already here. The
@@ -150,6 +170,29 @@ class DownloadController(
     private val serialPorts: SerialPorts,
     private val connectionMemory: ConnectionMemory = ConnectionMemory.None,
 ) {
+    /**
+     * The computers in the logbook that one of [types] can download from, the most
+     * recently used first, then by newest dive.
+     */
+    fun knownComputers(types: List<DiveComputerType>): List<KnownComputer> {
+        val counts = container.devices.diveCounts()
+        val newest = container.devices.newestDives()
+        val last = connectionMemory.lastDevice()
+        return container.devices.all().mapNotNull { device ->
+            val type = types.firstOrNull { it.owns(device) } ?: return@mapNotNull null
+            KnownComputer(
+                device = device,
+                type = type,
+                diveCount = counts[device.id] ?: 0,
+                newestDive = newest[device.id],
+                lastPort = device.bluetoothAddress?.let { connectionMemory.recall(it) },
+            )
+        }.sortedWith(compareByDescending<KnownComputer> { it.key == last }.thenByDescending { it.newestDive?.first ?: 0 })
+    }
+
+    /** The key of the computer downloaded from most recently, if any. */
+    fun lastComputerKey(): String? = connectionMemory.lastDevice()
+
     /**
      * The id of a port to preselect for [type]: the one a device of this type was last
      * reached on, if it is present in [ports] now. Null when nothing is remembered or the
@@ -241,9 +284,11 @@ class DownloadController(
             onProgress(1f, "Parsing dives")
             val device = type.device(deviceInfo)
             val deviceId = container.devices.getOrCreate(device)
-            // Remember where this device was reached so the picker can preselect it next time.
-            if (portDescriptor != null) {
-                device.bluetoothAddress?.let { connectionMemory.remember(it, portDescriptor) }
+            // Remember where this device was reached, and that it was the last one used, so
+            // the picker can preselect both next time.
+            device.bluetoothAddress?.let { key ->
+                if (portDescriptor != null) connectionMemory.remember(key, portDescriptor)
+                connectionMemory.rememberLastDevice(key)
             }
             importRaws(raws, type.parser(), deviceId, reviewMerges)
         } finally {

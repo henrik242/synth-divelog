@@ -42,6 +42,11 @@ class DeviceRepository(private val db: DiveDatabase) {
     fun diveCounts(): Map<Long, Long> = db.recordQueries.countDivesByDevice().executeAsList()
         .associate { it.deviceId to it.dives }
 
+    /** Start time and UTC offset of the newest dive recorded by each device, keyed by device id. */
+    fun newestDives(): Map<Long, Pair<Long, Int>> = db.recordQueries.newestDiveByDevice().executeAsList()
+        .mapNotNull { row -> row.newest?.let { row.deviceId to (it to row.utcOffsetSeconds.toInt()) } }
+        .toMap()
+
     /** Move every record of [fromId] to [toId], then delete [fromId]. The target's details are kept. */
     fun merge(fromId: Long, toId: Long) {
         if (fromId == toId) return

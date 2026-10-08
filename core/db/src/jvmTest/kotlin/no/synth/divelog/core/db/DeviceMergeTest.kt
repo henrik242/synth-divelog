@@ -24,4 +24,15 @@ class DeviceMergeTest {
         assertEquals("keep", devices.get(a)?.nickname)
         assertEquals(mapOf(a to 2L), devices.diveCounts())
     }
+
+    @Test
+    fun newestDivesPicksEachDevicesLatestStart() {
+        val a = devices.add(Device(vendor = "Suunto", model = "HelO2"))
+        val b = devices.add(Device(vendor = "Shearwater", model = "Petrel"))
+        dives.import(incoming(deviceId = a, start = 1_000, fingerprint = "a1")) { false }
+        dives.import(incoming(deviceId = a, start = 50_000, fingerprint = "a2")) { false }
+        dives.import(incoming(deviceId = b, start = 100_000, fingerprint = "b1")) { false }
+
+        assertEquals(mapOf(a to (50_000L to 3_600), b to (100_000L to 3_600)), devices.newestDives())
+    }
 }

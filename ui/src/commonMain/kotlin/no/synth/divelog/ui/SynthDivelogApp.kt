@@ -86,6 +86,7 @@ import no.synth.divelog.ui.download.DownloadPickerDialog
 import no.synth.divelog.ui.download.DownloadProgressDialog
 import no.synth.divelog.ui.download.DownloadReviewDialog
 import no.synth.divelog.ui.download.DownloadUiState
+import no.synth.divelog.ui.download.KnownComputer
 import no.synth.divelog.ui.download.NoSerialPorts
 import no.synth.divelog.ui.download.SerialPortInfo
 import no.synth.divelog.ui.download.SerialPorts
@@ -189,6 +190,7 @@ fun SynthDivelogApp(
     }
     var downloadUi by remember { mutableStateOf<DownloadUiState>(DownloadUiState.Hidden) }
     var pickerPorts by remember { mutableStateOf<List<SerialPortInfo>>(emptyList()) }
+    var pickerKnown by remember { mutableStateOf<List<KnownComputer>>(emptyList()) }
     val cancelDownload = remember { mutableStateOf(false) }
 
     fun startSerialDownload(type: DiveComputerType, port: SerialPortInfo, amount: DownloadAmount) {
@@ -229,7 +231,10 @@ fun SynthDivelogApp(
         if (serialPorts.downloadSupported) {
             scope.launch {
                 onPrepareDownload?.invoke()
-                pickerPorts = serialPorts.list()
+                withContext(Dispatchers.Default) {
+                    pickerPorts = serialPorts.list()
+                    pickerKnown = controller.knownComputers(downloadTypes)
+                }
                 downloadUi = DownloadUiState.Picker
             }
         } else {
@@ -416,6 +421,8 @@ fun SynthDivelogApp(
                 DownloadUiState.Hidden -> {}
                 DownloadUiState.Picker -> DownloadPickerDialog(
                     types = downloadTypes,
+                    known = pickerKnown,
+                    lastKey = controller.lastComputerKey(),
                     ports = pickerPorts,
                     onRefresh = { serialPorts.list() },
                     onStart = { type, port, amount -> startSerialDownload(type, port, amount) },

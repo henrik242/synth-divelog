@@ -1,5 +1,6 @@
 package no.synth.divelog.ui.download
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -7,15 +8,22 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import no.synth.divelog.ui.format.Format
 
 /** State machine for the shared download affordance driven from the Download button. */
 sealed interface DownloadUiState {
@@ -45,93 +54,195 @@ sealed interface DownloadUiState {
     data class Reviewing(val reviews: List<MergeReview>, val onResolve: (Set<Int>) -> Unit) : DownloadUiState
 }
 
+/** What the picker has selected: a computer already in the logbook, or just a type. */
+private sealed interface PickerChoice {
+    val type: DiveComputerType
+
+    data class Known(val computer: KnownComputer) : PickerChoice {
+        override val type: DiveComputerType get() = computer.type
+    }
+
+    data class Other(override val type: DiveComputerType) : PickerChoice
+}
+
 /**
- * Pick the dive-computer type and the port, then start the download. Shared across
- * desktop (jSerialComm ports, including a paired Shearwater SPP port) and Android
- * (USB-serial adapters and paired Bluetooth Classic devices). [types] is what the
- * platform can read over a serial port.
+ * Pick the dive computer and the port, then start the download. Computers already in the
+ * logbook ([known]) are listed first with their dive count, newest dive and last port;
+ * choosing one preselects the port it was last reached on. The computer used last
+ * ([lastKey]) starts selected. Any [types] entry can still be picked for a new computer.
+ * Shared across desktop (wired ports and paired Bluetooth devices) and Android (USB-serial
+ * adapters and paired Bluetooth Classic devices).
  */
 @Composable
 fun DownloadPickerDialog(
     types: List<DiveComputerType>,
+    known: List<KnownComputer>,
+    lastKey: String?,
     ports: List<SerialPortInfo>,
     onRefresh: () -> List<SerialPortInfo>,
     onStart: (type: DiveComputerType, port: SerialPortInfo, amount: DownloadAmount) -> Unit,
     onCancel: () -> Unit,
     preselectPortId: (DiveComputerType) -> String? = { null },
 ) {
-    // Preselect the port a device of this type was last reached on, else a sensible guess.
-    fun pick(t: DiveComputerType, list: List<SerialPortInfo>): SerialPortInfo? =
-        preselectPortId(t)?.let { id -> list.firstOrNull { it.id == id } } ?: preferredPort(list)
+    // A known computer's own last port, else the port a device of this type was last
+    // reached on, else a sensible guess.
+    fun pick(choice: PickerChoice, list: List<SerialPortInfo>): SerialPortInfo? {
+        val own = (choice as? PickerChoice.Known)?.computer?.lastPort?.let { d -> list.firstOrNull { it.descriptor == d } }
+        return own
+            ?: preselectPortId(choice.type)?.let { id -> list.firstOrNull { it.id == id } }
+            ?: preferredPort(list)
+    }
 
-    var type by remember { mutableStateOf(types.first()) }
+    val initial: PickerChoice = (known.firstOrNull { it.key == lastKey } ?: known.firstOrNull())
+        ?.let { PickerChoice.Known(it) }
+        ?: PickerChoice.Other(types.first())
+    var choice by remember { mutableStateOf(initial) }
     var current by remember { mutableStateOf(ports) }
-    var port by remember { mutableStateOf(pick(types.first(), ports)) }
-    var portMenuOpen by remember { mutableStateOf(false) }
+    var port by remember { mutableStateOf(pick(initial, ports)) }
     var amount by remember { mutableStateOf<DownloadAmount>(DownloadAmount.NewOnly) }
-    var amountMenuOpen by remember { mutableStateOf(false) }
+
+    fun select(c: PickerChoice) {
+        choice = c
+        port = pick(c, current)
+    }
+
+    // Port and download amount, shown inside the selected row.
+    @Composable
+    fun ComputerOptions() = Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (current.isEmpty()) {
+                Text("No ports found; connect the cable", style = MaterialTheme.typography.bodySmall)
+            } else {
+                SelectField(
+                    label = "Port",
+                    value = port?.label ?: "Choose a port",
+                    options = current,
+                    optionLabel = { it.label },
+                    onSelect = { port = it },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            TextButton(onClick = {
+                current = onRefresh()
+                if (port == null || current.none { it.id == port?.id }) port = pick(choice, current)
+            }) { Text("Refresh") }
+        }
+        SelectField(
+            label = "Download",
+            value = amount.label,
+            options = DownloadAmount.options,
+            optionLabel = { it.label },
+            onSelect = { amount = it },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text("Download dives") },
         text = {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Dive computer", style = MaterialTheme.typography.labelLarge)
-                types.forEach { t ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().clickable { type = t; port = pick(t, current) },
-                    ) {
-                        RadioButton(selected = type == t, onClick = { type = t; port = pick(t, current) })
-                        Text(t.displayName)
-                    }
-                }
-
-                Text("Port", style = MaterialTheme.typography.labelLarge)
-                if (current.isEmpty()) {
-                    Text("No ports found. Connect the cable, then refresh.")
-                } else {
-                    Box {
-                        OutlinedButton(onClick = { portMenuOpen = true }) {
-                            Text(port?.label ?: "Choose a port")
-                        }
-                        DropdownMenu(expanded = portMenuOpen, onDismissRequest = { portMenuOpen = false }) {
-                            current.forEach { p ->
-                                DropdownMenuItem(
-                                    text = { Text(p.label) },
-                                    onClick = { port = p; portMenuOpen = false },
-                                )
-                            }
-                        }
-                    }
-                }
-                TextButton(onClick = {
-                    current = onRefresh()
-                    if (port == null || current.none { it.id == port?.id }) port = pick(type, current)
-                }) { Text("Refresh ports") }
-
-                Text("Download", style = MaterialTheme.typography.labelLarge)
-                Box {
-                    OutlinedButton(onClick = { amountMenuOpen = true }) { Text(amount.label) }
-                    DropdownMenu(expanded = amountMenuOpen, onDismissRequest = { amountMenuOpen = false }) {
-                        DownloadAmount.options.forEach { a ->
-                            DropdownMenuItem(
-                                text = { Text(a.label) },
-                                onClick = { amount = a; amountMenuOpen = false },
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (known.isNotEmpty()) {
+                    Text("Your dive computers", style = MaterialTheme.typography.labelLarge)
+                    known.forEach { computer ->
+                        val c = PickerChoice.Known(computer)
+                        ChoiceRow(selected = choice == c, onSelect = { select(c) }, expanded = { ComputerOptions() }) {
+                            Text(computer.title, style = MaterialTheme.typography.bodyLarge)
+                            Text(computer.subtitle, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                knownDetails(computer, current),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    }
+                }
+
+                Text(
+                    if (known.isEmpty()) "Dive computer" else "Another dive computer",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                types.forEach { t ->
+                    val c = PickerChoice.Other(t)
+                    ChoiceRow(selected = choice == c, onSelect = { select(c) }, expanded = { ComputerOptions() }) {
+                        Text(t.displayName)
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(enabled = port != null, onClick = { port?.let { onStart(type, it, amount) } }) {
+            TextButton(enabled = port != null, onClick = { port?.let { onStart(choice.type, it, amount) } }) {
                 Text("Download")
             }
         },
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
     )
 }
+
+/** A read-only dropdown field: shows [value] under [label] and opens a list of [options]. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> SelectField(
+    label: String,
+    value: String,
+    options: List<T>,
+    optionLabel: (T) -> String,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(optionLabel(option)) },
+                    onClick = { onSelect(option); expanded = false },
+                )
+            }
+        }
+    }
+}
+
+/** A selectable row; when [selected] it expands to show [expanded] under its label. */
+@Composable
+private fun ChoiceRow(
+    selected: Boolean,
+    onSelect: () -> Unit,
+    expanded: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().animateContentSize()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
+        ) {
+            RadioButton(selected = selected, onClick = onSelect)
+            Column { content() }
+        }
+        if (selected) {
+            Box(Modifier.padding(start = 48.dp, bottom = 4.dp)) { expanded() }
+        }
+    }
+}
+
+/** "42 dives · newest 10 Apr 2025 · cu.usbserial-ST000001", naming the last port if it is gone. */
+private fun knownDetails(computer: KnownComputer, ports: List<SerialPortInfo>): String = listOfNotNull(
+    "${computer.diveCount} dive${if (computer.diveCount == 1L) "" else "s"}",
+    computer.newestDive?.let { (epoch, offset) -> "newest ${Format.date(epoch, offset)}" },
+    computer.lastPort?.let { d -> ports.firstOrNull { it.descriptor == d }?.label ?: "last on $d" },
+).joinToString(" · ")
 
 /** Modal progress while a serial download runs, with a cancel action. */
 @Composable
