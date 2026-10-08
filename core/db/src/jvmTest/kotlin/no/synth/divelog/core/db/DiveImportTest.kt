@@ -117,4 +117,18 @@ class DiveImportTest {
         val decision = dives.classify(incoming(deviceId = null, start = 500_000, fingerprint = "x"))
         assertTrue(decision is ImportDecision.NewDive)
     }
+
+    @Test
+    fun anOverlappingDiveFromTheSameComputerIsADuplicate() {
+        val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel"))
+        val predator = devices.add(Device(vendor = "Shearwater", model = "Predator"))
+        val first = dives.import(incoming(deviceId = petrel, start = 10_000, fingerprint = "macdive")) { false }
+        // The same dive from another logbook: different fingerprint, same computer, same time.
+        val again = dives.import(incoming(deviceId = petrel, start = 10_060, fingerprint = "cloud")) { false }
+        assertTrue(again is ImportResult.SkippedDuplicate, "was $again")
+        // Another computer on the same dive is still a merge candidate, not a duplicate.
+        val other = dives.import(incoming(deviceId = predator, start = 10_000, fingerprint = "p")) { true }
+        assertTrue(other is ImportResult.AttachedToDive, "was $other")
+        assertTrue(first is ImportResult.CreatedDive)
+    }
 }

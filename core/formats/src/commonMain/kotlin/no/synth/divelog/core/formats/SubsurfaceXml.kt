@@ -28,6 +28,21 @@ class SubsurfaceXml : DiveFormat {
         w.attribute(NS, "program", "", "synth-divelog")
         w.attribute(NS, "version", "", "3")
 
+        // Serials live in the settings, keyed by a device id each dive computer refers to.
+        val serialComputers = log.dives.flatMap { it.computers }.filter { it.serial != null }
+            .distinctBy { it.model to it.serial }
+        if (serialComputers.isNotEmpty()) {
+            w.startTag(NS, "settings", "")
+            for (c in serialComputers) {
+                w.startTag(NS, "divecomputerid", "")
+                c.model?.let { w.attribute(NS, "model", "", it) }
+                w.attribute(NS, "deviceid", "", deviceId(c))
+                c.serial?.let { w.attribute(NS, "serial", "", it) }
+                w.endTag(NS, "divecomputerid", "")
+            }
+            w.endTag(NS, "settings", "")
+        }
+
         val siteIds = log.dives.mapNotNull { it.site }.map { it.name }.distinct()
             .associateWith { siteUuid(it) }
         if (siteIds.isNotEmpty()) {
@@ -86,6 +101,7 @@ class SubsurfaceXml : DiveFormat {
     private fun writeComputer(w: XmlWriter, computer: ComputerEntry) {
         w.startTag(NS, "divecomputer", "")
         computer.model?.let { w.attribute(NS, "model", "", it) }
+        if (computer.serial != null) w.attribute(NS, "deviceid", "", deviceId(computer))
 
         if (computer.maxDepthMm != null || computer.meanDepthMm != null) {
             w.startTag(NS, "depth", "")
@@ -141,6 +157,7 @@ class SubsurfaceXml : DiveFormat {
             throw FormatException("Could not open XML", e)
         }
         val sitesByUuid = mutableMapOf<String, SiteRef>()
+        val serialsByDeviceId = mutableMapOf<String, String>()
         val dives = mutableListOf<DiveEntry>()
 
         var dive: DiveBuilder? = null
@@ -157,10 +174,18 @@ class SubsurfaceXml : DiveFormat {
                             val name = attr(reader, "name")
                             if (uuid != null && name != null) sitesByUuid[uuid] = parseSite(name, attr(reader, "gps"))
                         }
+                        "divecomputerid" -> {
+                            val id = attr(reader, "deviceid")
+                            val serial = attr(reader, "serial")?.trim()
+                            if (id != null && !serial.isNullOrEmpty()) serialsByDeviceId[id] = serial
+                        }
                         "dive" -> dive = startDive(reader)
                         "buddy", "notes" -> { capture = StringBuilder(); captureName = reader.localName }
                         "cylinder" -> dive?.tanks?.add(parseTank(reader))
-                        "divecomputer" -> computer = ComputerBuilder(model = attr(reader, "model"))
+                        "divecomputer" -> computer = ComputerBuilder(
+                            model = attr(reader, "model"),
+                            serial = attr(reader, "deviceid")?.let { serialsByDeviceId[it] },
+                        )
                         "depth" -> computer?.let {
                             it.maxDepthMm = attr(reader, "max")?.let(FormatUnits::metresToMm)
                             it.meanDepthMm = attr(reader, "mean")?.let(FormatUnits::metresToMm)
@@ -324,6 +349,7 @@ class SubsurfaceXml : DiveFormat {
 
     private class ComputerBuilder(
         val model: String?,
+        val serial: String? = null,
         var maxDepthMm: Int? = null,
         var meanDepthMm: Int? = null,
         var waterTempMk: Int? = null,
@@ -331,8 +357,12 @@ class SubsurfaceXml : DiveFormat {
         val samples: MutableList<Sample> = mutableListOf(),
         val events: MutableList<Event> = mutableListOf(),
     ) {
-        fun build() = ComputerEntry(model, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, samples, events)
+        fun build() = ComputerEntry(model, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, samples, events, serial)
     }
+
+    /** A stable 8-hex-digit id tying a dive computer to its settings entry. */
+    private fun deviceId(c: ComputerEntry): String =
+        "${c.model}:${c.serial}".hashCode().toUInt().toString(16).padStart(8, '0')
 
     private companion object {
         const val NS = ""

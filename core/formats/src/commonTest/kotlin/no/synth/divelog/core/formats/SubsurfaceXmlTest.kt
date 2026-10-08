@@ -5,6 +5,7 @@ import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Sample
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SubsurfaceXmlTest {
     private val format = SubsurfaceXml()
@@ -97,5 +98,24 @@ class SubsurfaceXmlTest {
             .replace("<dives>", "<dives><weirdthing foo='bar'>hello</weirdthing>")
         val parsed = format.read(xml)
         assertEquals(1, parsed.dives.size)
+    }
+
+    private fun withSerial(log: DiveLog, serial: String) = log.copy(
+        dives = log.dives.map { d -> d.copy(computers = d.computers.mapIndexed { i, c -> if (i == 0) c.copy(serial = serial) else c }) },
+    )
+
+    @Test
+    fun roundTripsTheComputerSerial() {
+        val xml = format.write(withSerial(sampleLog(), "A1B2C3D4"))
+        assertTrue(xml.contains("<divecomputerid"), xml)
+        val computers = format.read(xml).dives.single().computers
+        assertEquals("A1B2C3D4", computers[0].serial)
+        assertEquals(null, computers[1].serial)
+    }
+
+    @Test
+    fun anUnknownDeviceIdHasNoSerial() {
+        val xml = format.write(sampleLog()).replace("<divecomputer ", "<divecomputer deviceid='ffffffff' ")
+        assertTrue(format.read(xml).dives.single().computers.all { it.serial == null })
     }
 }

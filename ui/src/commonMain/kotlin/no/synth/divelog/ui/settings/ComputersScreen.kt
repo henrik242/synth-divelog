@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.ui.AppContainer
 import no.synth.divelog.ui.components.BackHeader
@@ -110,10 +111,10 @@ fun ComputersScreen(
 }
 
 /** Display name: the nickname if set, else vendor and model. */
-private fun Device.displayName(): String = nickname?.takeIf { it.isNotBlank() } ?: "$vendor $model"
+private fun Device.displayName(): String = nickname?.takeIf { it.isNotBlank() } ?: ComputerNames.fullName(this)
 
 private fun Device.detail(dives: Long): String = buildList {
-    if (!nickname.isNullOrBlank()) add("$vendor $model")
+    if (!nickname.isNullOrBlank()) add(ComputerNames.fullName(this@detail))
     serial?.takeIf { it.isNotBlank() }?.let { add("Serial $it") }
     bluetoothAddress?.let { add(it) }
     add(if (dives == 1L) "1 dive" else "$dives dives")

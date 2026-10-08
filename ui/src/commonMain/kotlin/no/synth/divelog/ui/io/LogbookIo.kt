@@ -14,6 +14,7 @@ import no.synth.divelog.core.db.ImportResult
 import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.divecomputer.shearwater.PredatorDump
 import no.synth.divelog.core.divecomputer.shearwater.PredatorParser
+import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Tank
@@ -32,8 +33,10 @@ class LogbookIo(private val container: AppContainer) {
     private fun buildDiveLog(): DiveLog {
         val entries = container.dives.allDives().map { dive ->
             val computers = container.dives.recordsForDive(dive.id).map { r ->
+                val device = r.deviceId?.let { container.devices.get(it) }
                 ComputerEntry(
-                    model = r.deviceId?.let { container.devices.get(it)?.model },
+                    model = device?.let { ComputerNames.fullName(it) },
+                    serial = device?.serial,
                     maxDepthMm = r.maxDepthMm,
                     samples = container.dives.samplesForRecord(r.id),
                     events = container.dives.eventsForRecord(r.id),
@@ -91,7 +94,7 @@ class LogbookIo(private val container: AppContainer) {
     ): String {
         val log = GitLogFormat().read(files)
         if (log.dives.isEmpty()) return "No dives found in the cloud logbook (${files.size} files)"
-        val counts = importLog(log, "subsurface-cloud", "Subsurface cloud", onProgress = onProgress)
+        val counts = importLog(log, "subsurface-cloud", onProgress = onProgress)
         return "Pulled: imported ${counts.imported}, skipped ${counts.skipped}"
     }
 
@@ -102,12 +105,11 @@ class LogbookIo(private val container: AppContainer) {
     ): ImportCounts =
         // A time overlap in a file import means the same dive logged twice (MacDive exports
         // repeat dives), so attach it to the existing dive rather than duplicating it.
-        importLog(format.read(text), format.id, format.displayName, autoMerge = true, onProgress = onProgress)
+        importLog(format.read(text), format.id, autoMerge = true, onProgress = onProgress)
 
     private fun importLog(
         log: DiveLog,
         formatId: String,
-        displayName: String,
         autoMerge: Boolean = false,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): ImportCounts {
@@ -120,9 +122,8 @@ class LogbookIo(private val container: AppContainer) {
             val fingerprint = "import:$formatId:${entry.startEpochSeconds}:${entry.number ?: 0}:${entry.maxDepthMm ?: 0}"
             val primary = entry.computers.firstOrNull { it.samples.isNotEmpty() } ?: entry.computers.firstOrNull()
             // Resolve the device from this dive's computer so the same dive logged on two
-            // computers merges into one dive that keeps both records. A dive with no computer
-            // info falls back to a single generic imported device.
-            val deviceId = importDeviceId(primary?.model, displayName)
+            // computers merges into one dive that keeps both records.
+            val deviceId = importDeviceId(primary?.model, primary?.serial)
             val incoming = IncomingDive(
                 deviceId = deviceId,
                 number = entry.number,
@@ -143,13 +144,13 @@ class LogbookIo(private val container: AppContainer) {
                 is ImportResult.SkippedDuplicate -> skipped++
                 is ImportResult.CreatedDive -> {
                     applyMetadata(result.diveId, entry, isNew = true)
-                    attachExtraComputers(result.diveId, entry, displayName)
+                    attachExtraComputers(result.diveId, entry)
                     imported++
                 }
                 is ImportResult.AttachedToDive -> {
                     // Fill any metadata the existing dive was missing from this copy.
                     applyMetadata(result.diveId, entry, isNew = false)
-                    attachExtraComputers(result.diveId, entry, displayName)
+                    attachExtraComputers(result.diveId, entry)
                     merged++
                 }
             }
@@ -160,16 +161,13 @@ class LogbookIo(private val container: AppContainer) {
     }
 
     /**
-     * Resolve (or create) an imported device for a computer [model]. Keyed on a synthetic
-     * "import:<model>" Bluetooth address so `getOrCreate` dedupes per computer, keeping the
-     * same computer's records on one device. Falls back to a single generic device keyed on
-     * the format name when a dive carries no computer model.
+     * The device for a logbook's computer [name] and [serial]: the same computer already
+     * downloaded or imported (by serial, else by vendor and model), or a new one. A dive
+     * naming no computer goes to a shared "Unknown computer".
      */
-    private fun importDeviceId(model: String?, displayName: String): Long {
-        val name = model ?: displayName
-        return container.devices.getOrCreate(
-            Device(vendor = "Imported", model = name, bluetoothAddress = "import:$name"),
-        )
+    private fun importDeviceId(name: String?, serial: String?): Long {
+        val (vendor, model) = ComputerNames.split(name)
+        return container.devices.getOrCreate(Device(vendor = vendor, model = model, serial = serial))
     }
 
     /**
@@ -275,11 +273,11 @@ class LogbookIo(private val container: AppContainer) {
     private fun extraScore(hasBuddies: Boolean, hasNotes: Boolean, hasTags: Boolean): Int =
         (if (hasBuddies) 1 else 0) + (if (hasNotes) 1 else 0) + (if (hasTags) 1 else 0)
 
-    private fun attachExtraComputers(diveId: Long, entry: DiveEntry, displayName: String) {
+    private fun attachExtraComputers(diveId: Long, entry: DiveEntry) {
         entry.computers.drop(1).forEachIndexed { i, computer ->
             container.dives.attachToDive(
                 IncomingDive(
-                    deviceId = importDeviceId(computer.model, displayName),
+                    deviceId = importDeviceId(computer.model, computer.serial),
                     startEpochSeconds = entry.startEpochSeconds,
                     utcOffsetSeconds = entry.utcOffsetSeconds,
                     durationSeconds = entry.durationSeconds,

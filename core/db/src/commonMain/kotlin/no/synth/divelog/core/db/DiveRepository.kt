@@ -129,9 +129,18 @@ class DiveRepository(private val db: DiveDatabase) {
         }
         if (duplicate != null) return ImportDecision.Duplicate(duplicate.id)
 
-        val overlap = dives.selectOverlappingDives(incoming.endEpochSeconds, incoming.startEpochSeconds)
+        val overlaps = dives.selectOverlappingDives(incoming.endEpochSeconds, incoming.startEpochSeconds)
             .executeAsList()
-            .firstOrNull()
+        // One computer cannot log two dives at once: an overlapping dive that already has a
+        // record from this computer is this dive, e.g. from another logbook of the same diver.
+        val sameComputer = incoming.deviceId?.let { deviceId ->
+            overlaps.firstNotNullOfOrNull { dive ->
+                records.selectRecordSummariesForDive(dive.id).executeAsList().firstOrNull { it.deviceId == deviceId }
+            }
+        }
+        if (sameComputer != null) return ImportDecision.Duplicate(sameComputer.id)
+
+        val overlap = overlaps.firstOrNull()
         return if (overlap != null) ImportDecision.MergeCandidate(overlap.id) else ImportDecision.NewDive
     }
 

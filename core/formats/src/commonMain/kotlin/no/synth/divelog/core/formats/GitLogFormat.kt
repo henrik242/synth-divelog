@@ -157,12 +157,25 @@ class GitLogFormat {
             }
         }
 
-        val dives = groups.values.map { buildDive(it, sitesByUuid) }.sortedBy { it.startEpochSeconds }
+        val serials = serialsByDeviceId(files[SETTINGS_FILE].orEmpty())
+        val dives = groups.values.map { buildDive(it, sitesByUuid, serials) }.sortedBy { it.startEpochSeconds }
         return DiveLog(dives)
     }
 
-    private fun buildDive(group: DiveGroup, sites: Map<String, SiteRef>): DiveEntry {
-        val computers = group.computers.entries.sortedBy { it.key }.map { parseComputer(it.value) }
+    /**
+     * Serials from the settings file's `divecomputerid "<model>" deviceid=<hex> serial="<s>"`
+     * lines, keyed by device id. A log without them has no serials.
+     */
+    private fun serialsByDeviceId(settings: String): Map<String, String> =
+        settings.lines().filter { it.startsWith("divecomputerid ") }.mapNotNull { line ->
+            val id = Regex("\\bdeviceid=\"?([0-9a-fA-F]+)").find(line)?.groupValues?.get(1)
+            val serial = Regex("\\bserial=(\"(?:[^\"\\\\]|\\\\.)*\"|\\S+)").find(line)?.groupValues?.get(1)
+                ?.let { unquote(it) }?.trim()
+            if (id == null || serial.isNullOrEmpty()) null else id.lowercase() to serial
+        }.toMap()
+
+    private fun buildDive(group: DiveGroup, sites: Map<String, SiteRef>, serials: Map<String, String>): DiveEntry {
+        val computers = group.computers.entries.sortedBy { it.key }.map { parseComputer(it.value, serials) }
         val primary = computers.firstOrNull()
 
         var duration = 0
@@ -210,8 +223,9 @@ class GitLogFormat {
         )
     }
 
-    private fun parseComputer(content: String): ComputerEntry {
+    private fun parseComputer(content: String, serials: Map<String, String>): ComputerEntry {
         var model: String? = null
+        var serial: String? = null
         var maxDepthMm: Int? = null
         var meanDepthMm: Int? = null
         var waterTempMk: Int? = null
@@ -229,6 +243,7 @@ class GitLogFormat {
             val rest = line.substring(keyword.length).trim()
             when (keyword) {
                 "model" -> model = unquote(rest)
+                "deviceid" -> serial = serials[rest.trim().lowercase()]
                 "maxdepth" -> maxDepthMm = depthMm(rest)
                 "meandepth" -> meanDepthMm = depthMm(rest)
                 "watertemp" -> waterTempMk = tempMk(rest)
@@ -236,7 +251,7 @@ class GitLogFormat {
                 "event" -> parseEvent(rest)?.let { events.add(it) }
             }
         }
-        return ComputerEntry(model, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, samples, events)
+        return ComputerEntry(model, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, samples, events, serial)
     }
 
     private fun parseSample(line: String, previous: Sample?): Sample? {
@@ -484,6 +499,7 @@ class GitLogFormat {
 
     private companion object {
         const val SITES_DIR = "01-Divesites"
+        const val SETTINGS_FILE = "00-Subsurface"
         const val ZERO_C_MK = 273_150
         val WEEKDAYS = arrayOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
         // "07-Sun-13=08=10", with "~<hash>" appended when two dives share a start time.

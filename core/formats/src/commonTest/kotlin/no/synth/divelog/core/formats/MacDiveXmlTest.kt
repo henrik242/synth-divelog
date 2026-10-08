@@ -136,4 +136,19 @@ class MacDiveXmlTest {
         val parsed = format.read(xml)
         assertEquals(1, parsed.dives.size)
     }
+
+    private fun withSerial(log: DiveLog, serial: String) = log.copy(
+        dives = log.dives.map { d -> d.copy(computers = d.computers.mapIndexed { i, c -> if (i == 0) c.copy(serial = serial) else c }) },
+    )
+
+    @Test
+    fun readsTheComputerSerialNotGearSerials() {
+        val xml = format.write(withSerial(sampleLog(), "A1B2C3D4"))
+            .replace("</dive>", "<gear><item><type>Computer</type><name>Spare</name><serial>GEAR999</serial></item></gear></dive>")
+        assertEquals("A1B2C3D4", format.read(xml).dives.single().computers.first().serial)
+
+        val noSerial = format.write(sampleLog())
+            .replace("</dive>", "<gear><item><name>Regulator</name><serial>GEAR999</serial></item></gear></dive>")
+        assertEquals(null, format.read(noSerial).dives.single().computers.first().serial)
+    }
 }

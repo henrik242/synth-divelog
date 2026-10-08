@@ -17,4 +17,9 @@ class AppContainer(database: DiveDatabase) {
     val tags = TagRepository(database)
     val devices = DeviceRepository(database)
     val gases = GasRepository(database)
+
+    init {
+        // Older imports stored computers as "Imported <name>"; give them vendor and model.
+        devices.tidyLegacyImports()
+    }
 }

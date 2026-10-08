@@ -21,6 +21,7 @@ import no.synth.divelog.core.divecomputer.transport.Parity
 import no.synth.divelog.core.divecomputer.transport.RecordingTransport
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
+import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.units.UnitSystem
@@ -124,7 +125,7 @@ data class KnownComputer(
 
     val title: String get() = device.nickname?.takeIf { it.isNotBlank() } ?: device.model
 
-    val subtitle: String get() = "${device.vendor} ${device.model}" + (device.serial?.let { " #$it" } ?: "")
+    val subtitle: String get() = ComputerNames.fullName(device) + (device.serial?.let { " #$it" } ?: "")
 }
 
 /**

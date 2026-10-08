@@ -56,6 +56,8 @@ data class ComputerEntry(
     val airTempMk: Int? = null,
     val samples: List<Sample> = emptyList(),
     val events: List<Event> = emptyList(),
+    /** The computer's serial number, when the log records one. */
+    val serial: String? = null,
 )
 
 /** A dive-log file format reader/writer over the domain-neutral [DiveLog]. */

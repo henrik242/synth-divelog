@@ -165,4 +165,18 @@ class GitLogFormatTest {
         val tree = format.write(sampleLog()) + ("README.md" to "not dive data") + (".git/config" to "x")
         assertEquals(1, format.read(tree).dives.size)
     }
+
+    private fun withSerial(log: DiveLog, serial: String) = log.copy(
+        dives = log.dives.map { d -> d.copy(computers = d.computers.mapIndexed { i, c -> if (i == 0) c.copy(serial = serial) else c }) },
+    )
+
+    @Test
+    fun readsSerialsFromTheSettingsFile() {
+        val tree = format.write(sampleLog()).mapValues { (path, content) ->
+            if (path.endsWith("/Divecomputer-001")) "deviceid 1a2b3c4d\n$content" else content
+        } + ("00-Subsurface" to "version 3\ndivecomputerid \"Shearwater Predator\" deviceid=1a2b3c4d serial=\"A1B2C3D4\" firmware=\"84\"\n")
+        val computers = format.read(tree).dives.single().computers
+        assertEquals("A1B2C3D4", computers[0].serial)
+        assertEquals(null, computers[1].serial)
+    }
 }

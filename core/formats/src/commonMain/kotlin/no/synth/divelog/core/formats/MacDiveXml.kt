@@ -46,6 +46,7 @@ class MacDiveXml : DiveFormat {
         dive.number?.let { text(w, "diveNumber", it.toString()) }
         dive.rating?.let { text(w, "rating", it.toString()) }
         computer?.model?.let { text(w, "computer", it) }
+        computer?.serial?.let { text(w, "serial", it) }
         (computer?.maxDepthMm ?: dive.maxDepthMm)?.let { text(w, "maxDepth", FormatUnits.macDepth(it)) }
         (computer?.meanDepthMm ?: dive.meanDepthMm)?.let { text(w, "averageDepth", FormatUnits.macDepth(it)) }
         text(w, "duration", dive.durationSeconds.toString())
@@ -236,6 +237,8 @@ class MacDiveXml : DiveFormat {
                                 "diveNumber" -> d?.number = t.toIntOrNull()
                                 "rating" -> d?.rating = t.toIntOrNull()
                                 "computer" -> d?.computerModel = t.ifBlank { null }
+                                // The dive's own serial is the computer's; gear serials are skipped above.
+                                "serial" -> d?.computerSerial = t.ifBlank { null }
                                 "maxDepth" -> d?.maxDepthMm = FormatUnits.macDepthToMm(t)
                                 "averageDepth" -> d?.meanDepthMm = FormatUnits.macDepthToMm(t)
                                 "duration" -> d?.durationSeconds = t.toIntOrNull()
@@ -406,6 +409,7 @@ class MacDiveXml : DiveFormat {
         var rating: Int? = null,
         var visibility: Int? = null,
         var computerModel: String? = null,
+        var computerSerial: String? = null,
         var site: SiteRef? = null,
         val buddies: MutableList<String> = mutableListOf(),
         val tags: MutableList<String> = mutableListOf(),
@@ -434,6 +438,7 @@ class MacDiveXml : DiveFormat {
                 listOf(
                     ComputerEntry(
                         model = computerModel,
+                        serial = computerSerial,
                         maxDepthMm = maxDepthMm,
                         meanDepthMm = meanDepthMm,
                         waterTempMk = waterTempMk,
