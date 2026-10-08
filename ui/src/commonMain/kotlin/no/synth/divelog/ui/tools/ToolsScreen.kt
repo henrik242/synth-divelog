@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Height
 import androidx.compose.material.icons.outlined.Scale
 import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Timeline
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -30,11 +31,12 @@ enum class Tool(val label: String, val description: String, val icon: ImageVecto
     GAS_BLENDER("Gas blender", "Partial-pressure fill plan for nitrox and trimix", Icons.Outlined.Science),
     TANK_BUOYANCY("Tank buoyancy", "How much a cylinder floats or sinks, full and empty", Icons.Outlined.Scale),
     MOD_END("MOD / END", "Maximum operating depth and equivalent narcotic depth of a mix", Icons.Outlined.Height),
+    DIVE_PLANNER("Dive planner", "Decompression plan with Buhlmann ZHL-16C and gradient factors", Icons.Outlined.Timeline),
 }
 
 /**
- * The Tools tab: a list of [Tool]s, or the open [tool]. [blender], [tank] and [modEnd] keep
- * their inputs across tab switches.
+ * The Tools tab: a list of [Tool]s, or the open [tool]. [blender], [tank], [modEnd] and
+ * [planner] keep their inputs across tab switches.
  */
 @Composable
 fun ToolsSection(
@@ -43,12 +45,14 @@ fun ToolsSection(
     blender: GasBlenderState,
     tank: TankBuoyancyState,
     modEnd: ModEndState,
+    planner: DivePlannerState,
     unitSystem: UnitSystem,
 ) {
     when (tool) {
         Tool.GAS_BLENDER -> GasBlenderScreen(blender)
         Tool.TANK_BUOYANCY -> TankBuoyancyScreen(tank, unitSystem)
         Tool.MOD_END -> ModEndScreen(modEnd, unitSystem)
+        Tool.DIVE_PLANNER -> DivePlannerScreen(planner, unitSystem)
         null -> Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

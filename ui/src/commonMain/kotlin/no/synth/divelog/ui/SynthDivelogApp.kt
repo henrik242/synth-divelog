@@ -102,6 +102,7 @@ import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.SitesSection
 import no.synth.divelog.ui.stats.StatisticsSection
 import no.synth.divelog.ui.sync.CloudGit
+import no.synth.divelog.ui.tools.DivePlannerState
 import no.synth.divelog.ui.tools.GasBlenderState
 import no.synth.divelog.ui.tools.ModEndState
 import no.synth.divelog.ui.tools.TankBuoyancyState
@@ -185,6 +186,7 @@ fun SynthDivelogApp(
     val blender = remember { GasBlenderState() }
     val tank = remember { TankBuoyancyState() }
     val modEnd = remember { ModEndState() }
+    val planner = remember { DivePlannerState() }
 
     // A dive's site link sets this: drill straight to that site, deriving its place and
     // country so the breadcrumb and the back steps still work.
@@ -455,7 +457,7 @@ fun SynthDivelogApp(
                 Section.BUDDIES -> BuddiesSection(container, unitSystem, dataVersion)
                 Section.TAGS -> TagsSection(container, unitSystem, dataVersion)
                 Section.STATS -> StatisticsSection(container, unitSystem, dataVersion)
-                Section.TOOLS -> ToolsSection(toolOpen, { toolOpen = it }, blender, tank, modEnd, unitSystem)
+                Section.TOOLS -> ToolsSection(toolOpen, { toolOpen = it }, blender, tank, modEnd, planner, unitSystem)
                 Section.SETTINGS -> SettingsSection(
                     container = container,
                     unitSystem = unitSystem,
