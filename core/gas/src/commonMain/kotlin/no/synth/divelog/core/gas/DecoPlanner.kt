@@ -56,6 +56,8 @@ data class DivePlan(
      * within the limits until the bottom gas is breathable.
      */
     val travelGas: Boolean = true,
+    /** Hold gas switches until a whole minute of runtime, so every stop ends on one. */
+    val wholeMinuteStops: Boolean = true,
 ) {
     init {
         require(levels.isNotEmpty()) { "A plan needs at least one level" }
@@ -250,8 +252,10 @@ private class PlanRun(private val plan: DivePlan) {
                     stopping = true
                     gas = next
                     if (!lastSegmentMinSwitch && gas.o2 != 1000) {
-                        tissues.constantDepth(water.bar(depth), gas, plan.gasSwitchS)
-                        clock += plan.gasSwitchS
+                        var hold = plan.gasSwitchS
+                        if (plan.wholeMinuteStops) hold += (STOP_STEP_S - (clock + hold) % STOP_STEP_S) % STOP_STEP_S
+                        tissues.constantDepth(water.bar(depth), gas, hold)
+                        clock += hold
                         lastSegmentMinSwitch = true
                     }
                 }

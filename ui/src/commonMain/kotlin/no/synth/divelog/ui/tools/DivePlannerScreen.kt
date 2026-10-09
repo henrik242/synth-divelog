@@ -416,14 +416,36 @@ private fun WarningsCard(warnings: List<PlanWarning>, units: UnitSystem) {
     }
 }
 
-/** One table line: consecutive ascent segments on one gas are merged. */
+/**
+ * One table line: consecutive ascent segments on one gas are merged. With [foldAscents] the
+ * ascents are left out and their time counted in the stop they lead to, the way runtime
+ * schedules read: each stop is left on a whole minute of runtime, so its time is whole minutes.
+ */
 private class TableLine(val phase: String, val depthMm: Int, var durationS: Int, var runtimeS: Int, val gas: BreathingGas, val switched: Boolean)
 
-private fun tableLines(plan: DecoPlan): List<TableLine> {
+private fun tableLines(plan: DecoPlan, foldAscents: Boolean): List<TableLine> {
     val lines = mutableListOf<TableLine>()
     var gas: BreathingGas? = null
+    var pendingS = 0
     for (s in plan.segments) {
         val phase = phaseOf(s)
+        if (foldAscents && phase == "Ascent") {
+            pendingS += s.durationS
+            continue
+        }
+        if (foldAscents && phase == "Stop") {
+            val last = lines.lastOrNull()
+            if (pendingS == 0 && last != null && last.phase == "Stop" && last.depthMm == s.endDepthMm && last.gas == s.gas) {
+                // A gas switch and the stop after it at the same depth read as one stop.
+                last.durationS += s.durationS
+                last.runtimeS = s.endS
+            } else {
+                lines += TableLine(phase, s.endDepthMm, s.durationS + pendingS, s.endS, s.gas, gas != null && gas != s.gas)
+            }
+            pendingS = 0
+            gas = s.gas
+            continue
+        }
         val last = lines.lastOrNull()
         if (phase == "Ascent" && last != null && last.phase == "Ascent" && last.gas == s.gas && !s.bottom) {
             lines[lines.lastIndex] = TableLine(last.phase, s.endDepthMm, last.durationS + s.durationS, s.endS, s.gas, last.switched)
@@ -432,6 +454,8 @@ private fun tableLines(plan: DecoPlan): List<TableLine> {
         }
         gas = s.gas
     }
+    // The climb from the last stop has no stop after it to count in.
+    if (pendingS > 0) lines += TableLine("Ascent", 0, pendingS, plan.runtimeS, plan.segments.last().gas, false)
     return lines
 }
 
@@ -445,10 +469,10 @@ private fun phaseOf(s: PlanSegment): String = when {
 @Composable
 private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, hideAscents: Boolean, onHideAscents: (Boolean) -> Unit) {
     ToolCard("Runtime table") {
-        CheckRow("Hide ascents", hideAscents, onChange = onHideAscents)
+        CheckRow("Whole-minute stops", hideAscents, onChange = onHideAscents)
         TableRow(header = true, cells = listOf("", "Depth", "Time", "Run", "Gas"))
         HorizontalDivider()
-        tableLines(plan).filter { !hideAscents || it.phase != "Ascent" }.forEach { line ->
+        tableLines(plan, foldAscents = hideAscents).forEach { line ->
             TableRow(
                 header = false,
                 cells = listOf(line.phase, depth(line.depthMm, units), Format.duration(line.durationS), minutes(line.runtimeS), line.gas.name),
@@ -456,7 +480,13 @@ private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, hideAscents: Boolean
                 gasSwitched = line.switched,
             )
         }
-        Hint("Time is the segment's length, Run the runtime at its end. Stops end on whole minutes.")
+        Hint(
+            if (hideAscents) {
+                "Each stop's time includes the climb to it, so stops are whole minutes. Run is the runtime when you leave."
+            } else {
+                "Time is the segment's length, Run the runtime at its end. Stops end on whole minutes of runtime."
+            },
+        )
     }
 }
 

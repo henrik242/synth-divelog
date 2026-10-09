@@ -28,9 +28,10 @@ class DecoPlannerTest {
         descentRate = 23000,
         ascentRates = AscentRates(ft(30), ft(10)),
         lastStopDeep = true,
-        // Subsurface switches by pO2 only and has no travel gas.
+        // Subsurface switches by pO2 only, has no travel gas and holds switches 1 min flat.
         maxEndMm = null,
         travelGas = false,
+        wholeMinuteStops = false,
     )
 
     // testImperial: the same in feet, 260 ft, 75 ft/min descent, 10 ft stops.
@@ -130,7 +131,7 @@ class DecoPlannerTest {
         )
         assertEquals(
             listOf(
-                "24 m 2:58 run 32:00 18/45", "21 m 1:00 run 33:20 EAN50", "18 m 2:20 run 36:00 EAN50",
+                "24 m 2:58 run 32:00 18/45", "21 m 1:40 run 34:00 EAN50", "18 m 1:40 run 36:00 EAN50",
                 "15 m 1:40 run 38:00 EAN50", "12 m 4:40 run 43:00 EAN50", "9 m 6:40 run 50:00 EAN50",
                 "6 m 7:40 run 58:00 Oxygen", "3 m 14:40 run 73:00 Oxygen",
             ),
@@ -331,5 +332,11 @@ class DecoPlannerTest {
         val first = plan.segments.first()
         assertEquals(BreathingGas(180, 450), first.gas)
         assertEquals(6000, first.endDepthMm)
+    }
+
+    @Test
+    fun everyStopEndsOnAWholeMinute() {
+        val plan = DecoPlanner.plan(deepTrimix)
+        assertTrue(plan.stops.all { it.endS % 60 == 0 }, plan.stops.map { "${it.startDepthMm / 1000} m ${it.endS}" }.toString())
     }
 }
