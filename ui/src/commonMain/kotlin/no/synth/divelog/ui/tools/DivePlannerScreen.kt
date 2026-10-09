@@ -2,6 +2,7 @@ package no.synth.divelog.ui.tools
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,7 +80,22 @@ class PlannerGas(o2: String, he: String) {
         val he = parseDecimal(he) ?: return null
         return BreathingGas.ofPercent(o2, he)?.takeIf { it.o2 > 0 }
     }
+
+    fun set(gas: BreathingGas) {
+        o2 = trimmedDecimal(gas.o2 / 10.0)
+        he = trimmedDecimal(gas.he / 10.0)
+    }
+
+    companion object {
+        fun of(gas: BreathingGas) = PlannerGas("", "").apply { set(gas) }
+    }
 }
+
+/** GUE's standard gases, from the leanest bottom gas to oxygen. */
+private val STANDARD_GASES = listOf(
+    BreathingGas(100, 700), BreathingGas(150, 550), BreathingGas(180, 450), BreathingGas(210, 350),
+    BreathingGas(300, 300), BreathingGas(320), BreathingGas(350, 250), BreathingGas(500), BreathingGas(1000),
+)
 
 /**
  * Planner inputs, as typed, in [units]: depths m or ft, rates per minute, SAC L or cuft per
@@ -89,8 +106,13 @@ class DivePlannerState {
     var units by mutableStateOf(UnitSystem.METRIC)
         private set
     val levels = mutableStateListOf(PlannerLevel("45", "25"))
-    val bottomGas = PlannerGas("21", "35")
-    val decoGases = mutableStateListOf(PlannerGas("50", "0"))
+    /** The gases on the dive; none at first, so no plan until one is added. See [bottomIndex]. */
+    val gases = mutableStateListOf<PlannerGas>()
+
+    /** The bottom gas is the leanest in O2 (on a tie, the most helium); the rest are deco gases. */
+    fun bottomIndex(): Int? = gases.indices
+        .filter { gases[it].parsed() != null }
+        .minWithOrNull(compareBy({ gases[it].parsed()?.o2 }, { -(gases[it].parsed()?.he ?: 0) }))
     var bottomPpO2 by mutableStateOf("1.4")
     var decoPpO2 by mutableStateOf("1.6")
     var gfLow by mutableStateOf("30")
@@ -156,8 +178,10 @@ class DivePlannerState {
         val levels = levels.map { l ->
             PlanLevel(depthMm(l.depth) ?: return null, minutes(l.minutes) ?: return null)
         }
-        val bottom = bottomGas.parsed() ?: return null
-        val deco = decoGases.map { it.parsed() ?: return null }
+        val parsed = gases.map { it.parsed() ?: return null }
+        val bottomAt = bottomIndex() ?: return null
+        val bottom = parsed[bottomAt]
+        val deco = parsed.filterIndexed { i, _ -> i != bottomAt }
         if (!gfValid()) return null
         val ascent = rate(ascentRate) ?: return null
         val last = rate(lastAscentRate) ?: return null
@@ -218,19 +242,26 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
         }
 
         ToolCard("Gases") {
-            GasFields("Bottom", state.bottomGas, onRemove = null)
-            state.decoGases.forEachIndexed { i, gas ->
-                GasFields("Deco ${i + 1}", gas, onRemove = { state.decoGases.removeAt(i) })
+            val bottomAt = state.bottomIndex()
+            var decoNumber = 0
+            state.gases.forEachIndexed { i, gas ->
+                val label = if (i == bottomAt) "Bottom" else "Deco ${++decoNumber}"
+                GasFields(label, gas, onRemove = { state.gases.removeAt(i) })
             }
-            TextButton(onClick = { state.decoGases.add(PlannerGas("100", "0")) }) {
-                Icon(Icons.Filled.Add, contentDescription = null)
-                Text("Add deco gas")
+            StandardGasChips(STANDARD_GASES, isSelected = { gas -> state.gases.any { it.parsed() == gas } }, onClick = { gas ->
+                val present = state.gases.indexOfFirst { it.parsed() == gas }
+                if (present >= 0) state.gases.removeAt(present) else state.gases.add(PlannerGas.of(gas))
+            }) {
+                TextButton(onClick = { state.gases.add(PlannerGas("", "0")) }) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Text("Add gas")
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OptionPicker("Bottom pO2 (bar)", state.bottomPpO2, listOf("1.2", "1.3", "1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.bottomPpO2 = it }
                 OptionPicker("Deco pO2 (bar)", state.decoPpO2, listOf("1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.decoPpO2 = it }
             }
-            Hint("Deco gases are switched to at the stop where they reach the deco pO2.")
+            Hint("The gas with the least O2 is the bottom gas. The others are switched to at the stop where they reach the deco pO2.")
         }
 
         ToolCard("Settings") {
@@ -276,6 +307,7 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
         }
 
         when {
+            state.gases.isEmpty() -> Hint("Add a gas to see a plan.")
             result == null -> ErrorText("Fix the fields marked in red to see a plan.")
             result.error == PlanError.LEVEL_TOO_SHORT -> ErrorText("A level is shorter than the travel to it.")
             else -> {
@@ -297,6 +329,29 @@ private fun ModelNote() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/** One-tap chips for standard [gases] after any [leading] content; [isSelected] marks the ones in use. */
+@Composable
+private fun StandardGasChips(
+    gases: List<BreathingGas>,
+    isSelected: (BreathingGas) -> Boolean,
+    onClick: (BreathingGas) -> Unit,
+    leading: @Composable () -> Unit = {},
+) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+        leading()
+        gases.forEach { gas ->
+            FilterChip(selected = isSelected(gas), onClick = { onClick(gas) }, label = { Text(gasLabel(gas)) })
+        }
+    }
+}
+
+/** "32 %", "21/35", "O2". */
+private fun gasLabel(gas: BreathingGas): String = when {
+    gas.o2 == 1000 -> "O2"
+    gas.he == 0 -> "${gas.o2 / 10} %"
+    else -> "${gas.o2 / 10}/${gas.he / 10}"
 }
 
 @Composable
