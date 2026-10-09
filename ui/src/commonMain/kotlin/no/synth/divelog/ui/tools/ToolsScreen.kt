@@ -3,6 +3,7 @@ package no.synth.divelog.ui.tools
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -47,12 +48,13 @@ fun ToolsSection(
     modEnd: ModEndState,
     planner: DivePlannerState,
     unitSystem: UnitSystem,
+    onTopBarActions: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
 ) {
     when (tool) {
         Tool.GAS_BLENDER -> GasBlenderScreen(blender)
         Tool.TANK_BUOYANCY -> TankBuoyancyScreen(tank, unitSystem)
         Tool.MOD_END -> ModEndScreen(modEnd, unitSystem)
-        Tool.DIVE_PLANNER -> DivePlannerScreen(planner, unitSystem)
+        Tool.DIVE_PLANNER -> DivePlannerScreen(planner, unitSystem, onTopBarActions)
         null -> Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

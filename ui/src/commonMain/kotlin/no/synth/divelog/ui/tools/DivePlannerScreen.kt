@@ -1,35 +1,40 @@
 package no.synth.divelog.ui.tools
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
-import no.synth.divelog.core.model.Event
-import no.synth.divelog.core.model.EventType
-import no.synth.divelog.core.model.Sample
-import no.synth.divelog.ui.dive.ProfileGraph
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -42,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlin.math.round
 import no.synth.divelog.core.gas.AscentRates
 import no.synth.divelog.core.gas.BreathingGas
 import no.synth.divelog.core.gas.DecoPlan
@@ -54,6 +60,9 @@ import no.synth.divelog.core.gas.PlanSegment
 import no.synth.divelog.core.gas.PlanWarning
 import no.synth.divelog.core.gas.Water
 import no.synth.divelog.core.logbook.format.Format
+import no.synth.divelog.core.model.Event
+import no.synth.divelog.core.model.EventType
+import no.synth.divelog.core.model.Sample
 import no.synth.divelog.core.model.units.LITRES_PER_CUFT
 import no.synth.divelog.core.model.units.MM_PER_FOOT
 import no.synth.divelog.core.model.units.UnitSystem
@@ -64,7 +73,7 @@ import no.synth.divelog.ui.components.ToolCard
 import no.synth.divelog.ui.components.parseDecimal
 import no.synth.divelog.ui.components.trimmedDecimal
 import no.synth.divelog.ui.components.twoDecimals
-import kotlin.math.round
+import no.synth.divelog.ui.dive.ProfileGraph
 
 private const val ML_PER_CUFT = LITRES_PER_CUFT * 1000
 
@@ -225,7 +234,22 @@ class DivePlannerState {
 }
 
 @Composable
-fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
+fun DivePlannerScreen(
+    state: DivePlannerState,
+    unitSystem: UnitSystem,
+    onTopBarActions: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
+) {
+    var naming by remember { mutableStateOf<String?>(null) }
+    // Save sits in the top bar while the planner is shown.
+    val actions: @Composable RowScope.() -> Unit = remember(state) {
+        { TextButton(onClick = { naming = state.summary() }) { Text("Save plan") } }
+    }
+    DisposableEffect(actions) {
+        onTopBarActions(actions)
+        onDispose { onTopBarActions(null) }
+    }
+    naming?.let { SavePlanDialog(state, it) { naming = null } }
+
     // Convert before anything reads the fields, so the frame after a unit switch is already right.
     Snapshot.withoutReadObservation { state.useUnits(unitSystem) }
     val metric = state.units == UnitSystem.METRIC
@@ -238,7 +262,7 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         ModelNote()
-        SavedPlansCard(state)
+        if (state.saved.isNotEmpty()) SavedPlansPicker(state)
 
         ToolCard("Bottom profile") {
             state.levels.forEachIndexed { i, level ->
@@ -343,40 +367,58 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
     }
 }
 
-/** Saved plans to load or delete, and saving the current one under a name. */
+/** A pulldown of saved plans: pick one to load it, or delete it from the list. */
 @Composable
-private fun SavedPlansCard(state: DivePlannerState) {
-    var naming by remember { mutableStateOf<String?>(null) }
-    ToolCard("Saved plans") {
-        state.saved.forEachIndexed { i, plan ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { state.load(plan.inputs) }, modifier = Modifier.weight(1f)) {
-                    Text(plan.name, Modifier.fillMaxWidth())
-                }
-                IconButton(onClick = { state.saved.removeAt(i) }) { Icon(Icons.Filled.Close, contentDescription = "Delete plan") }
+private fun SavedPlansPicker(state: DivePlannerState) {
+    var open by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            "",
+            {},
+            readOnly = true,
+            label = { Text("Saved plans") },
+            placeholder = { Text("Load a saved plan") },
+            trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        // The field swallows taps for focus; this layer opens the menu instead.
+        Box(Modifier.matchParentSize().clickable { open = true })
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            state.saved.forEachIndexed { i, plan ->
+                DropdownMenuItem(
+                    text = { Text(plan.name) },
+                    onClick = {
+                        state.load(plan.inputs)
+                        open = false
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { state.saved.removeAt(i) }) { Icon(Icons.Filled.Close, contentDescription = "Delete plan") }
+                    },
+                )
             }
         }
-        TextButton(onClick = { naming = state.summary() }) {
-            Icon(Icons.Filled.Add, contentDescription = null)
-            Text("Save plan")
-        }
     }
-    naming?.let { name ->
-        AlertDialog(
-            onDismissRequest = { naming = null },
-            title = { Text("Save plan") },
-            text = { OutlinedTextField(name, { naming = it }, label = { Text("Name") }, singleLine = true) },
-            confirmButton = {
-                TextButton(enabled = name.isNotBlank(), onClick = {
-                    // Saving under an existing name replaces that plan.
-                    state.saved.removeAll { it.name == name.trim() }
-                    state.saved += SavedPlan(name.trim(), state.toJson())
-                    naming = null
-                }) { Text("Save") }
-            },
-            dismissButton = { TextButton(onClick = { naming = null }) { Text("Cancel") } },
-        )
-    }
+}
+
+/** Asks for a name, prefilled from [initial], and saves the current plan under it. */
+@Composable
+private fun SavePlanDialog(state: DivePlannerState, initial: String, onDone: () -> Unit) {
+    var name by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDone,
+        title = { Text("Save plan") },
+        text = { OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true) },
+        confirmButton = {
+            TextButton(enabled = name.isNotBlank(), onClick = {
+                // Saving under an existing name replaces that plan.
+                state.saved.removeAll { it.name == name.trim() }
+                state.saved += SavedPlan(name.trim(), state.toJson())
+                onDone()
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDone) { Text("Cancel") } },
+    )
 }
 
 /** The planned profile, with a line at each gas switch. */
@@ -505,15 +547,26 @@ private fun WarningsCard(warnings: List<PlanWarning>, units: UnitSystem) {
  * ascents are left out and their time counted in the stop they lead to, the way runtime
  * schedules read: each stop is left on a whole minute of runtime, so its time is whole minutes.
  */
-private class TableLine(val phase: String, val depthMm: Int, var durationS: Int, var runtimeS: Int, val gas: BreathingGas, val switched: Boolean)
+private class TableLine(
+    val phase: String,
+    val depthMm: Int,
+    var durationS: Int,
+    var runtimeS: Int,
+    val gas: BreathingGas,
+    val switched: Boolean,
+    /** Where a descent or ascent starts; its gas is breathed from here. */
+    val fromDepthMm: Int = depthMm,
+)
 
 private fun tableLines(plan: DecoPlan, foldAscents: Boolean): List<TableLine> {
     val lines = mutableListOf<TableLine>()
     var gas: BreathingGas? = null
     var pendingS = 0
+    var pendingFromMm = 0
     for (s in plan.segments) {
         val phase = phaseOf(s)
         if (foldAscents && phase == "Ascent") {
+            if (pendingS == 0) pendingFromMm = s.startDepthMm
             pendingS += s.durationS
             continue
         }
@@ -532,14 +585,14 @@ private fun tableLines(plan: DecoPlan, foldAscents: Boolean): List<TableLine> {
         }
         val last = lines.lastOrNull()
         if (phase == "Ascent" && last != null && last.phase == "Ascent" && last.gas == s.gas && !s.bottom) {
-            lines[lines.lastIndex] = TableLine(last.phase, s.endDepthMm, last.durationS + s.durationS, s.endS, s.gas, last.switched)
+            lines[lines.lastIndex] = TableLine(last.phase, s.endDepthMm, last.durationS + s.durationS, s.endS, s.gas, last.switched, last.fromDepthMm)
         } else {
-            lines += TableLine(phase, s.endDepthMm, s.durationS, s.endS, s.gas, gas != null && gas != s.gas)
+            lines += TableLine(phase, s.endDepthMm, s.durationS, s.endS, s.gas, gas != null && gas != s.gas, s.startDepthMm)
         }
         gas = s.gas
     }
     // The climb from the last stop has no stop after it to count in.
-    if (pendingS > 0) lines += TableLine("Ascent", 0, pendingS, plan.runtimeS, plan.segments.last().gas, false)
+    if (pendingS > 0) lines += TableLine("Ascent", 0, pendingS, plan.runtimeS, plan.segments.last().gas, false, pendingFromMm)
     return lines
 }
 
@@ -559,7 +612,7 @@ private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, wholeMinuteStops: Bo
         tableLines(plan, foldAscents = wholeMinuteStops).forEach { line ->
             TableRow(
                 header = false,
-                cells = listOf(line.phase, depth(line.depthMm, units), Format.duration(line.durationS), minutes(line.runtimeS), line.gas.name),
+                cells = listOf(line.phase, depthCell(line, units), Format.duration(line.durationS), minutes(line.runtimeS), line.gas.name),
                 bold = line.phase == "Stop",
                 gasSwitched = line.switched,
             )
@@ -578,7 +631,13 @@ private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, wholeMinuteStops: Bo
 private fun TableRow(header: Boolean, cells: List<String>, bold: Boolean = false, gasSwitched: Boolean = false) {
     val style = if (header) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyMedium
     val weights = listOf(1.1f, 1f, 0.9f, 0.9f, 1f)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    // A gas switch gets a light band so it stands out from the stops around it.
+    val band = if (gasSwitched) {
+        Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+    } else {
+        Modifier
+    }
+    Row(Modifier.fillMaxWidth().then(band).padding(horizontal = 4.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         cells.forEachIndexed { i, text ->
             val isGas = i == cells.lastIndex
             Text(
@@ -610,6 +669,13 @@ private fun Hint(text: String) =
 private fun ErrorText(text: String) = Text(text, color = MaterialTheme.colorScheme.error)
 
 /** Whole metres or feet: stops sit on whole units. */
+/** A stop or level's depth; a descent or ascent as from-to, so a gas switch reads at its start. */
+private fun depthCell(line: TableLine, units: UnitSystem): String {
+    if (line.fromDepthMm == line.depthMm) return depth(line.depthMm, units)
+    val from = depth(line.fromDepthMm, units).substringBefore(' ')
+    return "$from-${depth(line.depthMm, units)}"
+}
+
 private fun depth(mm: Int, units: UnitSystem): String =
     if (units == UnitSystem.METRIC) "${round(mm / 1000.0).toInt()} m" else "${round(mm / MM_PER_FOOT).toInt()} ft"
 

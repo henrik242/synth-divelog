@@ -253,6 +253,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         (top as? Screen.ToolPage)?.tool,
                         { tool -> if (tool == null) back() else nav.push(Screen.ToolPage(tool)) },
                         blender, tank, modEnd, planner, unitSystem,
+                        onTopBarActions = { topBarActions = it },
                     )
                     Section.SETTINGS -> if (top == Screen.Attributions) AttributionsScreen() else SettingsSection(
                         settings = settings,
