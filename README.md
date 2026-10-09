@@ -19,6 +19,13 @@ and say so in their header.
 - **Tools**: dive planner (Buhlmann ZHL-16C with gradient factors), gas blender for
   nitrox and trimix, tank buoyancy, and MOD/END.
 
+<p>
+  <img src="docs/screenshots/dives.png" width="200" alt="Dive list">
+  <img src="docs/screenshots/dive.png" width="200" alt="Dive profile">
+  <img src="docs/screenshots/sites.png" width="200" alt="Dive sites on a map">
+  <img src="docs/screenshots/planner.png" width="200" alt="Dive planner">
+</p>
+
 ## Development
 
 Kotlin Multiplatform with Compose Multiplatform. Logic and UI are shared; each
