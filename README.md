@@ -45,8 +45,7 @@ Protocol notes, written against real hardware, are in
 ./gradlew :app:android:assembleDebug  # Android debug APK
 ./gradlew :app:desktop:run            # desktop app
 
-# iOS simulator: build the framework, then the Xcode app
-./gradlew :ui:linkDebugFrameworkIosSimulatorArm64
+# iOS simulator (an Xcode build phase builds the Kotlin framework)
 xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp \
   -sdk iphonesimulator -configuration Debug \
   -destination 'platform=iOS Simulator,name=iPhone 17' build
@@ -55,3 +54,6 @@ xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp \
 Needs an Android SDK (`sdk.dir` in `local.properties` or `ANDROID_HOME`) and JDK 17
 or newer to run Gradle. The desktop app and the shared UI's JVM target build on a
 JDK 25 toolchain, which Gradle downloads if it is missing.
+
+Store releases (Google Play, App Store) run from GitHub Actions; see
+[`docs/release.md`](docs/release.md).

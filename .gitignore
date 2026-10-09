@@ -32,3 +32,9 @@ xcuserdata/
 
 # Agent worktrees and local tooling state
 .claude/
+
+# fastlane
+/.bundle/
+/vendor/bundle/
+/fastlane/report.xml
+/fastlane/metadata/

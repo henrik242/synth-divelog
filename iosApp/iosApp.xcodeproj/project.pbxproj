@@ -9,30 +9,17 @@
 /* Begin PBXBuildFile section */
 		AA00000000000000000000E1 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D1 /* iOSApp.swift */; };
 		AA00000000000000000000E2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D2 /* ContentView.swift */; };
-		AA00000000000000000000E3 /* SynthDivelogUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D4 /* SynthDivelogUI.framework */; };
-		AA00000000000000000000E4 /* SynthDivelogUI.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D4 /* SynthDivelogUI.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AA00000000000000000000E5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D5 /* Assets.xcassets */; };
+		AA00000000000000000000E6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D6 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		AA00000000000000000000F4 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				AA00000000000000000000E4 /* SynthDivelogUI.framework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		AA00000000000000000000B2 /* SynthDivelog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SynthDivelog.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA00000000000000000000D1 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
 		AA00000000000000000000D2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AA00000000000000000000D3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		AA00000000000000000000D4 /* SynthDivelogUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SynthDivelogUI.framework; path = "../ui/build/bin/iosSimulatorArm64/debugFramework/SynthDivelogUI.framework"; sourceTree = "<group>"; };
+		AA00000000000000000000D5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA00000000000000000000D6 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,7 +27,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA00000000000000000000E3 /* SynthDivelogUI.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -51,7 +37,6 @@
 			isa = PBXGroup;
 			children = (
 				AA00000000000000000000A3 /* iosApp */,
-				AA00000000000000000000A5 /* Frameworks */,
 				AA00000000000000000000A4 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -62,6 +47,8 @@
 				AA00000000000000000000D1 /* iOSApp.swift */,
 				AA00000000000000000000D2 /* ContentView.swift */,
 				AA00000000000000000000D3 /* Info.plist */,
+				AA00000000000000000000D5 /* Assets.xcassets */,
+				AA00000000000000000000D6 /* PrivacyInfo.xcprivacy */,
 			);
 			path = iosApp;
 			sourceTree = "<group>";
@@ -74,14 +61,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		AA00000000000000000000A5 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				AA00000000000000000000D4 /* SynthDivelogUI.framework */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -89,10 +68,10 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA00000000000000000000C2 /* Build configuration list for PBXNativeTarget "iosApp" */;
 			buildPhases = (
+				AA00000000000000000000F6 /* Compile Kotlin Framework */,
 				AA00000000000000000000F1 /* Sources */,
 				AA00000000000000000000F2 /* Frameworks */,
 				AA00000000000000000000F3 /* Resources */,
-				AA00000000000000000000F4 /* Embed Frameworks */,
 				AA00000000000000000000F5 /* Set Build Number */,
 			);
 			buildRules = (
@@ -142,12 +121,33 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA00000000000000000000E5 /* Assets.xcassets in Resources */,
+				AA00000000000000000000E6 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		AA00000000000000000000F6 /* Compile Kotlin Framework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Compile Kotlin Framework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED environment variable set to \\\"YES\\\"\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n./gradlew :ui:embedAndSignAppleFrameworkForXcode\n";
+		};
 		AA00000000000000000000F5 /* Set Build Number */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -214,16 +214,17 @@
 		AA00000000000000000000C5 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
 				BUNDLE_DISPLAY_NAME = "Synth Divelog (debug)";
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 358L7UXVJ4;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/../ui/build/bin/iosSimulatorArm64/debugFramework",
+					"$(SRCROOT)/../ui/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
 				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iosApp/Info.plist;
@@ -231,6 +232,11 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					SynthDivelogUI,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = no.synth.divelog;
 				PRODUCT_NAME = SynthDivelog;
@@ -242,16 +248,17 @@
 		AA00000000000000000000C6 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
 				BUNDLE_DISPLAY_NAME = "Synth Divelog";
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 358L7UXVJ4;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/../ui/build/bin/iosSimulatorArm64/debugFramework",
+					"$(SRCROOT)/../ui/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
 				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = iosApp/Info.plist;
@@ -259,6 +266,11 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					SynthDivelogUI,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = no.synth.divelog;
 				PRODUCT_NAME = SynthDivelog;

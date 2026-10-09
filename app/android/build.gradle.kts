@@ -1,4 +1,5 @@
 import java.time.LocalDate
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -8,6 +9,14 @@ plugins {
 
 val gitCommitCount: Provider<String> by rootProject.extra
 val gitShortSha: Provider<String> by rootProject.extra
+
+// Release signing comes from the environment (CI) or local.properties. A build without it
+// produces an unsigned release bundle, which is fine for anything but a store upload.
+val localProperties = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+fun signingValue(key: String): String? =
+    (System.getenv(key) ?: localProperties.getProperty(key))?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "no.synth.divelog"
@@ -32,6 +41,15 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        val releaseStore = signingValue("SIGNING_STORE_FILE")?.let { rootProject.file(it) }
+        if (releaseStore?.exists() == true) {
+            create("release") {
+                storeFile = releaseStore
+                storePassword = signingValue("SIGNING_STORE_PASSWORD")
+                keyAlias = signingValue("SIGNING_KEY_ALIAS")
+                keyPassword = signingValue("SIGNING_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -42,6 +60,7 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

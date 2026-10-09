@@ -1,0 +1,149 @@
+name: Release Android
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      whats_new_en:
+        description: "What's New (English)"
+        required: true
+        default: "Bug fixes and improvements."
+      track:
+        description: "Play Store track"
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+      submit_for_review:
+        description: "Release on the track (uncheck to upload as a draft)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-android
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+      with:
+        # Full history: the version is the commit count.
+        fetch-depth: 0
+
+    - name: Compute version tag
+      id: version
+      run: |
+        VERSION_TAG="v$(git rev-list --count HEAD)"
+        SHORT_SHA=$(git rev-parse --short HEAD)
+        echo "tag=$VERSION_TAG" >> "$GITHUB_OUTPUT"
+        echo "Version tag: $VERSION_TAG ($SHORT_SHA)"
+        echo "### Android release $VERSION_TAG (${{ inputs.track }})" >> "$GITHUB_STEP_SUMMARY"
+        echo "Commit \`$SHORT_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Validate secrets
+      env:
+        SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+        SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      run: |
+        v=".github/verify-secret.sh"
+        $v base64 SIGNING_KEYSTORE_BASE64
+        $v nonempty SIGNING_STORE_PASSWORD
+        $v nonempty SIGNING_KEY_ALIAS
+        $v nonempty SIGNING_KEY_PASSWORD
+        $v json GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
+
+    - name: Set up Ruby and fastlane
+      uses: ruby/setup-ruby@v1.327.0
+      with:
+        ruby-version: '3.4'
+        bundler-cache: true
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: '21'
+
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@v6.3.0
+      with:
+        cache-provider: basic
+
+    - name: Create local.properties
+      run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+    - name: Run common tests on the JVM
+      run: ./gradlew jvmTest
+
+    - name: Decode signing keystore
+      env:
+        SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+      run: echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+    - name: Build release AAB
+      env:
+        SIGNING_STORE_FILE: ${{ runner.temp }}/release.jks
+        SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+        SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      run: ./gradlew :app:android:bundleRelease
+
+    - name: Upload AAB
+      uses: actions/upload-artifact@v7
+      with:
+        name: release-aab
+        path: app/android/build/outputs/bundle/release/android-release.aab
+        if-no-files-found: error
+        retention-days: 90
+
+    - name: Decode Play Store service account key
+      env:
+        GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+      run: echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" | base64 -d > "$RUNNER_TEMP/play-service-account.json"
+
+    - name: Create changelog
+      env:
+        WHATS_NEW_EN: ${{ inputs.whats_new_en }}
+      run: |
+        mkdir -p fastlane/metadata/android/en-US/changelogs
+        printf '%s\n' "$WHATS_NEW_EN" > fastlane/metadata/android/en-US/changelogs/default.txt
+
+    - name: Upload to Play Store
+      env:
+        GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_PATH: ${{ runner.temp }}/play-service-account.json
+        PLAY_TRACK: ${{ inputs.track }}
+        SUBMIT_FOR_REVIEW: ${{ inputs.submit_for_review }}
+      run: bundle exec fastlane android deploy
+
+    - name: Create version tag and release ${{ steps.version.outputs.tag }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION_TAG="${{ steps.version.outputs.tag }}"
+        AAB="$RUNNER_TEMP/synth-divelog-$VERSION_TAG.aab"
+        cp app/android/build/outputs/bundle/release/android-release.aab "$AAB"
+        git tag "$VERSION_TAG" 2>/dev/null || true
+        git push origin "$VERSION_TAG" 2>/dev/null || true
+        gh release view "$VERSION_TAG" &>/dev/null && \
+          gh release upload "$VERSION_TAG" "$AAB" --clobber || \
+          gh release create "$VERSION_TAG" \
+            --target "$(git rev-parse HEAD)" \
+            --title "$VERSION_TAG" \
+            --notes "Release $VERSION_TAG" \
+            "$AAB"
+
+    - name: Cleanup secrets
+      if: always()
+      run: rm -f "$RUNNER_TEMP/release.jks" "$RUNNER_TEMP/play-service-account.json"
