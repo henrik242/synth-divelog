@@ -28,7 +28,7 @@ import no.synth.divelog.ui.BuildInfo
 import no.synth.divelog.ui.components.CloudCredentialsDialog
 
 /**
- * Units, export, maintenance and dive computers. A null [onCloudPush] hides the cloud
+ * Units, export, maintenance, dive computers and attributions. A null [onCloudPush] hides the cloud
  * export; its credentials are kept in [settings].
  */
 @Composable
@@ -40,6 +40,7 @@ fun SettingsSection(
     onReparse: () -> Unit,
     onCloudPush: ((email: String, pass: String) -> Unit)?,
     onOpenComputers: () -> Unit,
+    onOpenAttributions: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -108,6 +109,13 @@ fun SettingsSection(
         Text("Dive computers", style = MaterialTheme.typography.titleMedium)
         OutlinedButton(onClick = onOpenComputers, modifier = Modifier.fillMaxWidth()) {
             Text("Dive computers")
+        }
+
+        HorizontalDivider()
+
+        Text("About", style = MaterialTheme.typography.titleMedium)
+        OutlinedButton(onClick = onOpenAttributions, modifier = Modifier.fillMaxWidth()) {
+            Text("Attributions")
         }
 
         Text(

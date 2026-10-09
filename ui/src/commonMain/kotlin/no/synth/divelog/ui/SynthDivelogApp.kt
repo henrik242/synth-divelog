@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -42,6 +43,7 @@ import no.synth.divelog.ui.labels.LabelDetail
 import no.synth.divelog.ui.labels.LabelKind
 import no.synth.divelog.ui.labels.LabelList
 import no.synth.divelog.ui.settings.ComputersScreen
+import no.synth.divelog.ui.settings.AttributionsScreen
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.CountryPlaces
 import no.synth.divelog.ui.sites.PlaceSites
@@ -150,7 +152,8 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         selected = nav.section == s,
                         onClick = { nav.section = s },
                         icon = { Icon(if (nav.section == s) s.selectedIcon else s.icon, contentDescription = s.label) },
-                        label = { Text(s.label) },
+                        // Seven tabs on a phone: one line, a size down, or "Settings" wraps.
+                        label = { Text(s.label, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelSmall) },
                     )
                 }
             }
@@ -226,7 +229,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         { tool -> if (tool == null) back() else nav.push(Screen.ToolPage(tool)) },
                         blender, tank, modEnd, planner, unitSystem,
                     )
-                    Section.SETTINGS -> SettingsSection(
+                    Section.SETTINGS -> if (top == Screen.Attributions) AttributionsScreen() else SettingsSection(
                         settings = settings,
                         unitSystem = unitSystem,
                         onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
@@ -234,6 +237,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         onReparse = onReparse,
                         onCloudPush = onCloudPush,
                         onOpenComputers = { nav.push(Screen.Computers(null)) },
+                        onOpenAttributions = { nav.push(Screen.Attributions) },
                     )
                 }
             }
@@ -270,5 +274,6 @@ private fun diveLabel(dive: Dive?): String = dive?.number?.let { "Dive #$it" } ?
 private fun fixedLabel(screen: Screen): String = when (screen) {
     is Screen.ToolPage -> screen.tool.label
     is Screen.Computers -> "Dive computers"
+    Screen.Attributions -> "Attributions"
     else -> "Edit"
 }

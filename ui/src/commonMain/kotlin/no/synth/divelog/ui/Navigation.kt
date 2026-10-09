@@ -48,6 +48,8 @@ internal sealed interface Screen {
 
     /** The dive computers page; [focusDeviceId] scrolls to and highlights that device. */
     data class Computers(val focusDeviceId: Long?) : Screen
+
+    data object Attributions : Screen
 }
 
 /**
@@ -111,6 +113,7 @@ private fun Screen.encode(): String = when (this) {
     is Screen.Tag -> "Tag:$tagId"
     is Screen.ToolPage -> "Tool:${tool.name}"
     is Screen.Computers -> "Computers:${focusDeviceId ?: ""}"
+    Screen.Attributions -> "Attributions"
 }
 
 private fun decodeScreen(text: String): Screen? {
@@ -128,6 +131,7 @@ private fun decodeScreen(text: String): Screen? {
         "Tag" -> id?.let(Screen::Tag)
         "Tool" -> Tool.entries.firstOrNull { it.name == arg }?.let(Screen::ToolPage)
         "Computers" -> Screen.Computers(id)
+        "Attributions" -> Screen.Attributions
         else -> null
     }
 }

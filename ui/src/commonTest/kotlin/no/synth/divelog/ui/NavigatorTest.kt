@@ -15,7 +15,7 @@ class NavigatorTest {
                 Section.SITES to listOf(Screen.Country(1), Screen.Place(2), Screen.Site(4), Screen.SiteEdit(4)),
                 Section.TAGS to listOf(Screen.Tag(5)),
                 Section.TOOLS to listOf(Screen.ToolPage(Tool.MOD_END)),
-                Section.SETTINGS to listOf(Screen.Computers(null)),
+                Section.SETTINGS to listOf(Screen.Attributions),
                 Section.BUDDIES to listOf(Screen.Buddy(6), Screen.Computers(7)),
             ),
         )
