@@ -28,6 +28,9 @@ class DecoPlannerTest {
         descentRate = 23000,
         ascentRates = AscentRates(ft(30), ft(10)),
         lastStopDeep = true,
+        // Subsurface switches by pO2 only and has no travel gas.
+        maxEndMm = null,
+        travelGas = false,
     )
 
     // testImperial: the same in feet, 260 ft, 75 ft/min descent, 10 ft stops.
@@ -301,5 +304,32 @@ class DecoPlannerTest {
         assertEquals(listOf(0, 6000, 9000), DecoPlanner.stopLevels(imperial = false, lastStopDeep = true).take(3))
         assertEquals(listOf(0, 3048, 6096), DecoPlanner.stopLevels(imperial = true, lastStopDeep = false).take(3))
         assertEquals(380000, DecoPlanner.stopLevels(imperial = false, lastStopDeep = false).last())
+    }
+
+    // 100 m for 35 min on 10/70 with the standard trimixes and nitrox for deco.
+    private val deepTrimix = DivePlan(
+        levels = listOf(PlanLevel(100000, 35 * 60)),
+        bottomGas = BreathingGas(100, 700),
+        decoGases = listOf(BreathingGas(150, 550), BreathingGas(180, 450), BreathingGas(210, 350), BreathingGas(500), BreathingGas.OXYGEN),
+    )
+
+    @Test
+    fun decoGasesAreNotSwitchedToDeeperThanTheEndLimitAllows() {
+        val plan = DecoPlanner.plan(deepTrimix)
+        // At 1.6 they would go in at 93, 78 and 63 m with an END of 36-38 m; END 30 m caps them.
+        assertEquals(
+            listOf("15/55" to 78000, "18/45" to 60000, "21/35" to 51000, "EAN50" to 21000, "Oxygen" to 6000),
+            switches(plan).drop(1),
+        )
+        assertTrue(plan.warnings.none { it is PlanWarning.HighEnd }, plan.warnings.toString())
+    }
+
+    @Test
+    fun descendsOnATravelGasWhileTheBottomGasIsHypoxic() {
+        val plan = DecoPlanner.plan(deepTrimix)
+        assertTrue(plan.warnings.none { it is PlanWarning.LowPpO2 }, plan.warnings.toString())
+        val first = plan.segments.first()
+        assertEquals(BreathingGas(180, 450), first.gas)
+        assertEquals(6000, first.endDepthMm)
     }
 }

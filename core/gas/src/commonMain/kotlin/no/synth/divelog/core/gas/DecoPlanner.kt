@@ -5,6 +5,7 @@ package no.synth.divelog.core.gas
 
 import no.synth.divelog.core.model.units.ATM_BAR
 import no.synth.divelog.core.model.units.feetToMm
+import kotlin.math.ceil
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.pow
@@ -31,7 +32,7 @@ data class DivePlan(
     val decoGases: List<BreathingGas> = emptyList(),
     val gf: GradientFactors = GradientFactors(0.30, 0.75),
     val bottomPpO2Mbar: Int = 1400,
-    /** Deco gases are switched to at the depth where they reach this pO2. */
+    /** Deco gases are switched to where they reach this pO2, or shallower to keep within [maxEndMm]. */
     val decoPpO2Mbar: Int = 1600,
     val descentRate: Int = 18000,
     val ascentRates: AscentRates = AscentRates(),
@@ -45,8 +46,16 @@ data class DivePlan(
     val decoSacMlPerMin: Int = 17000,
     /** Time spent at a switch before ascending further, unless switching to oxygen. */
     val gasSwitchS: Int = 60,
-    /** END above this is warned about; O2 counts as narcotic. Null for no END check. */
+    /**
+     * END limit; O2 counts as narcotic. Deco gases are not switched to deeper than this allows,
+     * and going over it is warned about. Null for no END limit.
+     */
     val maxEndMm: Int? = 30000,
+    /**
+     * When the bottom gas is hypoxic at the surface, descend on the leanest other gas that is
+     * within the limits until the bottom gas is breathable.
+     */
+    val travelGas: Boolean = true,
 ) {
     init {
         require(levels.isNotEmpty()) { "A plan needs at least one level" }
@@ -152,7 +161,41 @@ private class PlanRun(private val plan: DivePlan) {
 
     private val stepMm = if (plan.imperialStops) feetToMm(10) else 3000
     // Where each deco gas is switched to; the pO2 check tolerates it from there up.
-    private val switches = plan.decoGases.map { GasChange(water.switchDepthMm(it, plan.decoPpO2Mbar, stepMm), it) }
+    private val switches = plan.decoGases.map { GasChange(switchDepthMm(it), it) }
+
+    /** Where [gas] reaches the deco pO2, or the stop above where its END would pass the limit. */
+    private fun switchDepthMm(gas: BreathingGas): Int {
+        val byPpO2 = water.switchDepthMm(gas, plan.decoPpO2Mbar, stepMm)
+        val byEnd = endLimitMm(gas) ?: return byPpO2
+        return minOf(byPpO2, byEnd / stepMm * stepMm)
+    }
+
+    /** Deepest depth, mm, where [gas]'s END is within the limit; null without a limit. */
+    private fun endLimitMm(gas: BreathingGas): Int? {
+        val maxEnd = plan.maxEndMm ?: return null
+        if (gas.he >= 1000) return null
+        return water.depthMm(water.mbar(maxEnd) * 1000 / (1000 - gas.he))
+    }
+
+    /**
+     * The gas to descend on until [depthMm], where the bottom gas becomes breathable: the leanest
+     * other gas that is breathable at the surface and within the bottom pO2 and END limits at
+     * [depthMm]. Null when none qualifies.
+     */
+    private fun travelGas(depthMm: Int): BreathingGas? = plan.decoGases
+        .filter { gas ->
+            gas.o2 / 1000.0 * water.bar(0) >= MIN_PPO2 &&
+                ppO2Mbar(gas, depthMm) <= plan.bottomPpO2Mbar &&
+                (endLimitMm(gas)?.let { depthMm <= it } ?: true)
+        }
+        .minWithOrNull(compareBy<BreathingGas> { it.o2 }.thenByDescending { it.he })
+
+    /** First stop-grid depth, mm, where the bottom gas is no longer hypoxic. */
+    private fun bottomGasBreathableMm(): Int {
+        val minMbar = MIN_PPO2 * 1_000_000 / plan.bottomGas.o2
+        val depth = water.depthMm(ceil(minMbar).toInt())
+        return (depth + stepMm - 1) / stepMm * stepMm
+    }
 
     fun run(): DecoPlan {
         val tissues = Tissues.atSurface(surfaceBar)
@@ -251,6 +294,14 @@ private class PlanRun(private val plan: DivePlan) {
             val rate = if (diff > 0) plan.descentRate else plan.ascentRates.ascent
             val travel = if (diff == 0) 0 else max(1, (if (diff > 0) diff else -diff) * 60 / rate)
             if (travel > level.durationS) return false
+            // Leave the surface on a travel gas while the bottom gas is hypoxic.
+            if (depth == 0 && plan.travelGas && ppO2Mbar(plan.bottomGas, 0) < MIN_PPO2 * 1000) {
+                val switchMm = bottomGasBreathableMm()
+                val gas = travelGas(switchMm)
+                if (gas != null && switchMm in 1 until level.depthMm) {
+                    waypoints.add(Waypoint(time + max(1, switchMm * 60 / plan.descentRate), switchMm, gas, bottom = true))
+                }
+            }
             if (travel > 0) waypoints.add(Waypoint(time + travel, level.depthMm, plan.bottomGas, bottom = true))
             time += level.durationS
             if (level.durationS > travel) waypoints.add(Waypoint(time, level.depthMm, plan.bottomGas, bottom = true))

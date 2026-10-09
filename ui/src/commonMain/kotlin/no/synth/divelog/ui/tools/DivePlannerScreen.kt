@@ -122,6 +122,7 @@ class DivePlannerState {
     var lastAscentRate by mutableStateOf("9")
     var lastStopDeep by mutableStateOf(false)
     var saltWater by mutableStateOf(true)
+    var hideAscents by mutableStateOf(false)
     var surfaceMbar by mutableStateOf("1013")
     var bottomSac by mutableStateOf("20")
     var decoSac by mutableStateOf("17")
@@ -261,7 +262,11 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
                 OptionPicker("Bottom pO2 (bar)", state.bottomPpO2, listOf("1.2", "1.3", "1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.bottomPpO2 = it }
                 OptionPicker("Deco pO2 (bar)", state.decoPpO2, listOf("1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.decoPpO2 = it }
             }
-            Hint("The gas with the least O2 is the bottom gas. The others are switched to at the stop where they reach the deco pO2.")
+            Hint(
+                "The gas with the least O2 is the bottom gas. The others are switched to at the stop where they " +
+                    "reach the deco pO2, or shallower to stay within the max END. A bottom gas too lean for the " +
+                    "surface is reached on the leanest other gas that is.",
+            )
         }
 
         ToolCard("Settings") {
@@ -313,7 +318,7 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
             else -> {
                 ResultCard(result, state.units)
                 if (result.warnings.isNotEmpty()) WarningsCard(result.warnings, state.units)
-                RuntimeTable(result, state.units)
+                RuntimeTable(result, state.units, state.hideAscents) { state.hideAscents = it }
             }
         }
     }
@@ -438,11 +443,12 @@ private fun phaseOf(s: PlanSegment): String = when {
 }
 
 @Composable
-private fun RuntimeTable(plan: DecoPlan, units: UnitSystem) {
+private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, hideAscents: Boolean, onHideAscents: (Boolean) -> Unit) {
     ToolCard("Runtime table") {
+        CheckRow("Hide ascents", hideAscents, onChange = onHideAscents)
         TableRow(header = true, cells = listOf("", "Depth", "Time", "Run", "Gas"))
         HorizontalDivider()
-        tableLines(plan).forEach { line ->
+        tableLines(plan).filter { !hideAscents || it.phase != "Ascent" }.forEach { line ->
             TableRow(
                 header = false,
                 cells = listOf(line.phase, depth(line.depthMm, units), Format.duration(line.durationS), minutes(line.runtimeS), line.gas.name),
