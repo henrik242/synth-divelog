@@ -94,7 +94,7 @@ class PlannerGas(o2: String, he: String) {
 /** GUE's standard gases, from the leanest bottom gas to oxygen. */
 private val STANDARD_GASES = listOf(
     BreathingGas(100, 700), BreathingGas(150, 550), BreathingGas(180, 450), BreathingGas(210, 350),
-    BreathingGas(300, 300), BreathingGas(320), BreathingGas(350, 250), BreathingGas(500), BreathingGas(1000),
+    BreathingGas(320), BreathingGas(500), BreathingGas(1000),
 )
 
 /**
