@@ -1,76 +1,47 @@
 # Suunto serial layer
 
-Planning notes for a future USB-cable download of Suunto dive computers. **None of
-this is verified against hardware yet** - it is distilled from reverse-engineering
-references and should be confirmed against a real capture before relying on it.
-Treated as facts to write original code against, not copied from any implementation.
+The USB cable, the two Suunto serial protocol families and the transports that
+drive them. The HelO2 download is verified on the real cable; the old-Vyper family
+is not yet.
 
 ## Physical link
 
-Both target devices connect through Suunto's "old" USB interface cable (the
-rotating connector with the red alignment dot). The cable is a USB-to-RS232 bridge
-plus Suunto's interface electronics; the dive computer speaks plain RS232 behind it.
+Both families connect through Suunto's "old" USB interface cable (the rotating
+connector with the red alignment dot): a USB-to-RS232 bridge plus Suunto's interface
+electronics, with plain RS232 behind it.
 
-- **Chipset:** usually **FTDI** (appears as a standard serial port; default FTDI
-  VID `0x0403` / PID `0x6001`). Some older or third-party cables are **Prolific
-  PL2303**. Detect both.
-- **Line parameters differ by protocol family** (the cable is dumb; the host sets
-  these) - see the per-family notes below.
+- **Chipset:** usually **FTDI** (VID `0x0403` / PID `0x6001`); some older or
+  third-party cables are **Prolific PL2303** (VID `0x067B`).
+- **Line settings differ by family.** The cable is dumb; the host sets them.
+- `DTR` held high powers the interface. Both families are half-duplex with `RTS`
+  high to transmit and low to receive.
 
-## Two protocol families (this is the key structural fact)
+## Two protocol families
 
-Suunto's serial devices split into two incompatible protocols. Each is a separate
-implementation.
+Suunto's serial devices split into two incompatible protocols:
 
-| Family | Line params | Members (relevant) | Doc |
+| Family | Line | Members | Doc |
 |---|---|---|---|
-| Old "Vyper" family | 2400 8O1, half-duplex | Spyder, Stinger, Mosquito, **Vyper (original)**, Vytec, Cobra, Gekko, **Zoop** | [suunto-zoop.md](suunto-zoop.md) |
-| Newer "Vyper2" family | 9600 8N1, half-duplex | Vyper2, Cobra2, Cobra3, **Vyper Air**, **HelO2** | [suunto-helo2.md](suunto-helo2.md) |
+| Old "Vyper" | 2400 8O1, cable echoes sent bytes | Zoop, Vyper (original), Vytec, Cobra, Gekko, Stinger, Mosquito, Spyder | [suunto-zoop.md](suunto-zoop.md) |
+| "Vyper2" | 9600 8N1, no echo, 600 ms quiet gap per command | HelO2, Vyper Air, Vyper2, Cobra2, Cobra3 | [suunto-helo2.md](suunto-helo2.md) |
 
-Mapping for the two targets:
-- **Zoop -> old Vyper family.**
-- **HelO2 -> newer Vyper2 family.**
-- Note: **Vyper Air is in the HelO2 family, not Zoop's**, despite the shared name.
-  Implementing the old-Vyper protocol unlocks Vyper/Gekko/Vytec/Cobra/Stinger/
-  Mosquito; the Vyper2 protocol covers Vyper Air, Vyper2, Cobra2/3 and HelO2.
+- **Vyper Air is in the Vyper2 family**, despite the name.
 - The D-series (D9/D6/D4 and successors) is a third, related protocol and is not
-  implemented.
+  supported.
 
-## Android USB-host feasibility
+## Transports
 
-Proven approach: Android USB Host Mode (USB-OTG), no root, no kernel drivers.
+- `SerialParams` (`core/divecomputer` `transport/`) carries a family's line settings;
+  each protocol owns its `SERIAL_PARAMS`, and `DiveComputerKind` pairs them with the
+  protocol and parser.
+- `SerialLineTransport` (`core/transport` commonMain) applies the line discipline on
+  every platform: DTR for the session, a power-up wait where set, and per write the quiet gap
+  (`txIdleMs`), an input flush, RTS to transmit, a wait until the bytes have left the
+  UART, RTS to receive, and the echo discard where the cable echoes.
+- It runs over jSerialComm on desktop (`JSerialCommTransport`) and over
+  usb-serial-for-android on Android (`UsbSerialTransport`). Android needs a USB-OTG
+  adapter and the user's USB device permission (`UsbSerialDevices`), and its reads
+  fill a whole USB packet buffer because the library can drop data on smaller reads.
+- iOS has no USB host, so no Suunto download there.
 
-- Library candidate: **usb-serial-for-android** (mik3y). Covers FTDI, PL2303,
-  CP210x, CDC-ACM, CH34x, and exposes `setRTS()` / `setDTR()` and parity config -
-  both are required for the half-duplex old-Vyper scheme.
-- Needs a USB-OTG adapter (USB-C host on the test phone), the `android.hardware.usb.host`
-  feature, and a runtime USB device permission via `UsbManager` (system dialog, or
-  an intent-filter + `device_filter.xml` on VID/PID to auto-grant).
-- A `UsbSerialTransport` implementing the existing `Transport` interface slots in
-  next to `BluetoothRfcommTransport`, so the protocol code stays platform-neutral.
-
-## Implementation status
-
-- `UsbSerialTransport` (Android, `core/transport` androidMain) wraps
-  usb-serial-for-android: it applies baud/parity/stop bits from `SerialParams`,
-  holds DTR high, and for a half-duplex line flips RTS around each write and
-  discards the echoed bytes. `UsbSerialDevices` enumerates adapters and opens one
-  after the USB permission is granted.
-- `JSerialCommTransport` (desktop, `core/transport` jvmMain) is the JVM equivalent
-  over jSerialComm, same contract.
-- `SerialParams` (in `core/divecomputer` transport package) carries the line
-  settings so the protocol owns them; `DiveComputerKind` selects the protocol, its
-  `SerialParams` and its parser, the way the Bluetooth path picks Petrel vs
-  Predator.
-- iOS: not applicable (no USB host), skipped.
-
-The HelO2 download is verified on the real cable on desktop; the old-Vyper family
-is not yet. See `SUUNTO-TESTING.md` at the repo root.
-
-## Suggested milestone split
-
-Two sub-tasks, not one, because the protocols differ:
-1. **USB transport + old-Vyper (Zoop)** first - it exercises the hardest path
-   (half-duplex RTS/DTR, odd parity). Harder transport, simpler data model.
-2. **Vyper2 (HelO2)** - 9600 8N1 half-duplex with a 600 ms quiet gap per command,
-   richer parser (trimix, multiple gases, deco).
+Testing on hardware: [suunto-testing.md](suunto-testing.md).

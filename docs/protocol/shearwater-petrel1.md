@@ -7,12 +7,10 @@ record uses the same older log format the Predator does, so
 `PredatorParser` handles both. See [transport.md](transport.md) for the link,
 framing and command set.
 
-Status (2026-10-03): **verified end to end** against a real Petrel 1 — one clean
-run downloaded 603 dives across 13 manifest pages with zero protocol errors. The
-long-standing Bluetooth link drops during the first data block were a transport
-problem, fixed by preferring an **insecure RFCOMM socket** (see transport.md). The
-per-dive base address (`0xC0000000`) and the compressed-dive decode are confirmed
-by that run.
+Status (2026-10-03): **verified end to end** against a real Petrel 1: one run
+downloaded 603 dives across 13 manifest pages with zero protocol errors. Earlier
+link drops during the first data block were fixed by preferring an insecure RFCOMM
+socket (see [transport.md](transport.md)).
 
 ## Why the Predator path does not work here
 
@@ -97,5 +95,6 @@ after the exit reply) before the socket closes. Not yet investigated. **Open ite
 
 ## Protocol selection
 
-The app picks this protocol when the paired Bluetooth device name contains
-"petrel" (case-insensitive); otherwise it uses the Predator full-dump protocol.
+The user picks the model (Petrel or Predator) in the download picker
+(`DiveComputerKind.SHEARWATER_PETREL` vs `SHEARWATER_PREDATOR`); the device name
+is not used to choose the protocol.

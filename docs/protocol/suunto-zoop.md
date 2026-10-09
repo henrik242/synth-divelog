@@ -1,17 +1,18 @@
 # Suunto Zoop (old Vyper family)
 
-Planning notes, **not verified against hardware**. Covers the old-Vyper serial
-protocol shared by the Zoop, original Vyper, Vytec, Cobra, Gekko, Stinger and
-Mosquito. See [suunto-serial.md](suunto-serial.md) for the USB layer and family
-split.
+The old-Vyper serial protocol shared by the Zoop, original Vyper, Vytec, Cobra,
+Gekko, Stinger and Mosquito. Implemented and unit-tested, **not yet verified against
+hardware**: the facts below come from open-source references and await a
+capture ([suunto-testing.md](suunto-testing.md)). See
+[suunto-serial.md](suunto-serial.md) for the cable and family split.
 
 ## Line and direction control
 
 - **2400 baud, 8 data bits, odd parity, 1 stop bit (2400 8O1).**
 - **Half-duplex.** `RTS` toggles line direction: set `RTS` to transmit, clear it to
   receive. `DTR` must stay set the whole session - it powers the interface.
-- Timing (approximate, to confirm): ~200 ms settle before clearing `RTS`, ~400 ms
-  after clearing before reading, ~500 ms receive timeout.
+- Timing (to confirm): ~200 ms settle before clearing `RTS`, ~400 ms after clearing
+  before reading (`txSettleMs` / `rxSettleMs`). The code waits up to 3 s for a reply.
 - Because it is half-duplex, **bytes sent are echoed back on RX** and must be read
   and discarded before the real reply.
 
@@ -29,8 +30,7 @@ split.
 
 ## Memory and dive layout
 
-Header fields (absolute addresses, confirmed against the family protocol notes,
-not yet against a capture):
+Header fields (absolute addresses):
 
 | Address | Size | Field |
 |---|---|---|
@@ -57,9 +57,9 @@ not yet against a capture):
   the surface. Zoop records depth + temperature only (Cobra/Vyper Air add tank
   pressure). The sample interval lives in the device header (Zoop default 20 s).
 
-## Implementation status
+## Code
 
-Implemented in `core/divecomputer` `suunto/`:
+In `core/divecomputer` `suunto/`:
 
 - `SuuntoVyperMemory` - the `0x05` paged read with XOR CRC, over `Transport`.
 - `SuuntoVyperDump` - ring linearisation from the write pointer and split into
@@ -68,19 +68,16 @@ Implemented in `core/divecomputer` `suunto/`:
   temperature.
 - `SuuntoVyperProtocol` - `DiveComputerProtocol`; carries the `SERIAL_PARAMS`.
 
-**Verified by unit tests** (`SuuntoVyperTest`, `SuuntoVyperProtocolTest`): the CRC,
-the paged read framing in both directions (via a fake device and `ReplayTransport`),
-ring extraction incl. the wrap, and the depth/temperature parser against a
-hand-built memory image.
+Unit tests (`SuuntoVyperTest`, `SuuntoVyperProtocolTest`) cover the CRC, the paged
+read framing in both directions (fake device and `ReplayTransport`), ring extraction
+including the wrap, and the parser against a hand-built memory image.
 
-**Not yet verified against hardware:** the exact head layout, the per-dive
-date/time (so `startEpochSeconds` is left 0 and identity uses a content
-fingerprint), and the sample interval. Known edge case: an oldest dive whose head
-begins with `0x00` can lose those leading bytes to the unwritten-gap trim; confirm
-and refine against a real capture. See `SUUNTO-TESTING.md`.
+## Open items
 
-## Effort / risk
-
-Moderate - the data format is tiny and documented, but the half-duplex timing and
-`RTS`/`DTR`/odd-parity dance is the classic source of flakiness. Risk is in the
-transport/timing layer, not the parsing.
+- The exact head layout and the sample interval.
+- The per-dive date/time: `startEpochSeconds` is 0 for now, and identity uses a
+  content fingerprint.
+- An oldest dive whose head begins with `0x00` can lose those leading bytes to the
+  unwritten-gap trim.
+- The half-duplex timing (RTS/DTR settle, echo discard) is the likeliest source of
+  flakiness; the data format is small.

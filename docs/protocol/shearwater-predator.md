@@ -37,7 +37,7 @@ tag it:
 | `FF FE` | closing block of a dive |
 | all `FF` | empty block |
 
-Extraction:
+Extraction (`PredatorDump`):
 
 1. Scan the ring for opening (`FF FF`) and closing (`FF FE`) blocks.
 2. Pair each opening with the **next closing in circular order**, wrapping once

@@ -1,39 +1,38 @@
 # Dive computer protocols
 
-Reference notes for the download protocols Synth Divelog speaks, written against
-real hardware. Each fact here has either been observed on a device we own or
-verified by matching parsed output to the device's own screen; anything still
-unconfirmed is marked as such.
+Reference notes for the download protocols Synth Divelog speaks. Each fact was
+observed on a device we own or checked by matching parsed output to the device's
+own screen; anything unconfirmed is marked as such. libdivecomputer and Subsurface
+served as references where a note says so.
 
-These notes describe wire formats as facts. They are not copied from any other
-implementation; where a value could not be observed directly it is called out as
-a guess to be confirmed against the next capture.
-
-## Layers
-
-| Doc | Scope |
-|---|---|
-| [transport.md](transport.md) | Bluetooth/serial link, SLIP framing, packet header and the shared upload command set. Common to every Shearwater device. |
-| [shearwater-predator.md](shearwater-predator.md) | Predator download: one uncompressed memory dump, ring-buffer extraction, dive-log field offsets. |
-| [shearwater-petrel1.md](shearwater-petrel1.md) | Petrel 1 download: dive manifest, per-dive compressed reads, the compression scheme. Reuses the Predator log format. |
-| [suunto-serial.md](suunto-serial.md) | Suunto USB cable, chipsets, and the two Suunto protocol families. USB/desktop transports implemented; the HelO2 download is verified on the real cable. |
-| [suunto-zoop.md](suunto-zoop.md) | Zoop / old-Vyper family serial protocol. Implemented and unit-tested; **unverified against hardware.** |
-| [suunto-helo2.md](suunto-helo2.md) | HelO2 / Vyper2 family serial protocol. Framing, incremental download and the HelO2 parser implemented; verified on hardware (full download). |
+| Doc | Scope | Hardware status |
+|---|---|---|
+| [transport.md](transport.md) | Shearwater Bluetooth link, SLIP framing, packet header, upload command set. | Verified |
+| [shearwater-predator.md](shearwater-predator.md) | Predator: one memory dump, ring-buffer extraction, dive-log field offsets. | Verified |
+| [shearwater-petrel1.md](shearwater-petrel1.md) | Petrel 1: dive manifest, compressed per-dive reads. Reuses the Predator log format. | Verified |
+| [suunto-serial.md](suunto-serial.md) | Suunto USB cable, chipsets, the two protocol families, the serial transports. | Verified (HelO2) |
+| [suunto-helo2.md](suunto-helo2.md) | HelO2 / Vyper2 family: framing, timing, incremental download. | Verified |
+| [suunto-zoop.md](suunto-zoop.md) | Zoop / old-Vyper family. | **Unverified** |
+| [suunto-testing.md](suunto-testing.md) | Testing a Suunto download on the real cable; first-Vyper checklist. | - |
 
 ## How to read a field offset
 
-Offsets are byte positions from the start of the named block. `BE16` / `BE32`
-mean big-endian 16- or 32-bit unsigned integers. A `@+N` suffix is an offset into
-the current block.
+`+N` is a byte offset from the start of the named block. `BE16` / `BE32` are
+big-endian 16- or 32-bit unsigned integers, `u8` / `i8` an unsigned / signed byte.
 
 ## Capturing a session
 
-Every download records a transcript (`RecordingTransport`) saved under the app's
-`files/captures/`. Pull one with:
+On Android every download records its wire exchange (`RecordingTransport`) to
+`files/captures/`. Pull one from the debug build with:
 
 ```sh
-adb exec-out run-as no.synth.divelog cat files/captures/<name>.transcript.txt
+adb exec-out run-as no.synth.divelog.debug cat files/captures/<name>.transcript.txt
 ```
 
-Transcripts are the ground truth for revising these notes. They can be replayed
-offline against the parser with `ReplayTransport`.
+On desktop, `./gradlew :app:desktop:suuntoCapture` saves a transcript of a Suunto
+download (see [suunto-testing.md](suunto-testing.md)), and
+`./gradlew :app:desktop:shearwaterCapture` runs a Shearwater download over Bluetooth
+on macOS and prints the dives.
+
+Transcripts are the ground truth for revising these notes. `ReplayTransport` replays
+one offline against the protocol and parser, as in `PredatorCaptureRegressionTest`.

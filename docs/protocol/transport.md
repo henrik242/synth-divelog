@@ -1,8 +1,7 @@
 # Shearwater transport layer
 
-The link, framing, packet header and upload command set shared by every
-Shearwater device we support (Predator, Petrel 1). The device-specific docs build
-on this.
+The link, framing, packet header and upload command set shared by the Shearwater
+Predator and Petrel 1. The device-specific docs build on this.
 
 ## Physical link
 
@@ -10,25 +9,23 @@ on this.
   `00001101-0000-1000-8000-00805F9B34FB`.
 - **Prefer an insecure (unencrypted) RFCOMM socket**, falling back to a secure
   one only if the insecure connect is refused. Older radios (the Petrel 1 in
-  particular) carry the small init handshake fine over a secure/encrypted channel
-  but drop the ACL link the moment the first full data block flows. The tell is a
-  pairing-code (`0000`) prompt appearing on *every* connect: that means an
-  encrypted socket is forcing re-pairing. Insecure RFCOMM skips that and keeps the
-  link up under load. Verified on a Petrel 1, 2026-10-03: secure socket always
-  dropped mid-transfer; insecure socket completed a download.
-  Implemented in `BluetoothRfcommTransport.connectPreferInsecure()`.
+  particular) carry the small init handshake over an encrypted channel but drop the
+  ACL link as soon as the first full data block flows. The tell is a pairing-code
+  (`0000`) prompt on *every* connect. Verified on a Petrel 1, 2026-10-03: the secure
+  socket always dropped mid-transfer; the insecure one completed a download.
+  Android: `BluetoothRfcommTransport.connectPreferInsecure()`.
 - The Android `BluetoothSocket` input stream has **no read timeout**. A reader
-  thread drains it into a queue and reads wait with a deadline
-  (`BluetoothRfcommTransport`).
+  thread drains it into a queue (`QueuedStream`) and reads wait with a deadline.
 - **Desktop macOS:** opening a paired device's `/dev/cu.*` node does not bring the
   Bluetooth link up (macOS 27: the port opens instantly, all modem lines high, and no
   connection is ever attempted). The desktop instead runs the bundled
   `rfcomm-bridge` helper (`app/desktop/native/rfcomm-bridge.swift`), which opens the
   device's SPP channel through IOBluetooth and relays it over stdin/stdout;
-  `MacRfcommTransport` drives it. Connecting takes ~3 s, so `ShearwaterLink` waits up
-  to 10 s for the first reply. Verified on a Petrel 1, 2026-10-08.
-- For a future wired (USB/serial) transport the line settings are **115200 8N1,
-  no flow control**, read timeout ~3000 ms. Baud is irrelevant over RFCOMM.
+  `MacRfcommTransport` drives it and allows the bridge 20 s to connect. Connecting
+  takes ~3 s, so `ShearwaterLink` waits up to 10 s for the first reply. Verified on a
+  Petrel 1, 2026-10-08.
+- A wired (USB/serial) link would use **115200 8N1, no flow control**, read timeout
+  ~3000 ms (`ShearwaterLink.SERIAL_PARAMS`). Baud is irrelevant over RFCOMM.
 
 ## SLIP framing (RFC 1055)
 
@@ -69,11 +66,11 @@ bit set (`cmd | 0x40` for read/write, or the dedicated upload codes below).
 | Upload init    | `35` | `75` | announce address + length |
 | Transfer data  | `36` | `76` | fetch next block |
 | Upload exit    | `37` | `77` | end the transfer |
-| Negative ack   | —    | `7F` | `7F [reqCmd] [errCode]` |
+| Negative ack   | -    | `7F` | `7F [reqCmd] [errCode]` |
 
 This is a diagnostic-style (ISO 14229 / UDS) request/upload sequence.
 
-### Upload init — `35`
+### Upload init - `35`
 
 ```
 35 [comp] 34 [addr: BE32] [size: BE24]
@@ -86,7 +83,7 @@ This is a diagnostic-style (ISO 14229 / UDS) request/upload sequence.
   real Predator replied `75 10 82` -> maxlen `0x82` = 130. Fallback 254 if the
   field is unreadable.
 
-### Transfer data — `36`
+### Transfer data - `36`
 
 ```
 36 [seq]          (V1: two bytes, command + sequence counter)
@@ -101,7 +98,7 @@ This is a diagnostic-style (ISO 14229 / UDS) request/upload sequence.
 - Response: `76 [seq] <data...>`. The echoed `seq` must match the request.
   Accumulate data across blocks.
 
-### Upload exit — `37`
+### Upload exit - `37`
 
 ```
 37  ->  77 [..]
