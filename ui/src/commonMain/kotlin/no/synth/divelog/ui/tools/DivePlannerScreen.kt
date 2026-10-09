@@ -1,6 +1,12 @@
 package no.synth.divelog.ui.tools
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import no.synth.divelog.core.model.Event
+import no.synth.divelog.core.model.EventType
+import no.synth.divelog.core.model.Sample
+import no.synth.divelog.ui.dive.ProfileGraph
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -104,7 +110,7 @@ private val STANDARD_GASES = listOf(
 @Stable
 class DivePlannerState {
     var units by mutableStateOf(UnitSystem.METRIC)
-        private set
+        internal set
     val levels = mutableStateListOf(PlannerLevel("45", "25"))
     /** The gases on the dive; none at first, so no plan until one is added. See [bottomIndex]. */
     val gases = mutableStateListOf<PlannerGas>()
@@ -122,7 +128,18 @@ class DivePlannerState {
     var lastAscentRate by mutableStateOf("9")
     var lastStopDeep by mutableStateOf(false)
     var saltWater by mutableStateOf(true)
-    var hideAscents by mutableStateOf(false)
+    var wholeMinuteStops by mutableStateOf(true)
+    /** Plans the user kept; kept with the inputs by the app. */
+    val saved = mutableStateListOf<SavedPlan>()
+
+    /** "45 m 25 min 21/35": a default name for saving the current plan. */
+    fun summary(): String {
+        val unit = if (units == UnitSystem.METRIC) "m" else "ft"
+        val depth = levels.mapNotNull { parseDecimal(it.depth) }.maxOrNull()?.let { "${trimmedDecimal(it)} $unit" }
+        val minutes = levels.sumOf { parseDecimal(it.minutes) ?: 0.0 }.takeIf { it > 0 }?.let { "${trimmedDecimal(it)} min" }
+        val bottom = bottomIndex()?.let { gases[it].parsed()?.name }
+        return listOfNotNull(depth, minutes, bottom).joinToString(" ").ifEmpty { "Plan" }
+    }
     var surfaceMbar by mutableStateOf("1013")
     var bottomSac by mutableStateOf("20")
     var decoSac by mutableStateOf("17")
@@ -221,6 +238,7 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         ModelNote()
+        SavedPlansCard(state)
 
         ToolCard("Bottom profile") {
             state.levels.forEachIndexed { i, level ->
@@ -318,11 +336,77 @@ fun DivePlannerScreen(state: DivePlannerState, unitSystem: UnitSystem) {
             else -> {
                 ResultCard(result, state.units)
                 if (result.warnings.isNotEmpty()) WarningsCard(result.warnings, state.units)
-                RuntimeTable(result, state.units, state.hideAscents) { state.hideAscents = it }
+                ProfileCard(result, state.units)
+                RuntimeTable(result, state.units, state.wholeMinuteStops) { state.wholeMinuteStops = it }
             }
         }
     }
 }
+
+/** Saved plans to load or delete, and saving the current one under a name. */
+@Composable
+private fun SavedPlansCard(state: DivePlannerState) {
+    var naming by remember { mutableStateOf<String?>(null) }
+    ToolCard("Saved plans") {
+        state.saved.forEachIndexed { i, plan ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { state.load(plan.inputs) }, modifier = Modifier.weight(1f)) {
+                    Text(plan.name, Modifier.fillMaxWidth())
+                }
+                IconButton(onClick = { state.saved.removeAt(i) }) { Icon(Icons.Filled.Close, contentDescription = "Delete plan") }
+            }
+        }
+        TextButton(onClick = { naming = state.summary() }) {
+            Icon(Icons.Filled.Add, contentDescription = null)
+            Text("Save plan")
+        }
+    }
+    naming?.let { name ->
+        AlertDialog(
+            onDismissRequest = { naming = null },
+            title = { Text("Save plan") },
+            text = { OutlinedTextField(name, { naming = it }, label = { Text("Name") }, singleLine = true) },
+            confirmButton = {
+                TextButton(enabled = name.isNotBlank(), onClick = {
+                    // Saving under an existing name replaces that plan.
+                    state.saved.removeAll { it.name == name.trim() }
+                    state.saved += SavedPlan(name.trim(), state.toJson())
+                    naming = null
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { naming = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** The planned profile, with a line at each gas switch. */
+@Composable
+private fun ProfileCard(plan: DecoPlan, units: UnitSystem) {
+    val (samples, events) = remember(plan) { profileOf(plan) }
+    ToolCard("Profile") {
+        ProfileGraph(samples, events, units, Modifier.fillMaxWidth())
+    }
+}
+
+/** Depth every [PROFILE_STEP_S] along the plan, and its gas switches as events. */
+private fun profileOf(plan: DecoPlan): Pair<List<Sample>, List<Event>> {
+    val samples = mutableListOf(Sample(0, 0))
+    for (s in plan.segments) {
+        var t = s.startS + PROFILE_STEP_S
+        while (t < s.endS) {
+            val depth = s.startDepthMm + (s.endDepthMm - s.startDepthMm) * (t - s.startS) / s.durationS
+            samples += Sample(t, depth)
+            t += PROFILE_STEP_S
+        }
+        samples += Sample(s.endS, s.endDepthMm)
+    }
+    val events = plan.segments.zipWithNext().filter { (a, b) -> a.gas != b.gas }.map { (_, b) ->
+        Event(b.startS, EventType.GAS_SWITCH, ((b.gas.o2 / 10).toLong() shl 8) or (b.gas.he / 10).toLong())
+    }
+    return samples to events
+}
+
+private const val PROFILE_STEP_S = 30
 
 @Composable
 private fun ModelNote() {
@@ -467,12 +551,12 @@ private fun phaseOf(s: PlanSegment): String = when {
 }
 
 @Composable
-private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, hideAscents: Boolean, onHideAscents: (Boolean) -> Unit) {
+private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, wholeMinuteStops: Boolean, onWholeMinuteStops: (Boolean) -> Unit) {
     ToolCard("Runtime table") {
-        CheckRow("Whole-minute stops", hideAscents, onChange = onHideAscents)
+        CheckRow("Whole-minute stops", wholeMinuteStops, onChange = onWholeMinuteStops)
         TableRow(header = true, cells = listOf("", "Depth", "Time", "Run", "Gas"))
         HorizontalDivider()
-        tableLines(plan, foldAscents = hideAscents).forEach { line ->
+        tableLines(plan, foldAscents = wholeMinuteStops).forEach { line ->
             TableRow(
                 header = false,
                 cells = listOf(line.phase, depth(line.depthMm, units), Format.duration(line.durationS), minutes(line.runtimeS), line.gas.name),
@@ -481,7 +565,7 @@ private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, hideAscents: Boolean
             )
         }
         Hint(
-            if (hideAscents) {
+            if (wholeMinuteStops) {
                 "Each stop's time includes the climb to it, so stops are whole minutes. Run is the runtime when you leave."
             } else {
                 "Time is the segment's length, Run the runtime at its end. Stops end on whole minutes of runtime."

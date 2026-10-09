@@ -8,8 +8,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -17,6 +17,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,9 +25,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -42,8 +47,8 @@ import no.synth.divelog.ui.dive.DivesScreen
 import no.synth.divelog.ui.labels.LabelDetail
 import no.synth.divelog.ui.labels.LabelKind
 import no.synth.divelog.ui.labels.LabelList
-import no.synth.divelog.ui.settings.ComputersScreen
 import no.synth.divelog.ui.settings.AttributionsScreen
+import no.synth.divelog.ui.settings.ComputersScreen
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.CountryPlaces
 import no.synth.divelog.ui.sites.PlaceSites
@@ -56,6 +61,11 @@ import no.synth.divelog.ui.tools.GasBlenderState
 import no.synth.divelog.ui.tools.ModEndState
 import no.synth.divelog.ui.tools.TankBuoyancyState
 import no.synth.divelog.ui.tools.ToolsSection
+import no.synth.divelog.ui.tools.decodePlannerInputs
+import no.synth.divelog.ui.tools.decodeSavedPlans
+import no.synth.divelog.ui.tools.encodeSavedPlans
+import no.synth.divelog.ui.tools.load
+import no.synth.divelog.ui.tools.toJson
 
 /**
  * Root of the shared app. The host builds [services] once per process and supplies the
@@ -84,7 +94,22 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
     val blender = remember { GasBlenderState() }
     val tank = remember { TankBuoyancyState() }
     val modEnd = remember { ModEndState() }
-    val planner = remember { DivePlannerState() }
+    val planner = remember {
+        DivePlannerState().apply {
+            decodePlannerInputs(settings.plannerInputs)?.let { load(it) }
+            saved += decodeSavedPlans(settings.savedPlans)
+        }
+    }
+    // Keep the planner's inputs and saved plans, a moment after the last change.
+    LaunchedEffect(planner) {
+        snapshotFlow { planner.toJson().toString() to encodeSavedPlans(planner.saved) }
+            .drop(1)
+            .collectLatest { (inputs, saved) ->
+                delay(500)
+                settings.plannerInputs = inputs
+                settings.savedPlans = saved
+            }
+    }
     val pageState = rememberSaveableStateHolder()
 
     fun goTo(depth: Int) = nav.popTo(depth)

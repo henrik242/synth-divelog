@@ -82,6 +82,7 @@ kotlin {
             implementation(project(":core:logbook"))
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
+            implementation(libs.kotlinx.serialization.json)
             // Unified Compose map for the dive-site picker and the read-only site map.
             implementation(libs.maplibre.compose)
         }
