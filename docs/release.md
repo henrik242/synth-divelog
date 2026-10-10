@@ -27,12 +27,11 @@ repository secrets). Fastlane is pinned in `Gemfile.lock` and runs through Bundl
 | Secret | What |
 |---|---|
 | `SIGNING_KEYSTORE_BASE64` | Upload keystore, `base64 -i upload.jks \| pbcopy` |
-| `SIGNING_STORE_PASSWORD` | Keystore password |
+| `SIGNING_STORE_PASSWORD` | Keystore password (PKCS12, so also the key password) |
 | `SIGNING_KEY_ALIAS` | Key alias |
-| `SIGNING_KEY_PASSWORD` | Key password |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Play service account key, base64 |
 
-Locally, `SIGNING_STORE_FILE` and the three values above can go in `local.properties` instead;
+Locally, `SIGNING_STORE_FILE` and the two values above can go in `local.properties` instead;
 without them `bundleRelease` produces an unsigned bundle.
 
 ### iOS

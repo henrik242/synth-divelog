@@ -54,14 +54,12 @@ jobs:
         SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
         SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
         SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-        SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
       run: |
         v=".github/verify-secret.sh"
         $v base64 SIGNING_KEYSTORE_BASE64
         $v nonempty SIGNING_STORE_PASSWORD
         $v nonempty SIGNING_KEY_ALIAS
-        $v nonempty SIGNING_KEY_PASSWORD
         $v json GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
 
     - name: Set up Ruby and fastlane
@@ -97,7 +95,6 @@ jobs:
         SIGNING_STORE_FILE: ${{ runner.temp }}/release.jks
         SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
         SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-        SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
       run: ./gradlew :app:android:bundleRelease
 
     - name: Upload AAB

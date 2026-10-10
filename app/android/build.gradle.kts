@@ -43,11 +43,13 @@ android {
         }
         val releaseStore = signingValue("SIGNING_STORE_FILE")?.let { rootProject.file(it) }
         if (releaseStore?.exists() == true) {
+            // PKCS12 keystores use the store password for the key too.
+            val password = signingValue("SIGNING_STORE_PASSWORD")
             create("release") {
                 storeFile = releaseStore
-                storePassword = signingValue("SIGNING_STORE_PASSWORD")
+                storePassword = password
                 keyAlias = signingValue("SIGNING_KEY_ALIAS")
-                keyPassword = signingValue("SIGNING_KEY_PASSWORD")
+                keyPassword = password
             }
         }
     }
