@@ -81,9 +81,9 @@ the track" for those runs.
    base64 it into `PROVISIONING_PROFILE_BASE64`.
 3. App Store Connect -> Apps -> New App with that bundle id.
 4. Before the first review submission, fill in the listing by hand: description, keywords,
-   screenshots (6.9" iPhone, 1320x2868, in `docs/store/ios/`), privacy policy URL, age rating,
-   app privacy answers. Until then run the workflow without "Submit for App Store review" and
-   test through TestFlight.
+   screenshots (`docs/store/ios/`: 1206x2622 for the required medium Dynamic Island size,
+   1320x2868 for large), privacy policy URL, age rating, app privacy answers. Until then run the
+   workflow without "Submit for App Store review" and test through TestFlight.
 
 The Xcode project uses automatic signing with team `358L7UXVJ4` for local builds; the release lane
 switches the app target to manual signing with the profile from the secrets.
