@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import no.synth.divelog.core.db.createDatabase
 import no.synth.divelog.core.logbook.AppServices
 import no.synth.divelog.core.logbook.download.DesktopSerialPorts
+import no.synth.divelog.core.logbook.download.SimulatedSerialPorts
 import no.synth.divelog.core.logbook.io.ExportFile
 import no.synth.divelog.core.logbook.settings.JavaPreferencesStore
 import no.synth.divelog.core.logbook.sync.CloudGit
@@ -30,7 +31,8 @@ fun main() {
         cloud = CloudGit(File(home, "cloud").absolutePath),
     )
     val hooks = PlatformHooks(
-        serialPorts = DesktopSerialPorts(),
+        // SYNTH_DIVELOG_SIMULATOR=1 adds a simulated dive computer to the download ports.
+        serialPorts = DesktopSerialPorts().let { if (System.getenv("SYNTH_DIVELOG_SIMULATOR") == "1") SimulatedSerialPorts(it) else it },
         pickImportFile = { withContext(Dispatchers.IO) { chooseFile("Import logbook", FileDialog.LOAD)?.readBytes() } },
         saveExport = ::saveExport,
     )

@@ -9,7 +9,6 @@ package no.synth.divelog.core.divecomputer.suunto
  * temperature every other tick), then a flat profile with one mid-dive gas switch.
  */
 object SyntheticVyper2 {
-    const val MEM_SIZE = 0x8000
 
     // Values baked into the canonical record, for the parser test to assert against.
     const val YEAR = 2023
@@ -98,53 +97,12 @@ object SyntheticVyper2 {
         return d.copyOfRange(0, o)
     }
 
-    /**
-     * A full memory image holding [records] in the profile ring, oldest first, each
-     * linked to its neighbours, with the directory header filled in. [validBegin]
-     * controls whether the header's begin pointer is sane (exact budget) or corrupt
-     * (whole-ring fallback). [startAt] places the oldest record, so the records can be
-     * laid across the ring wrap.
-     */
+    /** A full memory image holding [records]; see [SimulatedVyper2.memory]. */
     fun memory(
         records: List<ByteArray>,
         validBegin: Boolean = true,
         startAt: Int = SuuntoVyper2Dump.RB_PROFILE_BEGIN,
-    ): ByteArray {
-        val mem = ByteArray(MEM_SIZE)
-
-        // Serial at 0x23: four bytes, two decimal digits each -> "01020304".
-        mem[0x23] = 1; mem[0x24] = 2; mem[0x25] = 3; mem[0x26] = 4
-
-        val begin = startAt
-        val starts = IntArray(records.size)
-        var addr = begin
-        for (i in records.indices) {
-            starts[i] = addr
-            addr = wrap(addr + records[i].size + 4) // record data plus the prev/next head
-        }
-        val end = addr // one past the newest record
-
-        for (i in records.indices) {
-            val start = starts[i]
-            val prev = if (i == 0) begin else starts[i - 1]
-            val next = if (i == records.size - 1) end else starts[i + 1]
-            val head = ByteArray(4)
-            u16le(head, 0, prev)
-            u16le(head, 2, next)
-            (head + records[i]).forEachIndexed { k, b -> mem[wrap(start + k)] = b }
-        }
-
-        // Header at 0x190: last, count, end, begin.
-        val header = SuuntoVyper2Dump.HEADER_OFFSET
-        u16le(mem, header + 0, starts.last())
-        u16le(mem, header + 2, records.size)
-        u16le(mem, header + 4, end)
-        u16le(mem, header + 6, if (validBegin) begin else 0xFF02)
-        return mem
-    }
-
-    private fun wrap(address: Int): Int =
-        if (address >= SuuntoVyper2Dump.RB_PROFILE_END) address - SuuntoVyper2Dump.ringSize else address
+    ): ByteArray = SimulatedVyper2.memory(records, validBegin, startAt)
 
     private fun u16le(d: ByteArray, offset: Int, value: Int) {
         d[offset] = (value and 0xFF).toByte()

@@ -3,6 +3,7 @@ package no.synth.divelog
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -21,6 +22,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import no.synth.divelog.core.logbook.download.AndroidSerialPorts
+import no.synth.divelog.core.logbook.download.SimulatedSerialPorts
 import no.synth.divelog.core.logbook.io.ExportFile
 import no.synth.divelog.download.DownloadService
 import no.synth.divelog.ui.PlatformHooks
@@ -38,7 +40,7 @@ class MainActivity : ComponentActivity() {
             val prepareDownload = rememberDownloadPermissionRequest(this)
             val hooks = remember {
                 PlatformHooks(
-                    serialPorts = AndroidSerialPorts(applicationContext),
+                    serialPorts = AndroidSerialPorts(applicationContext).let { if (simulatorRequested()) SimulatedSerialPorts(it) else it },
                     pickImportFile = pickImportFile,
                     saveExport = ::shareExport,
                     prepareDownload = prepareDownload,
@@ -53,6 +55,13 @@ class MainActivity : ComponentActivity() {
             SynthDivelogApp(services, hooks)
         }
     }
+
+    /**
+     * A debuggable build started with `--ez simulator true` offers a simulated dive computer:
+     * `adb shell am start -n no.synth.divelog.debug/no.synth.divelog.MainActivity --ez simulator true`
+     */
+    private fun simulatorRequested(): Boolean =
+        applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.getBooleanExtra("simulator", false)
 
     /** Writes the export to app storage and offers it to the share sheet. */
     private suspend fun shareExport(export: ExportFile) {

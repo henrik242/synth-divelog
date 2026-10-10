@@ -10,11 +10,11 @@ import kotlin.test.assertTrue
 
 /**
  * Drives [SuuntoVyper2Protocol] end to end against an in-memory HelO2 device
- * ([FakeSuuntoVyper2Device]) built from a synthetic ring: reads identity, walks the ring
+ * ([SimulatedVyper2Device]) built from a synthetic ring: reads identity, walks the ring
  * and honours the fingerprint and limit arguments.
  */
 class SuuntoVyper2ProtocolTest {
-    private fun device() = FakeSuuntoVyper2Device(
+    private fun device() = SimulatedVyper2Device(
         SyntheticVyper2.memory(
             listOf(SyntheticVyper2.helo2Record(maxDepthCm = 300), SyntheticVyper2.helo2Record(maxDepthCm = 600)),
         ),
@@ -66,11 +66,11 @@ class SuuntoVyper2ProtocolTest {
     @Test
     fun incrementalDownloadReadsOnlyTheNewDives() {
         val records = (1..20).map { SyntheticVyper2.helo2Record(maxDepthCm = it * 100) }
-        val full = FakeSuuntoVyper2Device(SyntheticVyper2.memory(records))
+        val full = SimulatedVyper2Device(SyntheticVyper2.memory(records))
         val all = SuuntoVyper2Protocol(full).download(knownFingerprint = null)
         assertEquals(20, all.size)
 
-        val partial = FakeSuuntoVyper2Device(SyntheticVyper2.memory(records))
+        val partial = SimulatedVyper2Device(SyntheticVyper2.memory(records))
         val fresh = SuuntoVyper2Protocol(partial).download(knownFingerprint = all[2].fingerprint)
         assertEquals(all.take(2).map { it.fingerprint }, fresh.map { it.fingerprint })
         assertTrue(partial.memoryReads * 4 < full.memoryReads, "${partial.memoryReads} vs ${full.memoryReads} reads")
@@ -80,7 +80,7 @@ class SuuntoVyper2ProtocolTest {
     fun readsDivesAcrossTheRingWrap() {
         val records = listOf(300, 600, 900).map { SyntheticVyper2.helo2Record(maxDepthCm = it) }
         val memory = SyntheticVyper2.memory(records, startAt = SuuntoVyper2Dump.RB_PROFILE_END - 100)
-        val dives = SuuntoVyper2Protocol(FakeSuuntoVyper2Device(memory)).download(knownFingerprint = null)
+        val dives = SuuntoVyper2Protocol(SimulatedVyper2Device(memory)).download(knownFingerprint = null)
         assertEquals(listOf(9000, 6000, 3000), dives.map { SuuntoVyper2Parser().parse(it).maxDepthMm })
         val ring = memory.copyOfRange(SuuntoVyper2Dump.RB_PROFILE_BEGIN, SuuntoVyper2Dump.RB_PROFILE_END)
         val header = memory.copyOfRange(SuuntoVyper2Dump.HEADER_OFFSET, SuuntoVyper2Dump.HEADER_OFFSET + SuuntoVyper2Dump.HEADER_SIZE)
@@ -90,7 +90,7 @@ class SuuntoVyper2ProtocolTest {
     @Test
     fun corruptBeginStopsAtTheOldestDive() {
         val records = listOf(300, 600).map { SyntheticVyper2.helo2Record(maxDepthCm = it) }
-        val device = FakeSuuntoVyper2Device(SyntheticVyper2.memory(records, validBegin = false))
+        val device = SimulatedVyper2Device(SyntheticVyper2.memory(records, validBegin = false))
         val dives = SuuntoVyper2Protocol(device).download(knownFingerprint = null)
         assertEquals(2, dives.size)
         assertTrue(device.memoryReads < 10, "read ${device.memoryReads} pages")
@@ -112,7 +112,7 @@ class SuuntoVyper2ProtocolTest {
     @Test
     fun deliversDivesBeforeAFailure() {
         val records = (1..5).map { SyntheticVyper2.helo2Record(maxDepthCm = it * 100) }
-        val device = FakeSuuntoVyper2Device(SyntheticVyper2.memory(records))
+        val device = SimulatedVyper2Device(SyntheticVyper2.memory(records))
         val received = mutableListOf<Int>()
         // Cancel once two dives are in: the walk stops, the two are already delivered.
         runCatching {

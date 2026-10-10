@@ -50,6 +50,8 @@ per-target entry point.
 ./gradlew :app:desktop:run            # desktop app
 ./gradlew :ui:compileKotlinIosSimulatorArm64   # iOS compile check
 ./gradlew :app:desktop:suuntoCapture --args="VYPER2 proto <port>"   # Suunto download on real hardware
+SYNTH_DIVELOG_SIMULATOR=1 ./gradlew :app:desktop:run   # adds a simulated HelO2 port
+adb shell am start -n no.synth.divelog.debug/no.synth.divelog.MainActivity --ez simulator true   # same, debug Android
 ```
 
 There is no `compileDebugKotlinAndroid` task on `:ui`; use the app assemble task
