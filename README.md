@@ -64,3 +64,4 @@ JDK 25 toolchain, which Gradle downloads if it is missing.
 
 Store releases (Google Play, App Store) run from GitHub Actions; see
 [`docs/release.md`](docs/release.md).
+
