@@ -217,6 +217,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         onOpenSite = ::openSite,
                         onDeleted = ::back,
                         onAddDives = addDives::open,
+                        canDownload = hooks.serialPorts.downloadSupported,
                         onTopBarActions = { topBarActions = it },
                     )
                     Section.SITES -> when (top) {

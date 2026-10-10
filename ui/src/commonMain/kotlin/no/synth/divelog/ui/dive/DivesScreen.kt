@@ -57,6 +57,7 @@ fun DivesScreen(
     onOpenSite: (Long) -> Unit,
     onDeleted: () -> Unit,
     onAddDives: () -> Unit,
+    canDownload: Boolean,
     onTopBarActions: ((@Composable RowScope.() -> Unit)?) -> Unit,
 ) {
     val dives = observe(container, read = container.dives::allDives, flow = container.dives::allDivesFlow)
@@ -130,7 +131,14 @@ fun DivesScreen(
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             if (dives.isEmpty()) {
-                EmptyState("No dives yet. Tap Add dives to download from a computer or import a file.", Icons.Outlined.Waves)
+                EmptyState(
+                    if (canDownload) {
+                        "No dives yet. Tap Add dives to download from a computer or import a file."
+                    } else {
+                        "No dives yet. Tap Add dives to import a file."
+                    },
+                    Icons.Outlined.Waves,
+                )
             } else {
                 OutlinedTextField(
                     value = query,

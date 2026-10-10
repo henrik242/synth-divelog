@@ -63,15 +63,7 @@ internal class AddDivesFlow(
         chooserOpen = true
     }
 
-    private fun report(message: String) {
-        scope.launch { snackbar.showSnackbar(message) }
-    }
-
     private fun openDownloadPicker() {
-        if (!hooks.serialPorts.downloadSupported) {
-            report("Download is not available on this device.")
-            return
-        }
         scope.launch {
             hooks.prepareDownload()
             withContext(Dispatchers.Default) {
@@ -170,7 +162,11 @@ internal class AddDivesFlow(
         if (chooserOpen) {
             val pick = hooks.pickImportFile
             AddDivesChooser(
-                onDiveComputer = { chooserOpen = false; openDownloadPicker() },
+                onDiveComputer = if (hooks.serialPorts.downloadSupported) {
+                    { chooserOpen = false; openDownloadPicker() }
+                } else {
+                    null
+                },
                 onImportFile = pick?.let { { chooserOpen = false; importFromFile(it) } },
                 onSubsurfaceCloud = services.cloud?.let { { chooserOpen = false; cloudDialogOpen = true } },
                 onDismiss = { chooserOpen = false },
@@ -212,7 +208,7 @@ internal fun rememberAddDivesFlow(
 /** One place to get dives in. A null action hides its option. */
 @Composable
 private fun AddDivesChooser(
-    onDiveComputer: () -> Unit,
+    onDiveComputer: (() -> Unit)?,
     onImportFile: (() -> Unit)?,
     onSubsurfaceCloud: (() -> Unit)?,
     onDismiss: () -> Unit,
@@ -222,8 +218,10 @@ private fun AddDivesChooser(
         title = { Text("Add dives") },
         text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDiveComputer, modifier = Modifier.fillMaxWidth()) {
-                    Text("Dive computer")
+                if (onDiveComputer != null) {
+                    OutlinedButton(onClick = onDiveComputer, modifier = Modifier.fillMaxWidth()) {
+                        Text("Dive computer")
+                    }
                 }
                 if (onImportFile != null) {
                     OutlinedButton(onClick = onImportFile, modifier = Modifier.fillMaxWidth()) {
