@@ -61,7 +61,8 @@ team); the provisioning profile is per app.
 3. Build a signed bundle locally (`./gradlew :app:android:bundleRelease` with the signing values in
    `local.properties`) and upload the first AAB by hand to the internal testing track. Fastlane
    cannot create an app or make its first upload.
-4. Fill in the required store listing, content rating, data safety, target audience and privacy
+4. Fill in the required store listing (icon, feature graphic and screenshots are in
+   `docs/store/android/`), content rating, data safety, target audience and privacy
    policy URL.
 5. Service account: Google Cloud Console -> IAM -> Service Accounts -> create -> Keys -> JSON.
    Enable the Google Play Android Developer API, then invite the service account email in Play
