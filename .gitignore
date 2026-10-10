@@ -38,3 +38,7 @@ xcuserdata/
 /vendor/bundle/
 /fastlane/report.xml
 /fastlane/metadata/
+
+# Firebase config; CI writes it from a secret (release) or the dummy in .github/dummy/
+google-services.json
+GoogleService-Info.plist

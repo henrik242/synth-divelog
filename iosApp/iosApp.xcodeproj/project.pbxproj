@@ -11,6 +11,8 @@
 		AA00000000000000000000E2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D2 /* ContentView.swift */; };
 		AA00000000000000000000E5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D5 /* Assets.xcassets */; };
 		AA00000000000000000000E6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D6 /* PrivacyInfo.xcprivacy */; };
+		AA00000000000000000000E7 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000D7 /* GoogleService-Info.plist */; };
+		AA00000000000000000000E8 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000B4 /* FirebaseCrashlytics */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +22,7 @@
 		AA00000000000000000000D3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA00000000000000000000D5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA00000000000000000000D6 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AA00000000000000000000D7 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -27,6 +30,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA00000000000000000000E8 /* FirebaseCrashlytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -49,6 +53,7 @@
 				AA00000000000000000000D3 /* Info.plist */,
 				AA00000000000000000000D5 /* Assets.xcassets */,
 				AA00000000000000000000D6 /* PrivacyInfo.xcprivacy */,
+				AA00000000000000000000D7 /* GoogleService-Info.plist */,
 			);
 			path = iosApp;
 			sourceTree = "<group>";
@@ -73,12 +78,16 @@
 				AA00000000000000000000F2 /* Frameworks */,
 				AA00000000000000000000F3 /* Resources */,
 				AA00000000000000000000F5 /* Set Build Number */,
+				AA00000000000000000000F7 /* Upload Crashlytics dSYMs */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			name = iosApp;
+			packageProductDependencies = (
+				AA00000000000000000000B4 /* FirebaseCrashlytics */,
+			);
 			productName = iosApp;
 			productReference = AA00000000000000000000B2 /* SynthDivelog.app */;
 			productType = "com.apple.product-type.application";
@@ -107,6 +116,9 @@
 				Base,
 			);
 			mainGroup = AA00000000000000000000A2;
+			packageReferences = (
+				AA00000000000000000000B3 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			productRefGroup = AA00000000000000000000A4 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -123,6 +135,7 @@
 			files = (
 				AA00000000000000000000E5 /* Assets.xcassets in Resources */,
 				AA00000000000000000000E6 /* PrivacyInfo.xcprivacy in Resources */,
+				AA00000000000000000000E7 /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -166,6 +179,30 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "cd \"$SRCROOT/..\"\nCOMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo \"1\")\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $COMMIT_COUNT\" \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH}\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleShortVersionString 1.0.$COMMIT_COUNT\" \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH}\"\n";
+		};
+		AA00000000000000000000F7 /* Upload Crashlytics dSYMs */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Info.plist",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}.debug.dylib",
+			);
+			name = "Upload Crashlytics dSYMs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Upload the app dSYM to Firebase Crashlytics so crash reports symbolicate.\nDSYM=\"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}\"\nif [ ! -d \"$DSYM\" ]; then\n  echo \"note: no dSYM at $DSYM (expected for Debug builds); skipping Crashlytics upload\"\n  exit 0\nfi\nUPLOAD_SYMBOLS=\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/upload-symbols\"\nif [ ! -x \"$UPLOAD_SYMBOLS\" ]; then\n  echo \"warning: upload-symbols not found at $UPLOAD_SYMBOLS; skipping Crashlytics upload\"\n  exit 0\nfi\nGSP=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleService-Info.plist\"\nif [ ! -f \"$GSP\" ]; then\n  echo \"warning: GoogleService-Info.plist not found; skipping Crashlytics upload\"\n  exit 0\nfi\n\"$UPLOAD_SYMBOLS\" -gsp \"$GSP\" -p ios \"$DSYM\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -301,6 +338,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AA00000000000000000000B3 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA00000000000000000000B4 /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00000000000000000000B3 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AA00000000000000000000A1 /* Project object */;
 }

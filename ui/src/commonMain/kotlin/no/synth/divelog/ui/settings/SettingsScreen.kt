@@ -1,5 +1,6 @@
 package no.synth.divelog.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,8 +30,9 @@ import no.synth.divelog.ui.BuildInfo
 import no.synth.divelog.ui.components.CloudCredentialsDialog
 
 /**
- * Units, export, maintenance, dive computers and attributions. A null [onCloudPush] hides the cloud
- * export; its credentials are kept in [settings].
+ * Units, export, maintenance, dive computers, privacy and attributions. A null [onCloudPush] hides
+ * the cloud export; its credentials are kept in [settings]. A null [onCrashReportingChange] hides
+ * the crash-report switch.
  */
 @Composable
 fun SettingsSection(
@@ -41,6 +44,7 @@ fun SettingsSection(
     onCloudPush: ((email: String, pass: String) -> Unit)?,
     onOpenComputers: () -> Unit,
     onOpenAttributions: () -> Unit,
+    onCrashReportingChange: ((Boolean) -> Unit)?,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -112,6 +116,36 @@ fun SettingsSection(
         }
 
         HorizontalDivider()
+
+        if (onCrashReportingChange != null) {
+            var crashReporting by remember { mutableStateOf(settings.crashReporting) }
+            Text("Privacy", style = MaterialTheme.typography.titleMedium)
+            Row(
+                Modifier.fillMaxWidth().clickable {
+                    crashReporting = !crashReporting
+                    onCrashReportingChange(crashReporting)
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Send crash reports", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Sends a report to the developer when the app crashes. It contains no dive data.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = crashReporting,
+                    onCheckedChange = {
+                        crashReporting = it
+                        onCrashReportingChange(it)
+                    },
+                )
+            }
+
+            HorizontalDivider()
+        }
 
         Text("About", style = MaterialTheme.typography.titleMedium)
         OutlinedButton(onClick = onOpenAttributions, modifier = Modifier.fillMaxWidth()) {

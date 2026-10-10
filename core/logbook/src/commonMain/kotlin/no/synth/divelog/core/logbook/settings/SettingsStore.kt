@@ -37,6 +37,11 @@ class AppSettings(private val store: SettingsStore) : ConnectionMemory {
         get() = store.getString(KEY_SAVED_PLANS)
         set(value) = store.putString(KEY_SAVED_PLANS, value ?: "")
 
+    /** Whether crash reports are sent, on platforms that have crash reporting. On by default. */
+    var crashReporting: Boolean
+        get() = store.getString(KEY_CRASH_REPORTING) != "false"
+        set(value) = store.putString(KEY_CRASH_REPORTING, value.toString())
+
     override fun recall(deviceKey: String): String? = store.getString(KEY_CONN_PREFIX + deviceKey)
 
     override fun remember(deviceKey: String, portDescriptor: String) =
@@ -54,5 +59,6 @@ class AppSettings(private val store: SettingsStore) : ConnectionMemory {
         const val KEY_CONN_PREFIX = "conn:"
         const val KEY_PLANNER = "planner_inputs"
         const val KEY_SAVED_PLANS = "planner_saved"
+        const val KEY_CRASH_REPORTING = "crash_reporting"
     }
 }

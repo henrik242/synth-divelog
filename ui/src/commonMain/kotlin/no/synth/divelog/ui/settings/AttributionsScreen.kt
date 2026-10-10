@@ -35,6 +35,7 @@ private val libraries = listOf(
     Attribution("JGit", "Subsurface cloud sync", "EDL 1.0"),
     Attribution("jSerialComm", "Desktop serial ports", "Apache 2.0 / LGPL 3.0"),
     Attribution("usb-serial-for-android", "Android USB serial", "MIT"),
+    Attribution("Firebase Crashlytics", "Crash reporting (Android, iOS)", "Apache 2.0"),
 )
 
 /** Data sources, references and open-source libraries the app builds on. */

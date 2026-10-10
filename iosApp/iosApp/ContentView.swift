@@ -1,9 +1,12 @@
 import SwiftUI
+import FirebaseCrashlytics
 import SynthDivelogUI
 
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
-        MainViewControllerKt.MainViewController()
+        MainViewControllerKt.MainViewController { enabled in
+            Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(enabled.boolValue)
+        }
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}

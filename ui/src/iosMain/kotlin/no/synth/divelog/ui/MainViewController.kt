@@ -5,6 +5,7 @@ import androidx.compose.ui.uikit.LocalUIViewController
 import androidx.compose.ui.window.ComposeUIViewController
 import no.synth.divelog.core.db.createDatabase
 import no.synth.divelog.core.logbook.AppServices
+import no.synth.divelog.core.logbook.settings.AppSettings
 import no.synth.divelog.core.logbook.settings.UserDefaultsStore
 import no.synth.divelog.ui.io.pickDocument
 import no.synth.divelog.ui.io.shareDocument
@@ -17,15 +18,20 @@ private val services by lazy { AppServices(createDatabase(), UserDefaultsStore()
  * iOS entry point: hosts the shared Compose UI in a UIViewController for the Swift app
  * to present. There is no serial layer or git client, so dive-computer download and cloud
  * sync are unavailable. Files are imported through the document picker and exported
- * through the share sheet.
+ * through the share sheet. [setCrashReporting] switches Crashlytics, which lives on the
+ * Swift side.
  */
-fun MainViewController(): UIViewController = ComposeUIViewController {
+fun MainViewController(setCrashReporting: (Boolean) -> Unit): UIViewController = ComposeUIViewController {
     val host = LocalUIViewController.current
     val hooks = remember(host) {
         PlatformHooks(
             pickImportFile = { pickDocument(host) },
             saveExport = { shareDocument(host, it) },
+            setCrashReporting = setCrashReporting,
         )
     }
     SynthDivelogApp(services, hooks)
 }
+
+/** The saved crash-report choice, for the Swift side to apply at launch without opening the database. */
+fun crashReportingEnabled(): Boolean = AppSettings(UserDefaultsStore()).crashReporting

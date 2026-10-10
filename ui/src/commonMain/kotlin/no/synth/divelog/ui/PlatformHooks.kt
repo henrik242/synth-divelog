@@ -15,6 +15,7 @@ import no.synth.divelog.core.logbook.io.ExportFile
  * - [onDownloadActive]: brackets a running download (keep the process awake);
  *   [onDownloadProgress] follows it.
  * - [recordTranscript]: saves a download's wire exchange for replay as a test fixture.
+ * - [setCrashReporting]: turns crash reporting on or off. Null hides the setting.
  */
 class PlatformHooks(
     val serialPorts: SerialPorts = NoSerialPorts(),
@@ -24,4 +25,5 @@ class PlatformHooks(
     val onDownloadActive: (Boolean) -> Unit = {},
     val onDownloadProgress: (label: String) -> Unit = {},
     val recordTranscript: ((transcript: String) -> Unit)? = null,
+    val setCrashReporting: ((enabled: Boolean) -> Unit)? = null,
 )

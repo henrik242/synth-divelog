@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -50,6 +51,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onDownloadProgress = { DownloadService.publish(it) },
                     recordTranscript = ::saveTranscript,
+                    setCrashReporting = { FirebaseCrashlytics.getInstance().isCrashlyticsCollectionEnabled = it },
                 )
             }
             SynthDivelogApp(services, hooks)

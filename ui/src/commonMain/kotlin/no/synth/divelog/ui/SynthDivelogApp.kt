@@ -265,6 +265,12 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         onCloudPush = onCloudPush,
                         onOpenComputers = { nav.push(Screen.Computers(null)) },
                         onOpenAttributions = { nav.push(Screen.Attributions) },
+                        onCrashReportingChange = hooks.setCrashReporting?.let { apply ->
+                            { enabled: Boolean ->
+                                settings.crashReporting = enabled
+                                apply(enabled)
+                            }
+                        },
                     )
                 }
             }

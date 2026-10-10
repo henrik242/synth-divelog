@@ -71,6 +71,10 @@ jobs:
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      # A debug build only needs a well-formed Firebase config, not the real one.
+      - name: Create google-services.json
+        run: cp .github/dummy/google-services-dummy.json app/android/google-services.json
+
       - name: Assemble debug APK
         run: ./gradlew :app:android:assembleDebug --stacktrace
 

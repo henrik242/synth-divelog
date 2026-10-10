@@ -30,6 +30,7 @@ repository secrets). Fastlane is pinned in `Gemfile.lock` and runs through Bundl
 | `SIGNING_STORE_PASSWORD` | Keystore password (PKCS12, so also the key password) |
 | `SIGNING_KEY_ALIAS` | Key alias |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Play service account key, base64 |
+| `GOOGLE_SERVICES_JSON` | Firebase `google-services.json` (Crashlytics), base64 |
 
 Locally, `SIGNING_STORE_FILE` and the two values above can go in `local.properties` instead;
 without them `bundleRelease` produces an unsigned bundle.
@@ -44,6 +45,7 @@ without them `bundleRelease` produces an unsigned bundle.
 | `ASC_KEY_ID` | App Store Connect API key id |
 | `ASC_ISSUER_ID` | API key issuer id |
 | `ASC_KEY_CONTENT` | The `.p8` key, base64 |
+| `GOOGLE_SERVICE_INFO_PLIST` | Firebase `GoogleService-Info.plist` (Crashlytics), base64 |
 | `ASC_CONTACT_FIRST_NAME`, `ASC_CONTACT_LAST_NAME` | App Review contact (only checked when submitting) |
 | `ASC_CONTACT_PHONE` | `+countrycode...`, e.g. `+4712345678` |
 | `ASC_CONTACT_EMAIL` | |
