@@ -6,6 +6,8 @@ computer.
 Licence: [GPL-2.0-or-later](LICENSE). Files derived from Subsurface are GPL-2.0-only
 and say so in their header.
 
+Privacy policy: [PRIVACY.md](PRIVACY.md).
+
 ## Features
 
 - **Download from dive computers** (Android and desktop): Shearwater Predator and
