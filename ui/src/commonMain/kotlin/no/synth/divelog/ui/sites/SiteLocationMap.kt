@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.model.Site
+import org.maplibre.compose.camera.CameraFit
 import org.maplibre.compose.camera.CameraPosition
 import org.maplibre.compose.camera.CameraUpdate
 import org.maplibre.compose.interaction.ClickResult
@@ -60,7 +61,7 @@ fun SiteLocationMap(
         baseStyle = BaseStyle.Uri(SITE_MAP_STYLE_URL),
         initialCameraPosition = remember {
             CameraPosition(
-                target = Position(latitude = latitude ?: 0.0, longitude = longitude ?: 0.0),
+                center = Position(latitude = latitude ?: 0.0, longitude = longitude ?: 0.0),
                 zoom = if (hasCoord) 11.0 else 1.0,
             )
         },
@@ -89,12 +90,12 @@ fun SiteLocationMap(
     // Follow manual edits (and picked taps) when the coordinate leaves the camera.
     if (latitude != null && longitude != null) {
         LaunchedEffect(latitude, longitude) {
-            val target = mapState.cameraPosition.target
-            val moved = abs(target.latitude - latitude) > 1e-6 ||
-                abs(target.longitude - longitude) > 1e-6
+            val center = mapState.cameraPosition.center
+            val moved = abs(center.latitude - latitude) > 1e-6 ||
+                abs(center.longitude - longitude) > 1e-6
             if (moved) {
                 mapState.animateCamera(
-                    CameraUpdate(target = Position(latitude = latitude, longitude = longitude)),
+                    CameraUpdate(center = Position(latitude = latitude, longitude = longitude)),
                 )
             }
         }
@@ -145,7 +146,7 @@ fun SitesOverviewMap(sites: List<Site>, onOpenSite: (Long) -> Unit, modifier: Mo
         baseStyle = BaseStyle.Uri(SITE_MAP_STYLE_URL),
         initialCameraPosition = remember(located) {
             CameraPosition(
-                target = Position(
+                center = Position(
                     latitude = located.map { it.latitude }.average(),
                     longitude = located.map { it.longitude }.average(),
                 ),
@@ -164,7 +165,7 @@ fun SitesOverviewMap(sites: List<Site>, onOpenSite: (Long) -> Unit, modifier: Mo
                     east = located.maxOf { it.longitude },
                     north = located.maxOf { it.latitude },
                 ),
-                fitPadding = DpPadding(left = 32.dp, top = 32.dp, right = 32.dp, bottom = 32.dp),
+                fit = CameraFit(fitPadding = DpPadding(left = 32.dp, top = 32.dp, right = 32.dp, bottom = 32.dp)),
             )
         }
     }
