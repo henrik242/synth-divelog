@@ -61,6 +61,12 @@ compose.desktop {
             modules("java.sql")
             macOS {
                 iconFile.set(project.file("packaging/AppIcon.icns"))
+                // Not the iOS app's id: that one can also run on Apple Silicon Macs.
+                bundleID = "no.synth.divelog.desktop"
+                // Hardened-runtime entitlements for signing; signing itself is switched on with
+                // -Pcompose.desktop.mac.sign=true (see docs/release.md).
+                entitlementsFile.set(project.file("packaging/entitlements.plist"))
+                runtimeEntitlementsFile.set(project.file("packaging/entitlements.plist"))
                 // The bundled rfcomm-bridge talks to paired Bluetooth dive computers.
                 infoPlist {
                     extraKeysRawXml = """
@@ -77,17 +83,27 @@ compose.desktop {
 
 // The macOS Bluetooth serial bridge: opens a paired device's RFCOMM channel and relays it
 // over stdin/stdout, since the /dev/cu.* nodes no longer bring the link up. Built into the
-// app resources, where MacRfcommTransport.locateBridge() finds it at runtime.
+// app resources, where MacRfcommTransport.locateBridge() finds it at runtime. Compose signs
+// the app but not files in its resources, and notarization rejects an unsigned helper, so a
+// signed build (-Pcompose.desktop.mac.sign=true) signs the bridge here.
 val rfcommBridge = layout.buildDirectory.file("appResources/macos/rfcomm-bridge")
+val macSigningIdentity = providers.gradleProperty("compose.desktop.mac.sign")
+    .filter { it.toBoolean() }
+    .flatMap { providers.gradleProperty("compose.desktop.mac.signing.identity") }
+    .orElse("")
 val buildRfcommBridge by tasks.registering(Exec::class) {
     description = "Compile the macOS Bluetooth serial bridge"
     val source = file("native/rfcomm-bridge.swift")
     val output = rfcommBridge.get().asFile
+    val identity = macSigningIdentity.get()
     onlyIf { System.getProperty("os.name").startsWith("Mac") }
     inputs.file(source)
+    inputs.property("signingIdentity", identity)
     outputs.file(output)
     doFirst { output.parentFile.mkdirs() }
-    commandLine("swiftc", "-O", "-framework", "IOBluetooth", source.absolutePath, "-o", output.absolutePath)
+    val compile = "swiftc -O -framework IOBluetooth '${source.absolutePath}' -o '${output.absolutePath}'"
+    val sign = "codesign --force --options runtime --timestamp --sign 'Developer ID Application: $identity' '${output.absolutePath}'"
+    commandLine("sh", "-c", if (identity.isEmpty()) compile else "$compile && $sign")
 }
 tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(buildRfcommBridge) }
 tasks.withType<JavaExec>().configureEach {

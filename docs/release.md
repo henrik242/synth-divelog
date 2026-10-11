@@ -1,15 +1,19 @@
-# Releasing to Google Play and the App Store
+# Releasing to Google Play, the App Store and macOS
 
-Two manual GitHub Actions workflows, run from the Actions tab on `main`:
+Three manual GitHub Actions workflows, run from the Actions tab on `main`:
 
 - **Release Android** builds a signed AAB, uploads it to a Play track (`internal` by default),
   tags the commit and attaches the AAB to a GitHub release.
 - **Release iOS** builds a signed IPA, uploads it to App Store Connect (TestFlight; tick
   "Submit for App Store review" to also submit), tags the commit and attaches the IPA.
+- **Release macOS desktop** builds the desktop app as a DMG signed with the Developer ID,
+  notarizes and staples it, tags the commit and attaches the DMG. It is distributed from the
+  GitHub release, not the Mac App Store (the sandbox would get in the way of serial ports and
+  the Bluetooth helper).
 
-Both can run on the same commit; the second adds its file to the existing release.
+They can run on the same commit; each adds its file to the existing release.
 
-Both workflows use the `production` GitHub environment, so the secrets below go there (or in
+All workflows use the `production` GitHub environment, so the secrets below go there (or in
 repository secrets). Fastlane is pinned in `Gemfile.lock` and runs through Bundler; bump it with
 `bundle update fastlane`.
 
@@ -52,6 +56,24 @@ without them `bundleRelease` produces an unsigned bundle.
 
 The Where release secrets for the distribution certificate and API key can be reused (same
 team); the provisioning profile is per app.
+
+### macOS desktop
+
+| Secret | What |
+|---|---|
+| `DEVELOPER_ID_CERTIFICATE_BASE64` | Developer ID Application `.p12`, base64 |
+| `DEVELOPER_ID_CERTIFICATE_PASSWORD` | Password set when exporting the `.p12` |
+
+Notarization uses the App Store Connect API key from the iOS secrets.
+
+A signed build locally, with the Developer ID in the login keychain:
+
+```sh
+./gradlew :app:desktop:packageDmg -Pcompose.desktop.mac.sign=true \
+  "-Pcompose.desktop.mac.signing.identity=Henrik Aronsen"
+```
+
+Without those properties the DMG is unsigned, which is what the CI build makes.
 
 ## First-time setup
 
