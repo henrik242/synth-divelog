@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.hardware.usb.UsbManager
+import com.hoho.android.usbserial.driver.FtdiSerialDriver
 import com.hoho.android.usbserial.driver.UsbSerialDriver
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import no.synth.divelog.core.divecomputer.transport.SerialParams
@@ -18,11 +19,14 @@ data class UsbSerialCandidate(
 ) {
     /** FTDI and Prolific are the chips in Suunto's old interface cables. */
     val looksLikeSuuntoCable: Boolean
-        get() = (vendorId == FTDI_VID && productId == FTDI_PID) || vendorId == PROLIFIC_VID
+        get() = (vendorId == FTDI_VID && productId in setOf(FTDI_PID, SUUNTO_FTDI_PID)) ||
+            vendorId == PROLIFIC_VID
 
-    private companion object {
+    internal companion object {
         const val FTDI_VID = 0x0403
         const val FTDI_PID = 0x6001
+        /** Suunto's own product id on the FTDI chip in its USB interface cable. */
+        const val SUUNTO_FTDI_PID = 0xF680
         const val PROLIFIC_VID = 0x067B
     }
 }
@@ -34,13 +38,22 @@ data class UsbSerialCandidate(
  * adapter on the phone.
  */
 object UsbSerialDevices {
+    // The default table only knows FTDI's stock product ids, not Suunto's.
+    private val prober = UsbSerialProber(
+        UsbSerialProber.getDefaultProbeTable().addProduct(
+            UsbSerialCandidate.FTDI_VID,
+            UsbSerialCandidate.SUUNTO_FTDI_PID,
+            FtdiSerialDriver::class.java,
+        ),
+    )
+
     fun usbManager(context: Context): UsbManager =
         context.getSystemService(Context.USB_SERVICE) as UsbManager
 
     /** USB serial adapters currently attached. */
     fun available(context: Context): List<UsbSerialCandidate> {
         val manager = usbManager(context)
-        return UsbSerialProber.getDefaultProber().findAllDrivers(manager).map { driver ->
+        return prober.findAllDrivers(manager).map { driver ->
             val device = driver.device
             UsbSerialCandidate(
                 name = device.productName ?: device.deviceName,
