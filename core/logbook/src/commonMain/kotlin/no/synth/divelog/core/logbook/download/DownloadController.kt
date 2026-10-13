@@ -36,15 +36,17 @@ import no.synth.divelog.core.model.units.UnitSystem
  * [identityKey] is a stable dedupe key standing in for the device identity, stored as
  * the device's address (dive dedupe keys on device plus fingerprint). A Suunto on the
  * cable is told apart by the serial it reports. A Shearwater reports no serial, so with
- * [byAddress] its key carries the Bluetooth address it was reached on.
+ * [byAddress] its key carries the Bluetooth address it was reached on. A [wiredOnly]
+ * computer is read over a cable, never Bluetooth.
  */
 enum class DiveComputerType(
     val kind: DiveComputerKind,
     private val identityKey: String,
     private val byAddress: Boolean = false,
+    private val wiredOnly: Boolean = false,
 ) {
-    SUUNTO_VYPER(DiveComputerKind.SUUNTO_VYPER, "usb-serial:suunto-vyper"),
-    SUUNTO_VYPER2(DiveComputerKind.SUUNTO_VYPER2, "usb-serial:suunto-vyper2"),
+    SUUNTO_VYPER(DiveComputerKind.SUUNTO_VYPER, "usb-serial:suunto-vyper", wiredOnly = true),
+    SUUNTO_VYPER2(DiveComputerKind.SUUNTO_VYPER2, "usb-serial:suunto-vyper2", wiredOnly = true),
     SHEARWATER_PETREL(DiveComputerKind.SHEARWATER_PETREL, "serial-spp:shearwater-petrel", byAddress = true),
     SHEARWATER_PREDATOR(DiveComputerKind.SHEARWATER_PREDATOR, "serial-spp:shearwater-predator", byAddress = true),
     ;
@@ -56,6 +58,9 @@ enum class DiveComputerType(
     fun protocol(transport: Transport): DiveComputerProtocol = kind.protocol(transport)
 
     fun parser(): DiveLogParser = kind.parser()
+
+    /** Whether this computer can be read through [port]. */
+    fun canUse(port: SerialPortInfo): Boolean = !wiredOnly || port.kind != SerialPortKind.BLUETOOTH_SPP
 
     /** Whether [device] is one this type reads, by its stored identity key. */
     internal fun owns(device: Device): Boolean {

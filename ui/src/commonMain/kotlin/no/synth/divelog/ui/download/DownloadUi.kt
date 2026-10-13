@@ -92,8 +92,9 @@ fun DownloadPickerDialog(
     hint: (DiveComputerType) -> String? = { null },
 ) {
     // A known computer's own last port, else the port a device of this type was last
-    // reached on, else a sensible guess.
-    fun pick(choice: PickerChoice, list: List<SerialPortInfo>): SerialPortInfo? {
+    // reached on, else a sensible guess; only among the ports the type can use.
+    fun pick(choice: PickerChoice, all: List<SerialPortInfo>): SerialPortInfo? {
+        val list = all.filter { choice.type.canUse(it) }
         val own = (choice as? PickerChoice.Known)?.computer?.lastPort?.let { d -> list.firstOrNull { it.descriptor == d } }
         return own
             ?: preselectPortId(choice.type)?.let { id -> list.firstOrNull { it.id == id } }
@@ -119,14 +120,15 @@ fun DownloadPickerDialog(
         hint(choice.type)?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        val usable = current.filter { choice.type.canUse(it) }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (current.isEmpty()) {
+            if (usable.isEmpty()) {
                 Text("No ports found; connect the cable", style = MaterialTheme.typography.bodySmall)
             } else {
                 SelectField(
                     label = "Port",
                     value = port?.label ?: "Choose a port",
-                    options = current,
+                    options = usable,
                     optionLabel = { it.label },
                     onSelect = { port = it },
                     modifier = Modifier.weight(1f),
