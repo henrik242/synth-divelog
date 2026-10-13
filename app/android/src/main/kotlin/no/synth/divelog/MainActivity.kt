@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -45,9 +46,16 @@ class MainActivity : ComponentActivity() {
                     pickImportFile = pickImportFile,
                     saveExport = ::shareExport,
                     prepareDownload = prepareDownload,
-                    // A foreground service holds the process awake and shows the progress.
+                    // A foreground service holds the process awake and shows the progress;
+                    // the screen stays on too, so the download can be watched.
                     onDownloadActive = { active ->
-                        if (active) DownloadService.start(applicationContext, "Downloading dives") else DownloadService.stop(applicationContext)
+                        if (active) {
+                            DownloadService.start(applicationContext, "Downloading dives")
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            DownloadService.stop(applicationContext)
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
                     },
                     onDownloadProgress = { DownloadService.publish(it) },
                     recordTranscript = ::saveTranscript,
