@@ -154,6 +154,7 @@ internal class AddDivesFlow(
                 onStart = { type, port, amount -> startDownload(type, port, amount) },
                 onCancel = { downloadUi = DownloadUiState.Hidden },
                 preselectPortId = { type -> controller.preselectedPortId(type, pickerPorts) },
+                hint = hooks.downloadHint,
             )
             is DownloadUiState.Running -> DownloadProgressDialog(state = ui, onCancel = { cancelDownload = true })
             is DownloadUiState.Reviewing -> DownloadReviewDialog(ui)

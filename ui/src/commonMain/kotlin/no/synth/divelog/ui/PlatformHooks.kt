@@ -1,5 +1,6 @@
 package no.synth.divelog.ui
 
+import no.synth.divelog.core.logbook.download.DiveComputerType
 import no.synth.divelog.core.logbook.download.NoSerialPorts
 import no.synth.divelog.core.logbook.download.SerialPorts
 import no.synth.divelog.core.logbook.io.ExportFile
@@ -12,6 +13,7 @@ import no.synth.divelog.core.logbook.io.ExportFile
  * - [pickImportFile]: picks a file and returns its bytes, or null if cancelled. Null hides file import.
  * - [saveExport]: saves or shares an exported logbook.
  * - [prepareDownload]: runs before the download picker opens (runtime permissions).
+ * - [downloadHint]: a connection note shown under the selected computer in the picker.
  * - [onDownloadActive]: brackets a running download (keep the process awake);
  *   [onDownloadProgress] follows it.
  * - [recordTranscript]: saves a download's wire exchange for replay as a test fixture.
@@ -22,6 +24,7 @@ class PlatformHooks(
     val pickImportFile: (suspend () -> ByteArray?)? = null,
     val saveExport: suspend (ExportFile) -> Unit = {},
     val prepareDownload: suspend () -> Unit = {},
+    val downloadHint: (DiveComputerType) -> String? = { null },
     val onDownloadActive: (Boolean) -> Unit = {},
     val onDownloadProgress: (label: String) -> Unit = {},
     val recordTranscript: ((transcript: String) -> Unit)? = null,

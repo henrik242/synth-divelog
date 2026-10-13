@@ -24,6 +24,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import no.synth.divelog.core.logbook.download.AndroidSerialPorts
+import no.synth.divelog.core.logbook.download.DiveComputerType
 import no.synth.divelog.core.logbook.download.SimulatedSerialPorts
 import no.synth.divelog.core.logbook.io.ExportFile
 import no.synth.divelog.download.DownloadService
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
                     pickImportFile = pickImportFile,
                     saveExport = ::shareExport,
                     prepareDownload = prepareDownload,
+                    downloadHint = ::downloadHint,
                     // A foreground service holds the process awake and shows the progress;
                     // the screen stays on too, so the download can be watched.
                     onDownloadActive = { active ->
@@ -155,6 +157,13 @@ private fun rememberDownloadPermissionRequest(context: Context): suspend () -> U
             deferred.await()
         }
     }
+}
+
+/** The Suunto computers download over the wired cable, which a phone takes through a USB OTG adapter. */
+private fun downloadHint(type: DiveComputerType): String? = when (type) {
+    DiveComputerType.SUUNTO_VYPER, DiveComputerType.SUUNTO_VYPER2 ->
+        "Connect the Suunto USB cable to the phone through a USB OTG adapter."
+    DiveComputerType.SHEARWATER_PETREL, DiveComputerType.SHEARWATER_PREDATOR -> null
 }
 
 /** Bluetooth is required to reach a paired computer; the notification permission (API 33+) backs the service. */

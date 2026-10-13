@@ -75,6 +75,7 @@ private sealed interface PickerChoice {
  * logbook ([known]) are listed first with their dive count, newest dive and last port;
  * choosing one preselects the port it was last reached on. The computer used last
  * ([lastKey]) starts selected. Any [types] entry can still be picked for a new computer.
+ * The selected computer shows its [hint], if any, above the port.
  * Shared across desktop (wired ports and paired Bluetooth devices) and Android (USB-serial
  * adapters and paired Bluetooth Classic devices).
  */
@@ -88,6 +89,7 @@ fun DownloadPickerDialog(
     onStart: (type: DiveComputerType, port: SerialPortInfo, amount: DownloadAmount) -> Unit,
     onCancel: () -> Unit,
     preselectPortId: (DiveComputerType) -> String? = { null },
+    hint: (DiveComputerType) -> String? = { null },
 ) {
     // A known computer's own last port, else the port a device of this type was last
     // reached on, else a sensible guess.
@@ -114,6 +116,9 @@ fun DownloadPickerDialog(
     // Port and download amount, shown inside the selected row.
     @Composable
     fun ComputerOptions() = Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        hint(choice.type)?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (current.isEmpty()) {
                 Text("No ports found; connect the cable", style = MaterialTheme.typography.bodySmall)
