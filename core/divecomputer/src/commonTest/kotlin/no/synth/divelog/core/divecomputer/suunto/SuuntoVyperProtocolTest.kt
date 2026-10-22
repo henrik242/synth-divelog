@@ -29,12 +29,13 @@ class SuuntoVyperProtocolTest {
         val raw = SuuntoVyperProtocol(transport).download(knownFingerprint = null, listener = listener)
         assertEquals(1, raw.size)
         assertEquals("Suunto", captured?.vendor)
-        assertEquals("Zoop", captured?.model)
+        assertEquals("Vyper", captured?.model)
+        assertEquals("12345", captured?.serial)
         assertEquals(1, diveCount)
 
         val dive = SuuntoVyperParser().parse(raw[0])
         assertEquals(66 * 3048 / 10, dive.maxDepthMm)
-        assertEquals(6 * 20, dive.durationSeconds)
+        assertEquals(6 * SyntheticVyper.INTERVAL, dive.durationSeconds)
     }
 
     @Test
@@ -50,7 +51,7 @@ class SuuntoVyperProtocolTest {
     fun replayTransportServesAPagedRead() {
         // host -> 05 00 24 01 crc ; device -> 05 00 24 01 <byte> crc
         val request = SuuntoCrc.appended(byteArrayOf(0x05, 0x00, 0x24, 0x01))
-        val reply = SuuntoCrc.appended(byteArrayOf(0x05, 0x00, 0x24, 0x01, SyntheticVyper.MODEL_ZOOP.toByte()))
+        val reply = SuuntoCrc.appended(byteArrayOf(0x05, 0x00, 0x24, 0x01, SyntheticVyper.MODEL_VYPER.toByte()))
         val transcript = Transcript(
             listOf(
                 TransportEvent(Direction.WRITE, request),
@@ -58,6 +59,6 @@ class SuuntoVyperProtocolTest {
             ),
         )
         val memory = SuuntoVyperMemory(ReplayTransport(transcript, strictWrites = true))
-        assertEquals(SyntheticVyper.MODEL_ZOOP, memory.readByte(0x24))
+        assertEquals(SyntheticVyper.MODEL_VYPER, memory.readByte(0x24))
     }
 }

@@ -12,7 +12,7 @@ served as references where a note says so.
 | [shearwater-petrel1.md](shearwater-petrel1.md) | Petrel 1: dive manifest, compressed per-dive reads. Reuses the Predator log format. | Verified |
 | [suunto-serial.md](suunto-serial.md) | Suunto USB cable, chipsets, the two protocol families, the serial transports. | Verified (HelO2) |
 | [suunto-helo2.md](suunto-helo2.md) | HelO2 / Vyper2 family: framing, timing, incremental download. | Verified |
-| [suunto-zoop.md](suunto-zoop.md) | Zoop / old-Vyper family. | **Unverified** |
+| [suunto-zoop.md](suunto-zoop.md) | Vyper / Zoop (old-Vyper family): TR-PC mode, memory and dive layout. | Verified (Vyper) |
 | [suunto-testing.md](suunto-testing.md) | Testing a Suunto download on the real cable; first-Vyper checklist. | - |
 
 ## How to read a field offset

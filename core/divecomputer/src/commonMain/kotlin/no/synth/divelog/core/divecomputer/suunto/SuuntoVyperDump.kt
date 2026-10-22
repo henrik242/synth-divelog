@@ -4,23 +4,17 @@ import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.divecomputer.fnv1a
 
 /**
- * Splits the old-Vyper profile ring buffer into one raw blob per dive.
+ * Splits the old-Vyper profile ring buffer into one raw blob per dive. Layout as in
+ * libdivecomputer (suunto_vyper.c, suunto_common.c):
  *
- * Memory facts for this family (Zoop, Vyper, Vytec, Cobra, Gekko, Stinger,
- * Mosquito):
+ * - The profile lives in a ring buffer spanning [RING_BEGIN]..[RING_END).
+ * - A big-endian 16-bit end-of-profile pointer in the header ([POINTER_OFFSET])
+ *   addresses the `0x82` end-of-profile marker written after the newest dive.
+ * - Dives are stored oldest first, each in time order: a 14-byte header, the
+ *   samples, a `0x80` end-of-dive marker and four trailer bytes. A dive therefore
+ *   starts where the byte [PEEK] positions back is the previous dive's `0x80`.
  *
- * - The profile lives in a ring buffer spanning [RING_BEGIN]..[RING_END); when the
- *   write position reaches [RING_END] it wraps back to [RING_BEGIN].
- * - A big-endian 16-bit write pointer in the header ([POINTER_OFFSET]) addresses
- *   the last byte written, which is the `0x82` end-of-dataset marker written after
- *   the most recent dive.
- * - Each dive is stored oldest-sample-last: a three byte head (`OLF`, end pressure
- *   in bar/2, end temperature in Celsius) followed by one signed delta-depth byte
- *   (feet) per sample interval, and is terminated by a `0x80` end-of-dive marker.
- * - Unwritten ring bytes read as `0x00`.
- *
- * The exact head layout and markers are taken from the family protocol notes and
- * are not yet confirmed against a captured dump; see docs/protocol/suunto-zoop.md.
+ * Walking back from the pointer yields the dives newest first.
  */
 object SuuntoVyperDump {
     const val FORMAT_ID = "suunto-vyper-log"
@@ -30,68 +24,55 @@ object SuuntoVyperDump {
     const val POINTER_OFFSET = 0x51
     const val MODEL_OFFSET = 0x24
 
+    /** Model, firmware and a four-byte serial, from [MODEL_OFFSET]. */
+    const val DEVINFO_SIZE = 6
+
     const val END_OF_DIVE = 0x80
     const val END_OF_DATA = 0x82
 
-    /** Smallest blob we treat as a real dive (head plus at least one sample). */
-    private const val MIN_RECORD = 4
+    /** Distance from a dive's first byte back to the previous dive's `0x80`. */
+    private const val PEEK = 5
 
     /**
-     * Extract dives newest-first from [ring], the raw bytes of [RING_BEGIN]..[RING_END).
-     * [eopAddress] is the write pointer from the header (absolute memory address of
-     * the `0x82` marker).
+     * Extract dives newest first from [ring], the raw bytes of [RING_BEGIN]..[RING_END).
+     * [eopAddress] is the end-of-profile pointer from the header.
      */
     fun extract(ring: ByteArray, eopAddress: Int): List<RawDive> {
-        if (ring.isEmpty()) return emptyList()
         val size = ring.size
-        val eopIndex = eopAddress - RING_BEGIN
-        if (eopIndex !in 0 until size) return emptyList()
+        val eop = eopAddress - RING_BEGIN
+        if (eop !in 0 until size || ring.u8(eop) != END_OF_DATA) return emptyList()
 
-        // Linearise the ring into chronological order ending at the write pointer:
-        // the byte just past the pointer is the oldest, the pointer itself the newest.
-        val stream = ByteArray(size) { ring[(eopIndex + 1 + it) % size] }
+        fun back(i: Int, n: Int) = ((i - n) % size + size) % size
 
-        // Drop the trailing end-of-dataset marker, then any run of unwritten bytes
-        // that pads the oldest end of a not-yet-full ring.
-        var end = stream.size
-        while (end > 0 && (stream[end - 1].toInt() and 0xFF) == END_OF_DATA) end--
-        var start = 0
-        while (start < end && stream[start].toInt() == 0) start++
-
-        // Split on the end-of-dive marker. Records come out oldest-first.
-        val records = mutableListOf<ByteArray>()
-        var recordStart = start
-        var i = start
-        while (i < end) {
-            if ((stream[i].toInt() and 0xFF) == END_OF_DIVE) {
-                if (i > recordStart) records += stream.copyOfRange(recordStart, i)
-                recordStart = i + 1
+        val dives = mutableListOf<RawDive>()
+        var current = eop
+        var previous = eop
+        repeat(size) {
+            current = back(current, 1)
+            if (ring.u8(current) == END_OF_DATA) return dives
+            if (ring.u8(back(current, PEEK)) == END_OF_DIVE) {
+                val length = back(previous, current).let { if (it == 0) size else it }
+                val record = ByteArray(length) { ring[(current + it) % size] }
+                dives += RawDive(fingerprint = fnv1a(record), data = record, formatId = FORMAT_ID)
+                previous = current
             }
-            i++
         }
-        if (end > recordStart) records += stream.copyOfRange(recordStart, end)
-
-        // Newest dive is last in storage order.
-        return records.asReversed()
-            .filter { it.size >= MIN_RECORD && it.any { b -> b.toInt() != 0 } }
-            .map { record ->
-                RawDive(
-                    fingerprint = fnv1a(record),
-                    data = record,
-                    formatId = FORMAT_ID,
-                )
-            }
+        return dives
     }
 
     /** Model name for the type byte at [MODEL_OFFSET], or a hex fallback. */
     fun modelName(typeByte: Int): String = when (typeByte) {
+        0x01 -> "Spyder"
         0x03 -> "Stinger"
         0x04 -> "Mosquito"
-        0x0A -> "Vytec"
-        0x0B -> "Gekko"
-        0x0C -> "Vyper"
-        0x0D -> "Cobra"
+        0x05 -> "D3"
+        0x0A -> "Vyper"
+        0x0B -> "Vytec"
+        0x0C -> "Cobra"
+        0x0D -> "Gekko"
         0x16 -> "Zoop"
         else -> "Vyper-family (0x${typeByte.toString(16)})"
     }
+
+    private fun ByteArray.u8(i: Int) = this[i].toInt() and 0xFF
 }

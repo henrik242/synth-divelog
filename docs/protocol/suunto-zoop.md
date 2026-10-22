@@ -1,83 +1,75 @@
-# Suunto Zoop (old Vyper family)
+# Suunto Vyper / Zoop (old Vyper family)
 
-The old-Vyper serial protocol shared by the Zoop, original Vyper, Vytec, Cobra,
-Gekko, Stinger and Mosquito. Implemented and unit-tested, **not yet verified against
-hardware**: the facts below come from open-source references and await a
-capture ([suunto-testing.md](suunto-testing.md)). See
-[suunto-serial.md](suunto-serial.md) for the cable and family split.
+The old-Vyper serial protocol shared by the Vyper, Vytec, Cobra, Gekko, Zoop,
+Stinger, Mosquito, D3 and Spyder. **Verified on a Vyper (model `0x0A`)**: a full
+ring download of 47 dives (2000-2006) over the Suunto USB cable on macOS. Layout
+follows libdivecomputer (`suunto_vyper.c`, `suunto_vyper_parser.c`,
+`suunto_common.c`). See [suunto-serial.md](suunto-serial.md) for the cable and
+family split.
+
+## Transfer mode
+
+Unlike the HelO2, the computer does not answer just because the cable is attached.
+Put it in **TR-PC** mode first (on the Vyper: Mode -> Logbook -> TR-PC). Outside
+TR-PC it ignores every command.
 
 ## Line and direction control
 
 - **2400 baud, 8 data bits, odd parity, 1 stop bit (2400 8O1).**
-- **Half-duplex.** `RTS` toggles line direction: set `RTS` to transmit, clear it to
-  receive. `DTR` must stay set the whole session - it powers the interface.
-- Timing (to confirm): ~200 ms settle before clearing `RTS`, ~400 ms after clearing
-  before reading (`txSettleMs` / `rxSettleMs`). The code waits up to 3 s for a reply.
-- Because it is half-duplex, **bytes sent are echoed back on RX** and must be read
-  and discarded before the real reply.
+- **Half-duplex.** `RTS` set to transmit, cleared to receive. `DTR` stays set the
+  whole session; it powers the interface.
+- Timing as libdivecomputer: 500 ms quiet before each command, RTS held 200 ms after
+  the write, then cleared; the reply follows within ~300 ms.
+- The Suunto cable does **not echo**. With RTS held low while sending, the cable
+  loops the command back and the computer never sees it.
 
 ## Packet framing
 
-- Every packet ends with a 1-byte **CRC = XOR of all preceding bytes** (simple
-  single-byte XOR checksum).
+- Every packet ends with a 1-byte **CRC = XOR of all preceding bytes**.
 
 ## Read memory
 
 - Command byte **`0x05`**: send `05 [addrHi] [addrLo] [count] [crc]`, `count` =
   1..32.
 - Reply: `05 [addrHi] [addrLo] [count] [count data bytes] [crc]`.
-- Max 32 bytes per read, so a full dump is many paged reads.
 
-## Memory and dive layout
-
-Header fields (absolute addresses):
+## Memory layout
 
 | Address | Size | Field |
 |---|---|---|
-| `0x24` | u8 | Computer type (`0x16` Zoop, `0x0C` Vyper, `0x0D` Cobra, `0x0B` Gekko, `0x0A` Vytec, `0x03` Stinger, `0x04` Mosquito) |
-| `0x51` | BE16 | Profile write pointer: absolute address of the `0x82` end-of-dataset byte |
+| `0x24` | u8 | Model (`0x0A` Vyper, `0x0B` Vytec, `0x0C` Cobra, `0x0D` Gekko, `0x16` Zoop, `0x03` Stinger, `0x04` Mosquito, `0x05` D3, `0x01` Spyder) |
+| `0x25` | u8 | Firmware |
+| `0x26` | 4 | Serial, four base-100 digits |
+| `0x51` | BE16 | End-of-profile pointer: address of the `0x82` marker after the newest dive |
 
-- Profiles live in a **ring buffer** spanning `0x71`..`0x2000`; the write pointer
-  wraps from `0x2000` back to `0x71`. Unwritten bytes read as `0x00`.
-- Dives are a continuous stream. Each dive is terminated by a `0x80`
-  end-of-dive marker; a single `0x82` end-of-dataset marker sits after the most
-  recent dive, at the write pointer.
-- A dive record is a 3-byte head then one signed delta-depth byte per sample
-  interval, **stored end-of-dive first** (reverse time):
+The Spyder uses other offsets (pointer `0x1C`, ring from `0x4C`); not handled.
 
-  | Offset | Field |
-  |---|---|
-  | `+0` | `OLF`/mode byte (bit 7 selects OTU over CNS) |
-  | `+1` | tank pressure at end of dive, bar / 2 (0 on hoseless Zoop) |
-  | `+2` | water temperature at end of dive, signed Celsius |
-  | `+3..` | signed delta-depth bytes, feet: `delta = previousDepth - currentDepth` |
+Profiles live in a ring buffer `0x71`..`0x2000`, oldest dive first. Each dive is a
+14-byte header, the samples, a `0x80` end-of-dive marker and four trailer bytes. A
+dive starts where the byte five positions back is the previous dive's `0x80`, so
+the dives are found by walking back from the pointer.
 
-  So a descent is negative (e.g. 30 ft down is `-30` = `0xE2`) and an ascent
-  positive. The parser reads the deltas back-to-front to rebuild the profile from
-  the surface. Zoop records depth + temperature only (Cobra/Vyper Air add tank
-  pressure). The sample interval lives in the device header (Zoop default 20 s).
+## Dive record
+
+| Offset | Field |
+|---|---|
+| `+3` | sample interval, seconds (20 on the Vyper) |
+| `+4` | mode flags: `0x40` gauge, low nibble personal adjustment |
+| `+5` | tank pressure at start, bar / 2 |
+| `+6` | O2 percent (0 = air) |
+| `+8` | surface temperature, signed Celsius |
+| `+9..+13` | start: year (`< 90` -> 20xx, else 19xx), month, day, hour, minute; local time |
+| `+14..` | samples until `0x80` |
+| marker `+1` | minimum temperature, signed Celsius |
+| marker `+3` | tank pressure at end, bar / 2 |
+
+A sample byte outside `0x79..0x87` is a signed depth delta in feet (positive is
+deeper), one per interval. Bytes in that range are events: `0x7A` slow down, `0x7B`
+violation, `0x7C` bookmark, `0x7D` surface, `0x7E` deco, `0x7F` ceiling, `0x81`
+safety stop, `0x87` gas change followed by the O2 percent.
 
 ## Code
 
-In `core/divecomputer` `suunto/`:
-
-- `SuuntoVyperMemory` - the `0x05` paged read with XOR CRC, over `Transport`.
-- `SuuntoVyperDump` - ring linearisation from the write pointer and split into
-  per-dive blobs on the `0x80`/`0x82` markers.
-- `SuuntoVyperParser` - delta-depth reconstruction, max/mean depth, duration,
-  temperature.
-- `SuuntoVyperProtocol` - `DiveComputerProtocol`; carries the `SERIAL_PARAMS`.
-
-Unit tests (`SuuntoVyperTest`, `SuuntoVyperProtocolTest`) cover the CRC, the paged
-read framing in both directions (fake device and `ReplayTransport`), ring extraction
-including the wrap, and the parser against a hand-built memory image.
-
-## Open items
-
-- The exact head layout and the sample interval.
-- The per-dive date/time: `startEpochSeconds` is 0 for now, and identity uses a
-  content fingerprint.
-- An oldest dive whose head begins with `0x00` can lose those leading bytes to the
-  unwritten-gap trim.
-- The half-duplex timing (RTS/DTR settle, echo discard) is the likeliest source of
-  flakiness; the data format is small.
+In `core/divecomputer` `suunto/`: `SuuntoVyperMemory` (paged read),
+`SuuntoVyperDump` (ring walk), `SuuntoVyperParser`, `SuuntoVyperProtocol`
+(`SERIAL_PARAMS`). Tests: `SuuntoVyperTest`, `SuuntoVyperProtocolTest`.

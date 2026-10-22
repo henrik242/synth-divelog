@@ -334,7 +334,7 @@ class SuuntoVyper2Parser(
         private val DIVISORS = intArrayOf(1, 2, 4, 5, 10, 50, 100, 1000)
 
         /** Days from 1970-01-01 to the given civil date (proleptic Gregorian). */
-        private fun civilToEpochSeconds(year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int): Long {
+        internal fun civilToEpochSeconds(year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int): Long {
             val y = if (month <= 2) year - 1 else year
             val era = (if (y >= 0) y else y - 399) / 400
             val yoe = y - era * 400

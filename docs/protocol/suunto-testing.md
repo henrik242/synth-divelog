@@ -1,9 +1,8 @@
 # Suunto download: real-device test guide
 
 How to test the Suunto USB download against the real cable. The **HelO2 (Vyper2
-family)** download is verified end to end on hardware. The **Zoop / old-Vyper
-family** is implemented and unit-tested but not yet verified; this guide is mainly
-the checklist for that first capture. Line settings and timing are in
+family)** and the **Vyper (old-Vyper family)** downloads are verified end to end on
+hardware. The old-Vyper computers only answer in **TR-PC** mode. Line settings and timing are in
 [suunto-serial.md](suunto-serial.md).
 
 ## Covered by unit tests
@@ -21,9 +20,8 @@ the checklist for that first capture. Line settings and timing are in
 - `SerialLineTransportTest`: the shared line discipline (DTR, RTS turnaround, quiet
   gap, flush, echo discard) used by both desktop and Android.
 
-Still needs a Zoop/Vyper on the cable: the header offsets (model `0x24`, write
-pointer `0x51`), the per-dive head layout, the sample interval, the per-dive
-date/time, and the 2400 8O1 transport timing.
+A Vyper capture confirmed the header offsets, the dive layout and the 2400 8O1
+timing; other old-Vyper models (Zoop, Vytec, Cobra, ...) are untested.
 
 ## Hardware
 
@@ -60,7 +58,7 @@ Without `proto` the tool records the exchange and saves it to
 `~/.synth-divelog/suunto-capture-<ts>.transcript.txt`, even on failure, so a flaky
 attempt still leaves something to debug. Source: `app/desktop` `SuuntoCapture.kt`.
 
-## First Vyper capture checklist
+## New-model capture checklist
 
 1. Does the cable enumerate, with the expected VID/PID?
 2. Does a single `0x05` read of address `0x24` return a plausible model byte?

@@ -3,97 +3,133 @@ package no.synth.divelog.core.divecomputer.suunto
 import no.synth.divelog.core.divecomputer.DiveLogParser
 import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.model.Event
+import no.synth.divelog.core.model.EventType
+import no.synth.divelog.core.model.GasMix
+import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
 import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 
 /**
- * Parses one old-Vyper dive record into an [IncomingDive].
- *
- * A record (see [SuuntoVyperDump]) is a three byte head followed by signed
- * delta-depth samples:
+ * Parses one old-Vyper dive record ([SuuntoVyperDump]) into an [IncomingDive]. Layout
+ * as in libdivecomputer's suunto_vyper_parser.c:
  *
  * | Offset | Meaning |
  * |---|---|
- * | 0 | `OLF` / dive-mode byte (bit 7 selects OTU over CNS) |
- * | 1 | tank pressure at the end of the dive, bar / 2 (0 on hoseless models) |
- * | 2 | water temperature at the end of the dive, signed Celsius |
- * | 3.. | one signed delta-depth byte per sample interval, stored end-of-dive first |
+ * | 3 | sample interval, seconds |
+ * | 4 | mode flags: `0x40` gauge, low nibble personal adjustment |
+ * | 5 | tank pressure at the start, bar / 2 |
+ * | 6 | O2 percent (0 means air) |
+ * | 8 | surface temperature, signed Celsius |
+ * | 9..13 | start date/time: year (from 1900, below 90 from 2000), month, day, hour, minute |
+ * | 14.. | samples until the `0x80` end-of-dive marker |
+ * | marker + 1 | minimum temperature, signed Celsius |
+ * | marker + 3 | tank pressure at the end, bar / 2 |
  *
- * A delta is `previousDepth - currentDepth` in feet, so a descent is negative and
- * an ascent positive. Samples are stored in reverse time, so the deltas are read
- * back-to-front to rebuild the profile from the surface.
- *
- * The Zoop records depth and temperature only. The sample interval is not in the
- * per-dive record (it lives in the device header), so it is supplied by the
- * protocol; [DEFAULT_SAMPLE_INTERVAL_SECONDS] is the Zoop default. Start time is
- * not present in this minimal record and is left at 0 until the header date/time
- * fields are confirmed against a capture; the fingerprint stands in for identity.
+ * Each sample byte outside `0x79..0x87` is a signed depth delta in feet (positive is
+ * deeper), one per interval. Bytes in that range are events; `0x87` is a gas change
+ * followed by the new O2 percent.
  */
-class SuuntoVyperParser(
-    private val sampleIntervalSeconds: Int = DEFAULT_SAMPLE_INTERVAL_SECONDS,
-) : DiveLogParser {
+class SuuntoVyperParser : DiveLogParser {
     override val formatId: String = SuuntoVyperDump.FORMAT_ID
 
     override fun parse(raw: RawDive): IncomingDive {
         val d = raw.data
-        if (d.size < HEAD) throw ProtocolException("Vyper record too small: ${d.size} bytes")
+        if (d.size < MIN_SIZE) throw ProtocolException("Vyper record too small: ${d.size} bytes")
 
-        val endTempC = d[2].toInt() // signed Celsius
-        val waterTempMk = celsiusToMilliKelvin(endTempC)
+        val interval = d.u8(3)
+        val gauge = d.u8(4) and 0x40 != 0
+        val startPressureMbar = d.u8(5) * 2 * 1_000
+        val oxygen = mutableListOf(d.u8(6).takeIf { it != 0 } ?: 21)
 
-        // Deltas are stored end-first; reverse to walk forward from the surface.
-        val deltasForward = d.copyOfRange(HEAD, d.size).reversedArray()
-
-        val samples = ArrayList<Sample>(deltasForward.size + 1)
+        val samples = mutableListOf(Sample(timeOffsetSeconds = 0, depthMm = 0))
+        val events = mutableListOf<Event>()
         var depthFt = 0
-        var maxDepthMm = 0
-        var depthSumMm = 0L
-        var submergedCount = 0
-
-        // Surface start sample.
-        samples += Sample(timeOffsetSeconds = 0, depthMm = 0, temperatureMk = waterTempMk)
-
-        for ((index, delta) in deltasForward.withIndex()) {
-            depthFt -= delta.toInt() // delta = prev - current, so current = prev - delta
-            if (depthFt < 0) depthFt = 0
-            val depthMm = feetToMillimetres(depthFt)
-            if (depthMm > maxDepthMm) maxDepthMm = depthMm
-            if (depthMm > 0) {
-                depthSumMm += depthMm
-                submergedCount++
+        var maxDepthFt = 0
+        var time = 0
+        var nsamples = 0
+        var complete = true
+        var activeGas = 0
+        var offset = HEADER
+        while (offset < d.size && d.u8(offset) != SuuntoVyperDump.END_OF_DIVE) {
+            val value = d.u8(offset++)
+            if (complete) {
+                time += interval
+                complete = false
             }
-            samples += Sample(
-                timeOffsetSeconds = (index + 1) * sampleIntervalSeconds,
-                depthMm = depthMm,
-                temperatureMk = waterTempMk,
-            )
+            if (value !in EVENT_RANGE) {
+                depthFt += d[offset - 1].toInt() // signed
+                if (depthFt > maxDepthFt) maxDepthFt = depthFt
+                nsamples++
+                samples += Sample(
+                    timeOffsetSeconds = time,
+                    depthMm = feetToMillimetres(depthFt),
+                    activeGasIndex = if (gauge) null else activeGas,
+                )
+                complete = true
+                continue
+            }
+            val type = when (value) {
+                0x7A -> EventType.ASCENT_RATE
+                0x7B, 0x7F -> EventType.WARNING // violation, ceiling broken
+                0x7C -> EventType.BOOKMARK
+                0x7D -> EventType.SURFACE
+                0x7E, 0x81 -> EventType.DECO // deco, safety stop
+                0x87 -> {
+                    if (offset >= d.size) throw ProtocolException("Vyper record: truncated gas change")
+                    val o2 = d.u8(offset++)
+                    activeGas = oxygen.indexOf(o2).takeIf { it >= 0 } ?: oxygen.size.also { oxygen += o2 }
+                    events += Event(time, EventType.GAS_SWITCH, value = GasSwitch.value(o2, 0))
+                    null
+                }
+                else -> null
+            }
+            if (type != null) events += Event(time, type)
         }
 
-        val durationSeconds = deltasForward.size * sampleIntervalSeconds
-        val meanDepthMm = if (submergedCount > 0) (depthSumMm / submergedCount).toInt() else null
+        val marker = offset
+        if (marker + 4 >= d.size) throw ProtocolException("Vyper record: no end-of-dive marker")
+        val endPressureMbar = d.u8(marker + 3) * 2 * 1_000
 
+        if (complete) time += interval
+        samples += Sample(timeOffsetSeconds = time, depthMm = 0)
+        if (startPressureMbar > 0 || endPressureMbar > 0) {
+            samples[0] = samples[0].copy(tankPressuresMbar = mapOf(0 to startPressureMbar))
+            samples[samples.lastIndex] = samples.last().copy(tankPressuresMbar = mapOf(0 to endPressureMbar))
+        }
+
+        val submerged = samples.mapNotNull { it.depthMm }.filter { it > 0 }
+        val p = DATETIME_OFFSET
+        val year = d.u8(p) + if (d.u8(p) < 90) 2000 else 1900
         return IncomingDive(
             number = null,
-            startEpochSeconds = 0L, // not in the minimal record; see class note
-            utcOffsetSeconds = 0,
-            durationSeconds = durationSeconds,
-            maxDepthMm = if (maxDepthMm > 0) maxDepthMm else null,
-            meanDepthMm = meanDepthMm,
-            waterTempMk = waterTempMk,
+            startEpochSeconds = SuuntoVyper2Parser.civilToEpochSeconds(year, d.u8(p + 1), d.u8(p + 2), d.u8(p + 3), d.u8(p + 4), 0),
+            utcOffsetSeconds = 0, // device stores local wall-clock time with no zone
+            durationSeconds = nsamples * interval,
+            maxDepthMm = feetToMillimetres(maxDepthFt).takeIf { it > 0 },
+            meanDepthMm = if (submerged.isNotEmpty()) submerged.sum() / submerged.size else null,
+            waterTempMk = celsiusToMilliKelvin(d[marker + 1].toInt()),
+            airTempMk = celsiusToMilliKelvin(d[8].toInt()),
             rawData = raw.data,
             rawFormatId = raw.formatId,
             fingerprint = raw.fingerprint,
             samples = samples,
+            events = events,
+            gases = if (gauge) emptyList() else oxygen.map { GasMix(o2Permille = it * 10, hePermille = 0) },
         )
     }
 
     companion object {
-        const val DEFAULT_SAMPLE_INTERVAL_SECONDS = 20
-        private const val HEAD = 3
-        private const val MM_PER_FOOT = 3048 // tenths of a millimetre per foot / 10
+        private const val HEADER = 14
+        private const val MIN_SIZE = 18
+        private const val DATETIME_OFFSET = 9
+        private val EVENT_RANGE = 0x79..0x87
+        private const val MM_PER_FOOT_X10 = 3048 // tenths of a millimetre per foot
 
-        private fun feetToMillimetres(feet: Int): Int = feet * MM_PER_FOOT / 10
+        private fun ByteArray.u8(i: Int) = this[i].toInt() and 0xFF
+
+        private fun feetToMillimetres(feet: Int): Int = feet * MM_PER_FOOT_X10 / 10
 
         private fun celsiusToMilliKelvin(celsius: Int): Int = celsius * 1_000 + ZERO_CELSIUS_MK
     }
