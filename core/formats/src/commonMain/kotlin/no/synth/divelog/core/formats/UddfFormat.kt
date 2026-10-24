@@ -21,6 +21,7 @@ import kotlin.math.roundToInt
 class UddfFormat : DiveFormat {
     override val id: String = "uddf"
     override val displayName: String = "UDDF"
+    override val fileExtension: String = "uddf"
 
     /** The computer whose profile is exported: primary, else the first with samples. */
     private fun exportComputer(dive: DiveEntry): ComputerEntry? =

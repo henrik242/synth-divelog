@@ -31,34 +31,45 @@ data class ReparseResult(val reparsed: Int, val failures: List<ReparseFailure>)
 /** An export to save or share: suggested file name, media type and content. */
 class ExportFile(val name: String, val mimeType: String, val bytes: ByteArray)
 
-/** An export the user can pick: [id] goes to [LogbookIo.export]. */
-data class ExportTarget(val id: String, val displayName: String)
+/** An export the user can pick: [id] goes to [LogbookIo.export]; the file gets [extension] and [mimeType]. */
+data class ExportTarget(val id: String, val displayName: String, val extension: String, val mimeType: String)
+
+/** An [ExportTarget] and how to write a log in it. */
+private class Exporter(val target: ExportTarget, val write: (DiveLog) -> ByteArray)
 
 /** Exports the logbook to, and imports it from, the file formats. */
 class LogbookIo(private val container: AppContainer) {
     private val merger = LogbookMerger(container)
 
+    /** The whole logbook as [format] text. */
     fun exportAll(format: DiveFormat): String = format.write(buildDiveLog())
 
-    /** The whole logbook in export [targetId] (see [exportTargets]), or null for an unknown id. */
-    fun export(targetId: String): ExportFile? {
-        if (targetId == SHEARWATER_CLOUD) {
-            val bytes = ShearwaterCloudWriter.write(buildDiveLog(), Clock.System.now().epochSeconds)
-            return ExportFile("synth-divelog.db", "application/vnd.sqlite3", bytes)
+    /**
+     * The logbook in export [targetId] (see [exportTargets]), or null for an unknown id.
+     * Only the dives in [diveIds] when given (ids with no dive are skipped), else the whole logbook.
+     */
+    fun export(targetId: String, diveIds: Set<Long>? = null): ExportFile? {
+        val exporter = exporters().firstOrNull { it.target.id == targetId } ?: return null
+        val log = buildDiveLog(diveIds)
+        val count = log.dives.size
+        val name = when {
+            diveIds == null -> "synth-divelog"
+            count == 1 -> "synth-divelog-1-dive"
+            else -> "synth-divelog-$count-dives"
         }
-        val format = formats().firstOrNull { it.id == targetId } ?: return null
-        val ext = if (format is UddfFormat) "uddf" else "xml"
-        return ExportFile("synth-divelog.$ext", "application/xml", exportAll(format).encodeToByteArray())
+        val target = exporter.target
+        return ExportFile("$name.${target.extension}", target.mimeType, exporter.write(log))
     }
 
     /** Serialize the whole logbook into the cloud git storage format. */
     fun exportCloudTree(): Map<String, String> = GitLogFormat().write(buildDiveLog())
 
     /**
-     * The whole logbook, read with one query per table rather than per dive (an export runs
-     * on every cloud push), inside one transaction for a consistent snapshot.
+     * The logbook, or only the dives in [diveIds], read with one query per table rather than
+     * per dive (an export runs on every cloud push), inside one transaction for a consistent
+     * snapshot.
      */
-    private fun buildDiveLog(): DiveLog = container.dives.inTransaction {
+    private fun buildDiveLog(diveIds: Set<Long>? = null): DiveLog = container.dives.inTransaction {
         val devices = container.devices.all().associateBy { it.id }
         val mixes = container.gases.allGasMixes()
         val recordsByDive = container.dives.recordsByDive()
@@ -68,7 +79,8 @@ class LogbookIo(private val container: AppContainer) {
         val buddiesByDive = container.buddies.buddyNamesByDive()
         val tagsByDive = container.tags.tagNamesByDive()
         val siteRefs = siteRefs()
-        val entries = container.dives.allDives().map { dive ->
+        val dives = container.dives.allDives().filter { diveIds == null || it.id in diveIds }
+        val entries = dives.map { dive ->
             val computers = recordsByDive[dive.id].orEmpty().map { r ->
                 val device = r.deviceId?.let { devices[it] }
                 ComputerEntry(
@@ -361,8 +373,14 @@ class LogbookIo(private val container: AppContainer) {
         private const val IMPORT_BATCH = 100
 
         /** Every export: the text formats, then a Shearwater Cloud database. */
-        fun exportTargets(): List<ExportTarget> =
-            formats().map { ExportTarget(it.id, it.displayName) } + ExportTarget(SHEARWATER_CLOUD, "Shearwater Cloud database")
+        fun exportTargets(): List<ExportTarget> = exporters().map { it.target }
+
+        private fun exporters(): List<Exporter> =
+            formats().map { f ->
+                Exporter(ExportTarget(f.id, f.displayName, f.fileExtension, f.mimeType)) { f.write(it).encodeToByteArray() }
+            } + Exporter(ExportTarget(SHEARWATER_CLOUD, "Shearwater Cloud database", "db", "application/vnd.sqlite3")) {
+                ShearwaterCloudWriter.write(it, Clock.System.now().epochSeconds)
+            }
 
         /** Guess the format from the file content. */
         fun detect(text: String): DiveFormat? = when {

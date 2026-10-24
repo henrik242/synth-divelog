@@ -78,6 +78,12 @@ interface DiveFormat {
     /** User-facing name shown in import/export UI. */
     val displayName: String
 
+    /** File name extension of an export, without the dot. */
+    val fileExtension: String get() = "xml"
+
+    /** Media type of an export. */
+    val mimeType: String get() = "application/xml"
+
     fun write(log: DiveLog): String
 
     fun read(text: String): DiveLog
