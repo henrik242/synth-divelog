@@ -47,8 +47,11 @@ fun main() {
     }
 }
 
-private suspend fun saveExport(export: ExportFile) = withContext(Dispatchers.IO) {
-    chooseFile("Export logbook", FileDialog.SAVE, export.name)?.writeBytes(export.bytes)
+/** Asks where to save [export] and writes it there; false if the dialog was cancelled. */
+private suspend fun saveExport(export: ExportFile): Boolean = withContext(Dispatchers.IO) {
+    val file = chooseFile("Export ${export.name}", FileDialog.SAVE, export.name) ?: return@withContext false
+    file.writeBytes(export.bytes)
+    true
 }
 
 /** Opens a file dialog, returning the chosen file or null if cancelled. */

@@ -20,6 +20,7 @@ per-target entry point.
 | `:ui` | Shared Compose Multiplatform screens. |
 | `:app:android`, `:app:desktop`, `iosApp/` | Per-platform entry points. iOS has no download or cloud sync (`cloud = null`). |
 
+- Platform features the shared UI calls (file pick, export save/share, download permissions) are `PlatformHooks` in `:ui`, one per entry point; a null hook hides its UI. Export formats are `LogbookIo.exportTargets()`.
 - **Keep Android/JVM APIs out of commonMain** in every shared module. JDK code both JVM and Android use goes in `jvmAndAndroidMain`.
 - Shared modules apply the `synth.kmp-library` convention plugin (`build-logic/`): `jvm()` (so common tests run on the JVM), Android, and the `jvmAndAndroid` source set. Each module adds its own iOS targets.
 - Storage uses fixed integer units: depth mm, pressure mbar, temperature mK, duration s, gas permille. Conversion constants (`MM_PER_FOOT`, `ATM_BAR`, `ZERO_CELSIUS_MK`, ...) live in `core/model` `units/Constants.kt`.

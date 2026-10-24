@@ -5,23 +5,28 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import no.synth.divelog.core.logbook.download.AndroidSerialPorts
 import no.synth.divelog.core.logbook.download.DiveComputerType
@@ -40,12 +45,14 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val pickImportFile = rememberImportFilePick(this)
+            val saveExport = rememberExportSave(this)
             val prepareDownload = rememberDownloadPermissionRequest(this)
             val hooks = remember {
                 PlatformHooks(
                     serialPorts = AndroidSerialPorts(applicationContext).let { if (simulatorRequested()) SimulatedSerialPorts(it) else it },
                     pickImportFile = pickImportFile,
-                    saveExport = ::shareExport,
+                    saveExport = saveExport,
+                    shareExport = ::shareExport,
                     prepareDownload = prepareDownload,
                     downloadHint = ::downloadHint,
                     // A foreground service holds the process awake and shows the progress;
@@ -87,7 +94,7 @@ class MainActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        startActivity(Intent.createChooser(intent, "Export logbook"))
+        startActivity(Intent.createChooser(intent, export.name))
     }
 
     /** Saves a download's wire exchange so it can be replayed as a test fixture. */
@@ -102,33 +109,105 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
+ * Bridges an activity result to a coroutine: the returned action launches [contract] and
+ * suspends until its result. The launcher must be created in composition, so the pending
+ * result goes through a [CompletableDeferred]. A call while another is waiting returns null
+ * at once. A result nobody waits for (the activity was recreated meanwhile, cancelling the
+ * caller) goes to [onUnclaimed].
+ */
+@Composable
+private fun <I, O> rememberActivityResult(
+    contract: ActivityResultContract<I, O>,
+    onUnclaimed: (O) -> Unit = {},
+): suspend (I) -> O? {
+    val pending = remember { mutableStateOf<CompletableDeferred<O>?>(null) }
+    val launcher = rememberLauncherForActivityResult(contract) { result ->
+        val waiting = pending.value
+        pending.value = null
+        if (waiting != null) waiting.complete(result) else onUnclaimed(result)
+    }
+    return { input ->
+        if (pending.value != null) {
+            null
+        } else {
+            val deferred = CompletableDeferred<O>()
+            pending.value = deferred
+            try {
+                launcher.launch(input)
+                deferred.await()
+            } finally {
+                if (pending.value === deferred) pending.value = null
+            }
+        }
+    }
+}
+
+/**
  * Builds a suspend action that opens the system document picker and returns the chosen
- * file's text, or null if the user cancelled. The launcher must be created in composition,
- * so the pending result is bridged to the coroutine through a [CompletableDeferred]. The
- * file is read off the main thread.
+ * file's bytes, or null if the user cancelled. The file is read off the main thread.
  */
 @Composable
 private fun rememberImportFilePick(context: Context): suspend () -> ByteArray? {
-    val pending = remember { mutableStateOf<CompletableDeferred<android.net.Uri?>?>(null) }
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        pending.value?.complete(uri)
-        pending.value = null
-    }
+    val pick = rememberActivityResult(ActivityResultContracts.OpenDocument())
     return {
-        val deferred = CompletableDeferred<android.net.Uri?>()
-        pending.value = deferred
-        launcher.launch(arrayOf("*/*"))
-        val uri = deferred.await()
-        if (uri == null) {
-            null
-        } else {
+        pick(arrayOf("*/*"))?.let { uri ->
             withContext(Dispatchers.IO) {
                 context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             }
         }
     }
+}
+
+/** An export waiting on the save dialog; kept outside the activity, so one recreated meanwhile still writes it. */
+private object PendingSave {
+    var export: ExportFile? = null
+}
+
+/**
+ * Builds a suspend action that opens the system save dialog (Downloads, Drive, ...) with the
+ * export's name and writes it to the chosen document. Returns false if the user cancelled
+ * or a save is already waiting on its dialog.
+ */
+@Composable
+private fun rememberExportSave(context: Context): suspend (ExportFile) -> Boolean {
+    val scope = rememberCoroutineScope()
+    // A generic type keeps the suggested name as is; a specific one lets the provider append
+    // its own extension (synth-divelog.uddf.xml).
+    val pick = rememberActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        // The activity was recreated while the dialog was open, so the save's caller is gone:
+        // write its export, or drop the empty document the dialog made when nothing is left.
+        val export = PendingSave.export.also { PendingSave.export = null }
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    if (export != null) writeDocument(context, uri, export.bytes)
+                    else withContext(Dispatchers.IO) { DocumentsContract.deleteDocument(context.contentResolver, uri) }
+                }.onFailure { Log.w("SynthDivelog", "Finishing an interrupted export failed", it) }
+            }
+        }
+    }
+    return { export ->
+        if (PendingSave.export != null) {
+            false
+        } else {
+            PendingSave.export = export
+            // Cancelled with the activity, this throws and the export stays pending for the result.
+            val uri = pick(export.name)
+            PendingSave.export = null
+            if (uri == null) {
+                false
+            } else {
+                writeDocument(context, uri, export.bytes)
+                true
+            }
+        }
+    }
+}
+
+private suspend fun writeDocument(context: Context, uri: Uri, bytes: ByteArray) = withContext(Dispatchers.IO) {
+    // "w", not "wt": the document is new and empty, and some providers reject "wt".
+    val out = requireNotNull(context.contentResolver.openOutputStream(uri, "w")) { "Cannot write $uri" }
+    out.use { it.write(bytes) }
 }
 
 /**
@@ -139,23 +218,12 @@ private fun rememberImportFilePick(context: Context): suspend () -> ByteArray? {
  */
 @Composable
 private fun rememberDownloadPermissionRequest(context: Context): suspend () -> Unit {
-    val pending = remember { mutableStateOf<CompletableDeferred<Unit>?>(null) }
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        pending.value?.complete(Unit)
-        pending.value = null
-    }
+    val request = rememberActivityResult(ActivityResultContracts.RequestMultiplePermissions())
     return {
         val missing = downloadPermissions().filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (missing.isNotEmpty()) {
-            val deferred = CompletableDeferred<Unit>()
-            pending.value = deferred
-            launcher.launch(missing.toTypedArray())
-            deferred.await()
-        }
+        if (missing.isNotEmpty()) request(missing.toTypedArray())
     }
 }
 
