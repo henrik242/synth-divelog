@@ -1,5 +1,8 @@
 package no.synth.divelog.core.formats
 
+import no.synth.divelog.core.model.DecoAlgorithm
+import no.synth.divelog.core.model.DecoModel
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Sample
@@ -205,6 +208,23 @@ class GitLogFormatTest {
         assertEquals(listOf(null, 500), d.tanks.map { it.o2Permille })
         assertEquals(GasSwitch.value(50, 0), d.computers.single().events.single().value)
         assertEquals(Sample(10, depthMm = 5_000, temperatureMk = 285_150, ndlSeconds = 1_200), d.computers.single().samples[1])
+    }
+
+    @Test
+    fun readsTheDiveModeDecoModelAndTimeToSurface() {
+        fun computer(divecomputer: String) = format.read(
+            mapOf(
+                "00-Subsurface" to "version 3\n",
+                "2024/05/30-Thu-06=14=00/Dive-7" to "duration 40:00 min\n",
+                "2024/05/30-Thu-06=14=00/Divecomputer" to divecomputer,
+            ),
+        ).dives.single().computers.single()
+        val ccr = computer("model \"X\"\ndctype ccr\nkeyvalue \"Deco model\" \"GF 35/75\"\n  0:00 1.0m tts=3:00\n  0:10 5.0m\n")
+        assertEquals(DiveMode.CLOSED_CIRCUIT, ccr.diveMode)
+        assertEquals(DecoModel(DecoAlgorithm.BUHLMANN, 35, 75), ccr.decoModel)
+        assertEquals(listOf(180, 180), ccr.samples.map { it.ttsSeconds })
+        assertEquals(DiveMode.GAUGE, computer("model \"X\"\nkeyvalue \"Dive mode\" \"Gauge\"\n").diveMode)
+        assertEquals(null, computer("model \"X\"\n").diveMode)
     }
 
     @Test

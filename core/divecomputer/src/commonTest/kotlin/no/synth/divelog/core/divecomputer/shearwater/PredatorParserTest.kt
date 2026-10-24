@@ -1,6 +1,9 @@
 package no.synth.divelog.core.divecomputer.shearwater
 
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.model.DecoAlgorithm
+import no.synth.divelog.core.model.DecoModel
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.EventType
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -117,9 +120,10 @@ class PredatorParserTest {
         )
         val (noStop, stop) = dive.samples
         assertEquals(12 * 60, noStop.ndlSeconds)
-        assertEquals(null, noStop.stopTimeSeconds)
-        assertEquals(null, noStop.stopDepthMm)
-        assertEquals(null, stop.ndlSeconds)
+        // Zero, not null, for what does not apply: a file format carries a null over.
+        assertEquals(0, noStop.stopTimeSeconds)
+        assertEquals(0, noStop.stopDepthMm)
+        assertEquals(0, stop.ndlSeconds)
         assertEquals(12 * 60, stop.stopTimeSeconds)
         assertEquals(6_000, stop.stopDepthMm)
     }
@@ -132,8 +136,8 @@ class PredatorParserTest {
         data[block + 16 + 9] = 3
         val (noTime, timed) = PredatorParser().parse(RawDive(fingerprint = "a", formatId = PredatorDump.FORMAT_ID, data = data)).samples
         assertEquals(6_096, noTime.stopDepthMm) // 20 ft, not 2.0 ft
-        assertEquals(null, noTime.stopTimeSeconds)
-        assertEquals(null, noTime.ndlSeconds)
+        assertEquals(0, noTime.stopTimeSeconds)
+        assertEquals(0, noTime.ndlSeconds)
         assertEquals(3 * 60, timed.stopTimeSeconds)
     }
 
@@ -149,5 +153,24 @@ class PredatorParserTest {
         assertEquals(listOf(null, null), ppO2(status = 0x10)) // open circuit
         assertEquals(listOf(1_300, 1_300), ppO2(status = 0x00)) // rebreather, internal sensors
         assertEquals(listOf(null, null), ppO2(status = 0x02)) // rebreather, external ppO2
+    }
+
+    @Test
+    fun aBlockLogsHeaderGivesItsDiveModeAndDecoModel() {
+        // Petrel 1 / Predator blocks: GF at +4/+5, deco model at +67, dive mode at +112 from
+        // log version 8 (+127). Samples are open circuit, so only the header says SC.
+        fun blockLog(version: Int) = record(timestamp = 0, units = 0, o2 = 21, samples = listOf(Triple(100, 10, 21)), durationMinutes = 1).also {
+            it[4] = 30
+            it[5] = 70
+            it[67] = 0
+            it[112] = 4
+            it[127] = version.toByte()
+            it[block + 11] = 0x10
+        }
+        val v8 = PredatorParser().parse(RawDive("a", blockLog(8), PredatorDump.FORMAT_ID))
+        assertEquals(DiveMode.SEMI_CLOSED, v8.diveMode)
+        assertEquals(DecoModel(DecoAlgorithm.BUHLMANN, 30, 70), v8.decoModel)
+        // Before version 8 the header byte is not the mode; the open-circuit samples decide.
+        assertEquals(DiveMode.OPEN_CIRCUIT, PredatorParser().parse(RawDive("a", blockLog(7), PredatorDump.FORMAT_ID)).diveMode)
     }
 }

@@ -1,5 +1,8 @@
 package no.synth.divelog.core.formats
 
+import no.synth.divelog.core.model.DecoAlgorithm
+import no.synth.divelog.core.model.DecoModel
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.GasMix
@@ -12,7 +15,10 @@ import no.synth.divelog.core.model.Sample
  * minutes of no-deco time) so that only real losses show up.
  */
 internal object RoundTripFixture {
-    private fun sample(t: Int, depth: Int, temp: Int, ppO2: Int, ndl: Int, ceiling: Int, stopDepth: Int, stopTime: Int, cns: Int, gas: Int, p0: Int, p1: Int) =
+    private fun sample(
+        t: Int, depth: Int, temp: Int, ppO2: Int, ndl: Int, ceiling: Int, stopDepth: Int, stopTime: Int, cns: Int, gas: Int, p0: Int, p1: Int,
+        tts: Int? = null,
+    ) =
         Sample(
             timeOffsetSeconds = t,
             depthMm = depth,
@@ -22,6 +28,7 @@ internal object RoundTripFixture {
             ceilingMm = ceiling,
             stopDepthMm = stopDepth,
             stopTimeSeconds = stopTime,
+            ttsSeconds = tts,
             cnsPermille = cns,
             activeGasIndex = gas,
             tankPressuresMbar = mapOf(0 to p0, 1 to p1),
@@ -35,11 +42,11 @@ internal object RoundTripFixture {
         waterTempMk = 280_650,
         airTempMk = 291_150,
         samples = listOf(
-            sample(0, 1_000, 285_150, 200, 5_940, 0, 0, 0, 10, 0, 220_000, 200_000),
-            sample(10, 20_500, 284_150, 1_190, 1_200, 0, 0, 0, 20, 0, 215_500, 200_000),
-            sample(20, 45_670, 280_650, 1_390, 0, 9_000, 9_000, 120, 150, 0, 180_250, 200_000),
-            sample(30, 21_000, 280_650, 1_550, 0, 6_000, 6_000, 180, 230, 1, 150_000, 190_010),
-            sample(40, 0, 281_650, 1_600, 600, 0, 0, 0, 240, 1, 60_000, 120_000),
+            sample(0, 1_000, 285_150, 200, 5_940, 0, 0, 0, 10, 0, 220_000, 200_000, tts = 0),
+            sample(10, 20_500, 284_150, 1_190, 1_200, 0, 0, 0, 20, 0, 215_500, 200_000, tts = 0),
+            sample(20, 45_670, 280_650, 1_390, 0, 9_000, 9_000, 120, 150, 0, 180_250, 200_000, tts = 1_080),
+            sample(30, 21_000, 280_650, 1_550, 0, 6_000, 6_000, 180, 230, 1, 150_000, 190_010, tts = 600),
+            sample(40, 0, 281_650, 1_600, 600, 0, 0, 0, 240, 1, 60_000, 120_000, tts = 0),
         ),
         events = listOf(
             Event(10, EventType.GAS_SWITCH, GasSwitch.value(18, 45)),
@@ -51,6 +58,8 @@ internal object RoundTripFixture {
             Event(40, EventType.SURFACE),
             Event(40, EventType.OTHER, 7),
         ),
+        diveMode = DiveMode.CLOSED_CIRCUIT,
+        decoModel = DecoModel(DecoAlgorithm.BUHLMANN, gfLowPercent = 30, gfHighPercent = 70),
     )
 
     val secondary = ComputerEntry(
@@ -65,6 +74,7 @@ internal object RoundTripFixture {
         ),
         startEpochSeconds = 1_717_042_450,
         durationSeconds = 3_700,
+        diveMode = DiveMode.GAUGE,
     )
 
     val rich = DiveEntry(
@@ -106,6 +116,9 @@ internal object RoundTripFixture {
         computers = listOf(
             ComputerEntry(
                 model = "Suunto Vyper",
+                // Not what a Vyper logs, but the other mode and model the formats write.
+                diveMode = DiveMode.OPEN_CIRCUIT,
+                decoModel = DecoModel(DecoAlgorithm.VPM, conservatism = 2),
                 maxDepthMm = 12_340,
                 meanDepthMm = 8_000,
                 waterTempMk = 283_150,

@@ -3,6 +3,7 @@ package no.synth.divelog.core.logbook.format
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.core.model.units.Units
 import kotlin.time.Instant
@@ -84,6 +85,15 @@ object Format {
     fun tankSize(ml: Int, workingPressureMbar: Int?, system: UnitSystem): String {
         val v = Units.tankSize(ml, workingPressureMbar, system)
         return "${oneDecimal(v.value).removeSuffix(".0")} ${v.unit}"
+    }
+
+    /** How a computer logged the dive, e.g. "Closed circuit". */
+    fun diveMode(mode: DiveMode): String = when (mode) {
+        DiveMode.OPEN_CIRCUIT -> "Open circuit"
+        DiveMode.CLOSED_CIRCUIT -> "Closed circuit"
+        DiveMode.SEMI_CLOSED -> "Semi-closed"
+        DiveMode.GAUGE -> "Gauge"
+        DiveMode.FREEDIVE -> "Freedive"
     }
 
     private fun two(v: Int): String = if (v < 10) "0$v" else "$v"

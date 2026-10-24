@@ -138,6 +138,7 @@ class SubsurfaceXml : DiveFormat {
         computer.durationSeconds?.takeIf { it != dive.durationSeconds && it > 0 }?.let {
             w.attribute(NS, "duration", "", "${SubsurfaceShared.clock(it)} min")
         }
+        computer.diveMode?.let(SubsurfaceShared::dcType)?.let { w.attribute(NS, "dctype", "", it) }
 
         if (computer.maxDepthMm != null || computer.meanDepthMm != null) {
             w.startTag(NS, "depth", "")
@@ -153,6 +154,8 @@ class SubsurfaceXml : DiveFormat {
         }
         computer.serial?.let { extraData(w, SubsurfaceShared.KEY_SERIAL, it) }
         if (utcOffset != 0) extraData(w, SubsurfaceShared.KEY_UTC_OFFSET, SubsurfaceShared.offsetText(utcOffset))
+        computer.diveMode?.let(SubsurfaceShared::diveModeExtra)?.let { extraData(w, SubsurfaceShared.KEY_DIVE_MODE, it) }
+        computer.decoModel?.let { extraData(w, SubsurfaceShared.KEY_DECO_MODEL, it.label) }
 
         for (e in computer.events) {
             w.startTag(NS, "event", "")
@@ -183,6 +186,7 @@ class SubsurfaceXml : DiveFormat {
             s.ndlSeconds?.takeIf { it != last.ndlSeconds }?.let { w.attribute(NS, "ndl", "", "${SubsurfaceShared.clock(it)} min") }
             s.stopTimeSeconds?.takeIf { it != last.stopTimeSeconds }?.let { w.attribute(NS, "stoptime", "", "${SubsurfaceShared.clock(it)} min") }
             s.stopDepthMm?.takeIf { it != last.stopDepthMm }?.let { w.attribute(NS, "stopdepth", "", "${milli(it)} m") }
+            s.ttsSeconds?.takeIf { it != last.ttsSeconds }?.let { w.attribute(NS, "tts", "", "${SubsurfaceShared.clock(it)} min") }
             s.cnsPermille?.takeIf { it != last.cnsPermille }?.let { w.attribute(NS, "cns", "", "${it / 10}%") }
             s.ppO2Mbar?.takeIf { it != last.ppO2Mbar }?.let { w.attribute(NS, "dc_supplied_ppo2", "", "${milli(it)} bar") }
             w.endTag(NS, "sample", "")
@@ -253,6 +257,7 @@ class SubsurfaceXml : DiveFormat {
                             date = attr(reader, "date"),
                             time = attr(reader, "time"),
                             durationSeconds = attr(reader, "duration")?.let(FormatUnits::clockToSeconds),
+                            diveType = attr(reader, "dctype"),
                         )
                         "depth" -> computer?.let {
                             it.maxDepthMm = attr(reader, "max")?.let(FormatUnits::thousandths)
@@ -353,6 +358,7 @@ class SubsurfaceXml : DiveFormat {
             ndlSeconds = attr(reader, "ndl")?.let(FormatUnits::clockToSeconds) ?: previous?.ndlSeconds,
             stopDepthMm = attr(reader, "stopdepth")?.let(FormatUnits::thousandths) ?: previous?.stopDepthMm,
             stopTimeSeconds = attr(reader, "stoptime")?.let(FormatUnits::clockToSeconds) ?: previous?.stopTimeSeconds,
+            ttsSeconds = attr(reader, "tts")?.let(FormatUnits::clockToSeconds) ?: previous?.ttsSeconds,
             cnsPermille = attr(reader, "cns")?.let(FormatUnits::percentToPermille) ?: previous?.cnsPermille,
             tankPressuresMbar = pressures,
         )
@@ -421,6 +427,7 @@ class SubsurfaceXml : DiveFormat {
         val date: String?,
         val time: String?,
         val durationSeconds: Int?,
+        val diveType: String?,
         var maxDepthMm: Int? = null,
         var meanDepthMm: Int? = null,
         var waterTempMk: Int? = null,
@@ -444,6 +451,8 @@ class SubsurfaceXml : DiveFormat {
                 serial = serial,
                 startEpochSeconds = start,
                 durationSeconds = durationSeconds,
+                diveMode = SubsurfaceShared.diveMode(diveType, extra),
+                decoModel = SubsurfaceShared.decoModel(extra[SubsurfaceShared.KEY_DECO_MODEL]),
             )
         }
     }

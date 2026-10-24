@@ -1,5 +1,8 @@
 package no.synth.divelog.core.formats
 
+import no.synth.divelog.core.model.DecoAlgorithm
+import no.synth.divelog.core.model.DecoModel
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Sample
@@ -154,6 +157,46 @@ class SubsurfaceXmlTest {
         assertEquals(7_200, d.utcOffsetSeconds)
         assertEquals(1_717_042_440, d.startEpochSeconds) // 06:14 at UTC+2
         assertEquals("abc", d.computers.single().serial)
+    }
+
+    @Test
+    fun readsTheDiveModeDecoModelAndTimeToSurface() {
+        val d = diveOf(
+            "<divecomputer model='X' dctype='CCR'><extradata key='Deco model' value='GF 35/75' />" +
+                "<sample time='0:10 min' depth='30.0 m' tts='12:00 min' /><sample time='0:20 min' depth='29.0 m' /></divecomputer>",
+        )
+        val computer = d.computers.single()
+        assertEquals(DiveMode.CLOSED_CIRCUIT, computer.diveMode)
+        assertEquals(DecoModel(DecoAlgorithm.BUHLMANN, gfLowPercent = 35, gfHighPercent = 75), computer.decoModel)
+        assertEquals(listOf(720, 720), computer.samples.map { it.ttsSeconds }) // carried like the other values
+    }
+
+    @Test
+    fun decoModelIsReadLeniently() {
+        assertEquals(DecoModel(DecoAlgorithm.VPM, conservatism = 2), SubsurfaceShared.decoModel("VPM-B +2"))
+        assertEquals(DecoModel(DecoAlgorithm.VPM), SubsurfaceShared.decoModel("VPM-B"))
+        assertEquals(DecoModel(DecoAlgorithm.BUHLMANN), SubsurfaceShared.decoModel("Buhlmann ZHL-16C"))
+        assertEquals(DecoModel(DecoAlgorithm.DCIEM), SubsurfaceShared.decoModel("dciem"))
+        assertEquals(null, SubsurfaceShared.decoModel("RGBM"))
+        // The spelling Subsurface's own sample logs use, and the one this app writes.
+        assertEquals(DecoModel(DecoAlgorithm.BUHLMANN, 50, 70), SubsurfaceShared.decoModel("Buhlmann ZHL-16C 50/70"))
+        for (m in listOf(DecoModel(DecoAlgorithm.BUHLMANN, 30, 70), DecoModel(DecoAlgorithm.VPM, conservatism = 2), DecoModel(DecoAlgorithm.DCIEM))) {
+            assertEquals(m, SubsurfaceShared.decoModel(m.label), m.label)
+        }
+        // Gradient factors out of range are not kept.
+        assertEquals(DecoModel(DecoAlgorithm.BUHLMANN), SubsurfaceShared.decoModel("GF 0/170"))
+    }
+
+    @Test
+    fun aMissingDctypeIsNoModeAndGaugeIsKeptInExtraData() {
+        // A file that says nothing gives no mode, an explicit OC is open circuit, and gauge
+        // (which Subsurface has no dctype for) goes in extra data.
+        assertEquals(null, diveOf("<divecomputer model='X'></divecomputer>").computers.single().diveMode)
+        assertEquals(DiveMode.OPEN_CIRCUIT, diveOf("<divecomputer model='X' dctype='OC'></divecomputer>").computers.single().diveMode)
+        val gauge = diveOf("<divecomputer model='X'><extradata key='Dive mode' value='Gauge' /></divecomputer>")
+        assertEquals(DiveMode.GAUGE, gauge.computers.single().diveMode)
+        val written = format.write(DiveLog(listOf(gauge)))
+        assertTrue("dctype" !in written && "key=\"Dive mode\" value=\"Gauge\"" in written, written)
     }
 
     @Test

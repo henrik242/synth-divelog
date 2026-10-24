@@ -2,9 +2,12 @@ package no.synth.divelog.core.db
 
 import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.Country
+import no.synth.divelog.core.model.DecoAlgorithm
+import no.synth.divelog.core.model.DecoModel
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.DiveComputerRecord
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.GasMix
@@ -101,6 +104,11 @@ private fun record(
     maxDepthMm: Long?,
     rawFormatId: String,
     fingerprint: String,
+    diveMode: String?,
+    decoAlgorithm: String?,
+    gfLowPercent: Long?,
+    gfHighPercent: Long?,
+    decoConservatism: Long?,
 ) = DiveComputerRecord(
     id = id,
     diveId = diveId,
@@ -110,22 +118,41 @@ private fun record(
     maxDepthMm = maxDepthMm?.toInt(),
     rawFormatId = rawFormatId,
     fingerprint = fingerprint,
+    diveMode = DiveMode.fromStored(diveMode),
+    decoModel = DecoAlgorithm.fromStored(decoAlgorithm)?.let {
+        DecoModel(it, gfLowPercent?.toInt(), gfHighPercent?.toInt(), decoConservatism?.toInt())
+    },
 )
 
 internal fun SelectRecordSummaryById.toDomain() =
-    record(id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint)
+    record(
+        id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint,
+        diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism,
+    )
 
 internal fun SelectRecordSummariesForDive.toDomain() =
-    record(id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint)
+    record(
+        id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint,
+        diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism,
+    )
 
 internal fun SelectAllRecordSummaries.toDomain() =
-    record(id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint)
+    record(
+        id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint,
+        diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism,
+    )
 
 internal fun SelectRecordFromDeviceAmongDives.toDomain() =
-    record(id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint)
+    record(
+        id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint,
+        diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism,
+    )
 
 internal fun FindByDeviceAndFingerprint.toDomain() =
-    record(id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint)
+    record(
+        id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint,
+        diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism,
+    )
 
 internal fun SampleRow.toDomain(tankPressures: Map<Int, Int>) = Sample(
     timeOffsetSeconds = timeOffsetSeconds.toInt(),
@@ -136,6 +163,7 @@ internal fun SampleRow.toDomain(tankPressures: Map<Int, Int>) = Sample(
     ceilingMm = ceilingMm?.toInt(),
     stopDepthMm = stopDepthMm?.toInt(),
     stopTimeSeconds = stopTimeSeconds?.toInt(),
+    ttsSeconds = ttsSeconds?.toInt(),
     cnsPermille = cnsPermille?.toInt(),
     activeGasIndex = activeGasIndex?.toInt(),
     tankPressuresMbar = tankPressures,

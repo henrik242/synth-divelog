@@ -18,12 +18,14 @@ class DatabaseMigrationTest {
 
     @Test
     fun migratesVersionOneDatabase() {
-        // Version 1 is today's schema without what 1.sqm (tag tables) and 2.sqm (visibility stars) add.
+        // Version 1 is today's schema without what 1.sqm (tag tables), 2.sqm (visibility
+        // stars) and 3.sqm (dive settings, time to surface) add.
         JdbcSqliteDriver("jdbc:sqlite:${file.absolutePath}").use { driver ->
             DiveDatabase.Schema.create(driver)
             driver.execute(null, "DROP TABLE diveTag", 0)
             driver.execute(null, "DROP TABLE tag", 0)
             driver.execute(null, "ALTER TABLE dive DROP COLUMN visibilityRating", 0)
+            undo3Sqm(driver)
             driver.execute(null, "PRAGMA user_version = 1", 0)
         }
 

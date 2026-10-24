@@ -197,7 +197,9 @@ class UddfFormat : DiveFormat {
                 text(w, "divetime", s.timeOffsetSeconds.toString())
                 s.ppO2Mbar?.let { text(w, "calculatedpo2", FormatUnits.siPascal(it)) }
                 s.cnsPermille?.let { text(w, "cns", (it / 10.0).toString()) }
-                val stopDepthMm = s.stopDepthMm
+                // A stop depth of 0 is "no stop" (computers log it as 0, not as nothing), and
+                // an NDL of 0 under a stop is just "in deco": UDDF says that with the stop.
+                val stopDepthMm = s.stopDepthMm?.takeIf { it > 0 }
                 val stopTimeSeconds = s.stopTimeSeconds
                 if (stopDepthMm != null && stopTimeSeconds != null) {
                     w.startTag(NS, "decostop", "")
@@ -206,7 +208,7 @@ class UddfFormat : DiveFormat {
                     w.attribute(null, "duration", "", stopTimeSeconds.toString())
                     w.endTag(NS, "decostop", "")
                 }
-                s.ndlSeconds?.let { text(w, "nodecotime", it.toString()) }
+                s.ndlSeconds?.takeIf { it > 0 || stopDepthMm == null }?.let { text(w, "nodecotime", it.toString()) }
                 for (e in events.filter { it.type == DiveEventType.GAS_SWITCH }) {
                     val (o2, he) = gasOf(e)
                     w.startTag(NS, "switchmix", "")

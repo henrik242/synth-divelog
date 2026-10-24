@@ -24,4 +24,13 @@ class ModelTest {
         assertEquals(EventType.GAS_SWITCH, EventType.fromStored("GAS_SWITCH"))
         assertEquals(EventType.OTHER, EventType.fromStored("something-new"))
     }
+
+    @Test
+    fun decoModelLabels() {
+        assertEquals("Buhlmann GF 30/70", DecoModel(DecoAlgorithm.BUHLMANN, 30, 70).label)
+        assertEquals("Buhlmann", DecoModel(DecoAlgorithm.BUHLMANN).label)
+        assertEquals("VPM +2", DecoModel(DecoAlgorithm.VPM, conservatism = 2).label)
+        assertEquals("VPM", DecoModel(DecoAlgorithm.VPM).label)
+        assertEquals("DCIEM", DecoModel(DecoAlgorithm.DCIEM).label)
+    }
 }

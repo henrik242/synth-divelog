@@ -121,6 +121,7 @@ class GitLogFormat {
         computer.durationSeconds?.takeIf { it != dive.durationSeconds && it > 0 }?.let {
             b.append("duration ").append(clock(it)).append("min\n")
         }
+        computer.diveMode?.let(SubsurfaceShared::dcType)?.let { b.append("dctype ").append(it).append('\n') }
         computer.maxDepthMm?.let { b.append("maxdepth ").append(milli(it)).append("m\n") }
         computer.meanDepthMm?.let { b.append("meandepth ").append(milli(it)).append("m\n") }
         computer.airTempMk?.let { b.append("airtemp ").append(milli(it - ZERO_CELSIUS_MK)).append("°C\n") }
@@ -129,6 +130,13 @@ class GitLogFormat {
         if (utcOffset != 0) {
             b.append("keyvalue ").append(quote(SubsurfaceShared.KEY_UTC_OFFSET)).append(' ')
                 .append(quote(SubsurfaceShared.offsetText(utcOffset))).append('\n')
+        }
+        computer.diveMode?.let(SubsurfaceShared::diveModeExtra)?.let {
+            b.append("keyvalue ").append(quote(SubsurfaceShared.KEY_DIVE_MODE)).append(' ').append(quote(it)).append('\n')
+        }
+        computer.decoModel?.let {
+            b.append("keyvalue ").append(quote(SubsurfaceShared.KEY_DECO_MODEL)).append(' ')
+                .append(quote(it.label)).append('\n')
         }
         for (ev in computer.events.sortedBy { it.timeOffsetSeconds }) b.append(eventLine(ev, tanks)).append('\n')
         var last = Sample(timeOffsetSeconds = 0)
@@ -166,6 +174,7 @@ class GitLogFormat {
         s.ndlSeconds?.takeIf { it != last.ndlSeconds }?.let { b.append(" ndl=").append(clock(it)) }
         s.stopTimeSeconds?.takeIf { it != last.stopTimeSeconds }?.let { b.append(" stoptime=").append(clock(it)) }
         s.stopDepthMm?.takeIf { it != last.stopDepthMm }?.let { b.append(" stopdepth=").append(milli(it)).append('m') }
+        s.ttsSeconds?.takeIf { it != last.ttsSeconds }?.let { b.append(" tts=").append(clock(it)) }
         s.cnsPermille?.takeIf { it != last.cnsPermille }?.let { b.append(" cns=").append(it / 10).append('%') }
         s.ppO2Mbar?.takeIf { it != last.ppO2Mbar }?.let { b.append(" dc_supplied_ppo2=").append(milli(it)).append("bar") }
         return b.toString()
@@ -288,6 +297,7 @@ class GitLogFormat {
         val date: String?,
         val time: String?,
         val durationSeconds: Int?,
+        val diveType: String?,
         val maxDepthMm: Int?,
         val meanDepthMm: Int?,
         val waterTempMk: Int?,
@@ -308,6 +318,8 @@ class GitLogFormat {
             serial = extra[SubsurfaceShared.KEY_SERIAL] ?: deviceId?.let { serials[it] },
             startEpochSeconds = SubsurfaceShared.computerStart(date, time, utcOffset),
             durationSeconds = durationSeconds,
+            diveMode = SubsurfaceShared.diveMode(diveType, extra),
+            decoModel = SubsurfaceShared.decoModel(extra[SubsurfaceShared.KEY_DECO_MODEL]),
         )
     }
 
@@ -317,6 +329,7 @@ class GitLogFormat {
         var date: String? = null
         var time: String? = null
         var duration: Int? = null
+        var diveType: String? = null
         var maxDepthMm: Int? = null
         var meanDepthMm: Int? = null
         var waterTempMk: Int? = null
@@ -340,6 +353,7 @@ class GitLogFormat {
                 "date" -> date = rest.trim()
                 "time" -> time = rest.trim()
                 "duration" -> duration = FormatUnits.clockToSeconds(rest)
+                "dctype" -> diveType = rest.trim()
                 "maxdepth" -> maxDepthMm = FormatUnits.thousandths(rest)
                 "meandepth" -> meanDepthMm = FormatUnits.thousandths(rest)
                 "watertemp" -> waterTempMk = FormatUnits.celsiusToMk(rest)
@@ -355,7 +369,7 @@ class GitLogFormat {
                 "event" -> parseEvent(rest, tanks)?.let { events.add(it) }
             }
         }
-        return ParsedComputer(model, deviceId, date, time, duration, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, extra, sensorTanks, samples, events)
+        return ParsedComputer(model, deviceId, date, time, duration, diveType, maxDepthMm, meanDepthMm, waterTempMk, airTempMk, extra, sensorTanks, samples, events)
     }
 
     /** A sample; values it leaves out carry over from [previous], except tank pressures. */
@@ -369,6 +383,7 @@ class GitLogFormat {
         var ndlSeconds = previous?.ndlSeconds
         var stopDepthMm = previous?.stopDepthMm
         var stopTimeSeconds = previous?.stopTimeSeconds
+        var ttsSeconds = previous?.ttsSeconds
         var cnsPermille = previous?.cnsPermille
         var ppO2Mbar = previous?.ppO2Mbar
         var dcPpO2 = false
@@ -382,6 +397,7 @@ class GitLogFormat {
                     "ndl" -> ndlSeconds = FormatUnits.clockToSeconds(value)
                     "stopdepth" -> stopDepthMm = FormatUnits.thousandths(value)
                     "stoptime" -> stopTimeSeconds = FormatUnits.clockToSeconds(value)
+                    "tts" -> ttsSeconds = FormatUnits.clockToSeconds(value)
                     "cns" -> FormatUnits.percentToPermille(value)?.let { cnsPermille = it }
                     "dc_supplied_ppo2" -> { ppO2Mbar = FormatUnits.thousandths(value); dcPpO2 = true }
                     // Earlier exports of this app wrote the computer's ppO2 as po2.
@@ -408,6 +424,7 @@ class GitLogFormat {
             ndlSeconds = ndlSeconds,
             stopDepthMm = stopDepthMm,
             stopTimeSeconds = stopTimeSeconds,
+            ttsSeconds = ttsSeconds,
             cnsPermille = cnsPermille,
             tankPressuresMbar = pressures,
         )

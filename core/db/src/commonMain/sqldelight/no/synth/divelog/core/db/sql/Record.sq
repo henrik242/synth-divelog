@@ -7,23 +7,28 @@ CREATE TABLE diveComputerRecord (
     maxDepthMm INTEGER,
     rawData BLOB NOT NULL,
     rawFormatId TEXT NOT NULL,
-    fingerprint TEXT NOT NULL
+    fingerprint TEXT NOT NULL,
+    diveMode TEXT,
+    decoAlgorithm TEXT,
+    gfLowPercent INTEGER,
+    gfHighPercent INTEGER,
+    decoConservatism INTEGER
 );
 
 CREATE INDEX record_dive ON diveComputerRecord(diveId);
 CREATE INDEX record_fingerprint ON diveComputerRecord(deviceId, fingerprint);
 
 insertRecord:
-INSERT INTO diveComputerRecord(diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawData, rawFormatId, fingerprint)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO diveComputerRecord(diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawData, rawFormatId, fingerprint, diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- Summary columns only (no raw blob), for lists and overview.
 selectRecordSummaryById:
-SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
+SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint, diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism
 FROM diveComputerRecord WHERE id = ?;
 
 selectRecordSummariesForDive:
-SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
+SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint, diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism
 FROM diveComputerRecord WHERE diveId = ? ORDER BY startEpochSeconds;
 
 -- One row per (dive, device) for the whole log, so lists need no per-dive lookups.
@@ -35,12 +40,13 @@ ORDER BY r.diveId, r.deviceId;
 
 -- Every record's summary, for a whole-log export without per-dive lookups.
 selectAllRecordSummaries:
-SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
+SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint, diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism
 FROM diveComputerRecord ORDER BY diveId, startEpochSeconds;
 
 -- A record from a device among some dives: one computer cannot log two dives at once.
 selectRecordFromDeviceAmongDives:
-SELECT r.id, r.diveId, r.deviceId, r.startEpochSeconds, r.durationSeconds, r.maxDepthMm, r.rawFormatId, r.fingerprint
+SELECT r.id, r.diveId, r.deviceId, r.startEpochSeconds, r.durationSeconds, r.maxDepthMm, r.rawFormatId, r.fingerprint,
+    r.diveMode, r.decoAlgorithm, r.gfLowPercent, r.gfHighPercent, r.decoConservatism
 FROM diveComputerRecord r JOIN dive d ON d.id = r.diveId
 WHERE r.deviceId = :deviceId AND r.diveId IN :diveIds
 ORDER BY d.startEpochSeconds LIMIT 1;
@@ -50,7 +56,7 @@ SELECT rawData FROM diveComputerRecord WHERE id = ?;
 
 -- Duplicate detection: same device plus same fingerprint.
 findByDeviceAndFingerprint:
-SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint
+SELECT id, diveId, deviceId, startEpochSeconds, durationSeconds, maxDepthMm, rawFormatId, fingerprint, diveMode, decoAlgorithm, gfLowPercent, gfHighPercent, decoConservatism
 FROM diveComputerRecord WHERE deviceId = ? AND fingerprint = ? LIMIT 1;
 
 -- Fingerprint of the newest stored dive for a device, for an incremental download
@@ -91,4 +97,6 @@ lastInsertRowId:
 SELECT last_insert_rowid();
 
 updateRecordSummary:
-UPDATE diveComputerRecord SET startEpochSeconds = ?, durationSeconds = ?, maxDepthMm = ? WHERE id = ?;
+UPDATE diveComputerRecord SET startEpochSeconds = ?, durationSeconds = ?, maxDepthMm = ?,
+    diveMode = ?, decoAlgorithm = ?, gfLowPercent = ?, gfHighPercent = ?, decoConservatism = ?
+WHERE id = ?;
