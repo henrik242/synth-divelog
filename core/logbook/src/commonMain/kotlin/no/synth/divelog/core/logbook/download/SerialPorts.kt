@@ -8,8 +8,12 @@ import kotlinx.coroutines.coroutineScope
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
 
-/** Which physical link a port rides, so the caller knows which transport [open] will use. */
-enum class SerialPortKind { USB_SERIAL, BLUETOOTH_SPP }
+/**
+ * Which physical link a port rides, so the caller knows which transport [open] will use.
+ * A [BLUETOOTH_LE] port is a GATT packet link, not a byte stream: only a computer whose
+ * protocol frames BLE packets can use it.
+ */
+enum class SerialPortKind { USB_SERIAL, BLUETOOTH_SPP, BLUETOOTH_LE }
 
 /**
  * A port offered to the download picker: an [id], a human [label] and the [kind] of link
@@ -28,9 +32,10 @@ data class SerialPortInfo(
 
 /**
  * The platform serial layer the shared download runs over. Desktop lists jSerialComm
- * ports, Android lists USB-serial adapters and paired Bluetooth Classic SPP devices
- * (and requests the matching permission in [open]), iOS has none. [open] returns an
- * already-opened [Transport] ready for a protocol to drive; the caller closes it.
+ * ports, Android lists USB-serial adapters, paired Bluetooth Classic SPP devices and
+ * Bluetooth LE dive computers found by a scan (and requests the matching permission in
+ * [open]), iOS has none. [open] returns an already-opened [Transport] ready for a
+ * protocol to drive; the caller closes it.
  *
  * Kept as an interface rather than an expect/actual class because the Android
  * implementation needs a Context at construction while the others take nothing;
@@ -40,7 +45,20 @@ interface SerialPorts {
     /** False where there is no wired serial path (iOS); the UI then shows it as unavailable. */
     val downloadSupported: Boolean
 
+    /** The kinds of port [list] can return; a computer needing another link is not offered. */
+    val linkKinds: Set<SerialPortKind> get() = setOf(SerialPortKind.USB_SERIAL, SerialPortKind.BLUETOOTH_SPP)
+
     fun list(): List<SerialPortInfo>
+
+    /**
+     * Start, or keep running, the background search for computers found by scanning
+     * ([SerialPortKind.BLUETOOTH_LE]); later [list] calls include what it found. The
+     * picker calls it while such a computer is selected. No-op where nothing is scanned.
+     */
+    fun discover() {}
+
+    /** Why a scan cannot find anything right now (Bluetooth off, permission missing), else null. */
+    fun scanProblem(): String? = null
 
     /** Open [id] with [params] and return the live transport. Blocking; call off the main thread. */
     suspend fun open(id: String, params: SerialParams): Transport

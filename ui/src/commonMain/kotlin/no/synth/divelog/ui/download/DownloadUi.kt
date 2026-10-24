@@ -27,6 +27,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import no.synth.divelog.core.logbook.download.DiveComputerType
 import no.synth.divelog.core.logbook.download.DownloadAmount
 import no.synth.divelog.core.logbook.download.KnownComputer
@@ -77,7 +79,7 @@ private sealed interface PickerChoice {
  * ([lastKey]) starts selected. Any [types] entry can still be picked for a new computer.
  * The selected computer shows its [hint], if any, above the port.
  * Shared across desktop (wired ports and paired Bluetooth devices) and Android (USB-serial
- * adapters and paired Bluetooth Classic devices).
+ * adapters, paired Bluetooth Classic devices and scanned Bluetooth LE computers).
  */
 @Composable
 fun DownloadPickerDialog(
@@ -90,6 +92,8 @@ fun DownloadPickerDialog(
     onCancel: () -> Unit,
     preselectPortId: (DiveComputerType) -> String? = { null },
     hint: (DiveComputerType) -> String? = { null },
+    onDiscover: () -> Unit = {},
+    scanProblem: () -> String? = { null },
 ) {
     // A known computer's own last port, else the port a device of this type was last
     // reached on, else a sensible guess; only among the ports the type can use.
@@ -109,9 +113,29 @@ fun DownloadPickerDialog(
     var port by remember { mutableStateOf(pick(initial, ports)) }
     var amount by remember { mutableStateOf<DownloadAmount>(DownloadAmount.NewOnly) }
 
+    var problem by remember { mutableStateOf<String?>(null) }
+
     fun select(c: PickerChoice) {
         choice = c
         port = pick(c, current)
+    }
+
+    fun refresh() {
+        current = onRefresh()
+        if (port == null || current.none { it.id == port?.id }) port = pick(choice, current)
+    }
+
+    // A computer found by scanning shows up whenever the scan sees it, so keep the scan
+    // running and the list current while one is selected; no Refresh tapping needed.
+    LaunchedEffect(choice.type) {
+        problem = null
+        if (!choice.type.foundByScan) return@LaunchedEffect
+        while (true) {
+            onDiscover()
+            refresh()
+            problem = scanProblem()
+            delay(SCAN_REFRESH_MS)
+        }
     }
 
     // Port and download amount, shown inside the selected row.
@@ -123,7 +147,12 @@ fun DownloadPickerDialog(
         val usable = current.filter { choice.type.canUse(it) }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (usable.isEmpty()) {
-                Text("No ports found; connect the cable", style = MaterialTheme.typography.bodySmall)
+                val empty = if (choice.type.foundByScan) {
+                    problem ?: "Searching for the dive computer..."
+                } else {
+                    "No ports found; connect the cable"
+                }
+                Text(empty, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
             } else {
                 SelectField(
                     label = "Port",
@@ -134,10 +163,7 @@ fun DownloadPickerDialog(
                     modifier = Modifier.weight(1f),
                 )
             }
-            TextButton(onClick = {
-                current = onRefresh()
-                if (port == null || current.none { it.id == port?.id }) port = pick(choice, current)
-            }) { Text("Refresh") }
+            TextButton(onClick = { refresh() }) { Text("Refresh") }
         }
         SelectField(
             label = "Download",
@@ -351,3 +377,6 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing) {
         },
     )
 }
+
+/** How often the picker refreshes the list while a scanned computer is selected. */
+private const val SCAN_REFRESH_MS = 2_000L

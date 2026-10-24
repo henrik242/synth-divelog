@@ -54,6 +54,35 @@ class PnfRecordLayoutTest {
         assertEquals(fromBlocks.gases, fromRecords.gases)
     }
 
+    @Test
+    fun theOpeningRecordsSetTheSampleInterval() {
+        val records = toRecords(petrelBlocks())
+        fun parse(version: Int, intervalMs: Int) =
+            PredatorParser().parse(RawDive("c", withIntervalRecords(records, version, intervalMs), PredatorParser.PNF_FORMAT_ID))
+
+        // Log version 9 and later record the interval in milliseconds.
+        val twoSeconds = parse(version = 9, intervalMs = 2_000)
+        assertEquals(listOf(0, 2, 4), twoSeconds.samples.take(3).map { it.timeOffsetSeconds })
+        // Before version 9 the field is not the interval, and an interval in part seconds
+        // is not one samples can be placed on; both keep the 10 s default.
+        assertEquals(listOf(0, 10, 20), parse(version = 8, intervalMs = 2_000).samples.take(3).map { it.timeOffsetSeconds })
+        assertEquals(listOf(0, 10, 20), parse(version = 9, intervalMs = 2_500).samples.take(3).map { it.timeOffsetSeconds })
+    }
+
+    /** [records] with opening records 4 (log [version] at +16) and 5 ([intervalMs] at +23) after the first. */
+    private fun withIntervalRecords(records: ByteArray, version: Int, intervalMs: Int): ByteArray {
+        val opening4 = ByteArray(RECORD).also {
+            it[0] = 0x14
+            it[16] = version.toByte()
+        }
+        val opening5 = ByteArray(RECORD).also {
+            it[0] = 0x15
+            it[23] = (intervalMs shr 8).toByte()
+            it[24] = intervalMs.toByte()
+        }
+        return records.copyOfRange(0, RECORD) + opening4 + opening5 + records.copyOfRange(RECORD, records.size)
+    }
+
     private companion object {
         const val BLOCK = 128
         const val RECORD = 32

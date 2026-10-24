@@ -17,6 +17,8 @@ class RecordingTransport(
 
     override fun open() = delegate.open()
 
+    override val maxWriteSize: Int? get() = delegate.maxWriteSize
+
     override fun write(data: ByteArray) {
         delegate.write(data)
         events.add(TransportEvent(Direction.WRITE, data.copyOf(), elapsed()))

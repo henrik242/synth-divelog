@@ -35,20 +35,22 @@ import no.synth.divelog.core.model.units.UnitSystem
  *
  * [identityKey] is a stable dedupe key standing in for the device identity, stored as
  * the device's address (dive dedupe keys on device plus fingerprint). A Suunto on the
- * cable is told apart by the serial it reports. A Shearwater reports no serial, so with
- * [byAddress] its key carries the Bluetooth address it was reached on. A [wiredOnly]
- * computer is read over a cable, never Bluetooth.
+ * cable is told apart by the serial it reports. The Petrel and Predator report no serial,
+ * so with [byAddress] a Shearwater's key carries the Bluetooth address it was reached on.
+ * [links] are the port kinds it can be read through: a cable, Bluetooth Classic serial,
+ * or Bluetooth LE.
  */
 enum class DiveComputerType(
     val kind: DiveComputerKind,
     private val identityKey: String,
     private val byAddress: Boolean = false,
-    private val wiredOnly: Boolean = false,
+    private val links: Set<SerialPortKind> = SERIAL_LINKS,
 ) {
-    SUUNTO_VYPER(DiveComputerKind.SUUNTO_VYPER, "usb-serial:suunto-vyper", wiredOnly = true),
-    SUUNTO_VYPER2(DiveComputerKind.SUUNTO_VYPER2, "usb-serial:suunto-vyper2", wiredOnly = true),
+    SUUNTO_VYPER(DiveComputerKind.SUUNTO_VYPER, "usb-serial:suunto-vyper", links = WIRED),
+    SUUNTO_VYPER2(DiveComputerKind.SUUNTO_VYPER2, "usb-serial:suunto-vyper2", links = WIRED),
     SHEARWATER_PETREL(DiveComputerKind.SHEARWATER_PETREL, "serial-spp:shearwater-petrel", byAddress = true),
     SHEARWATER_PREDATOR(DiveComputerKind.SHEARWATER_PREDATOR, "serial-spp:shearwater-predator", byAddress = true),
+    SHEARWATER_PEREGRINE(DiveComputerKind.SHEARWATER_PEREGRINE, "ble:shearwater-peregrine", byAddress = true, links = BLE),
     ;
 
     val displayName: String get() = kind.displayName
@@ -60,7 +62,13 @@ enum class DiveComputerType(
     fun parser(): DiveLogParser = kind.parser()
 
     /** Whether this computer can be read through [port]. */
-    fun canUse(port: SerialPortInfo): Boolean = !wiredOnly || port.kind != SerialPortKind.BLUETOOTH_SPP
+    fun canUse(port: SerialPortInfo): Boolean = port.kind in links
+
+    /** Whether this computer is found by a Bluetooth LE scan rather than listed as a port. */
+    val foundByScan: Boolean get() = SerialPortKind.BLUETOOTH_LE in links
+
+    /** Whether a platform offering [kinds] of port can reach this computer at all. */
+    fun reachableOver(kinds: Set<SerialPortKind>): Boolean = links.any { it in kinds }
 
     /** Whether [device] is one this type reads, by its stored identity key. */
     internal fun owns(device: Device): Boolean {
@@ -81,12 +89,21 @@ enum class DiveComputerType(
 
     /** A Bluetooth address as AA:BB:CC:DD:EE:FF whichever way the platform spells it; other ports as they are. */
     private fun normalizedAddress(port: String): String {
-        val bare = port.removePrefix("bt:")
+        val bare = port.removePrefix("bt:").removePrefix("ble:")
         val hex = bare.filter { it != ':' && it != '-' }
         if (hex.length != 12 || !hex.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) return bare
         return hex.uppercase().chunked(2).joinToString(":")
     }
 }
+
+/** A byte stream: a cable, or a Bluetooth serial port (desktop lists those as plain serial ports too). */
+private val SERIAL_LINKS = setOf(SerialPortKind.USB_SERIAL, SerialPortKind.BLUETOOTH_SPP)
+
+/** A cable only. */
+private val WIRED = setOf(SerialPortKind.USB_SERIAL)
+
+/** Bluetooth LE only. */
+private val BLE = setOf(SerialPortKind.BLUETOOTH_LE)
 
 /** A download that overlaps an existing dive, shown for an attach-or-keep-separate choice. */
 data class MergeReview(val incomingLabel: String, val existingLabel: String)

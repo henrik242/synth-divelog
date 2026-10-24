@@ -13,7 +13,7 @@ Privacy policy: [PRIVACY.md](PRIVACY.md).
 - **Download from dive computers** (Android and desktop): Shearwater Predator and
   Petrel 1 over Bluetooth, Suunto Zoop/Vyper and HelO2/Vyper2 over the USB cable.
   New dives only, or a chosen number. On Android the Suunto cable connects through
-  a USB OTG adapter.
+  a USB OTG adapter. Android also reads the Shearwater Peregrine over Bluetooth LE.
 - **File import/export**: Subsurface XML, UDDF, MacDive XML and Shearwater Cloud
   databases. Duplicates are skipped, and the same dive from two computers is merged.
 - **Subsurface cloud import/export** (Android and desktop).

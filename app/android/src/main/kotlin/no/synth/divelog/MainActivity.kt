@@ -134,8 +134,9 @@ private fun rememberImportFilePick(context: Context): suspend () -> ByteArray? {
 /**
  * Builds a suspend action that requests the permissions the download needs and resolves
  * once the user has responded. Bluetooth-connect gates the paired-device list and the
- * RFCOMM connection; the notification permission lets the foreground service show its
- * notification. USB-only downloads work without either, so a denial is not fatal.
+ * RFCOMM and GATT connections, Bluetooth-scan the search for LE computers; the
+ * notification permission lets the foreground service show its notification. USB-only
+ * downloads work without any of them, so a denial is not fatal.
  */
 @Composable
 private fun rememberDownloadPermissionRequest(context: Context): suspend () -> Unit {
@@ -164,10 +165,16 @@ private fun downloadHint(type: DiveComputerType): String? = when (type) {
     DiveComputerType.SUUNTO_VYPER, DiveComputerType.SUUNTO_VYPER2 ->
         "Connect the Suunto USB cable to the phone through a USB OTG adapter."
     DiveComputerType.SHEARWATER_PETREL, DiveComputerType.SHEARWATER_PREDATOR -> null
+    DiveComputerType.SHEARWATER_PEREGRINE ->
+        "On the Peregrine, start Bluetooth from its menu and keep it near the phone. Android may ask to pair."
 }
 
-/** Bluetooth is required to reach a paired computer; the notification permission (API 33+) backs the service. */
+/**
+ * Bluetooth connect is required to reach a paired computer and scan to find a Bluetooth LE
+ * one; the notification permission (API 33+) backs the service.
+ */
 private fun downloadPermissions(): Array<String> = buildList {
     add(Manifest.permission.BLUETOOTH_CONNECT)
+    add(Manifest.permission.BLUETOOTH_SCAN)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
 }.toTypedArray()

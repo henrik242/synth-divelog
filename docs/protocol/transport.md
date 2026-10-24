@@ -1,7 +1,9 @@
 # Shearwater transport layer
 
 The link, framing, packet header and upload command set shared by the Shearwater
-Predator and Petrel 1. The device-specific docs build on this.
+Predator and Petrel 1. The device-specific docs build on this. The Peregrine uses the
+same framing and commands over Bluetooth LE, with a packet layer under SLIP; see
+[shearwater-peregrine.md](shearwater-peregrine.md).
 
 ## Physical link
 

@@ -23,7 +23,7 @@ class ShearwaterPredatorProtocol(
     override fun readDeviceInfo(): DeviceInfo {
         // The older models carry their model byte in the memory dump; identity is
         // resolved there rather than from a separate query.
-        return DeviceInfo(vendor = VENDOR, model = "Predator")
+        return DeviceInfo(vendor = SHEARWATER, model = "Predator")
     }
 
     override fun download(
@@ -39,7 +39,7 @@ class ShearwaterPredatorProtocol(
             cancel = cancel,
         )
 
-        listener.onDeviceInfo(DeviceInfo(vendor = VENDOR, model = "Predator"))
+        listener.onDeviceInfo(DeviceInfo(vendor = SHEARWATER, model = "Predator"))
 
         // The full dump is already read in one go, so a limit only trims the result.
         val fresh = PredatorDump.extract(dump).asSequence().newestUntil(knownFingerprint, limit).toList()
@@ -48,7 +48,6 @@ class ShearwaterPredatorProtocol(
     }
 
     companion object {
-        private const val VENDOR = "Shearwater"
         private const val BASE_ADDRESS = 0xDD000000L
         private const val MEMORY_SIZE = 0x20080
     }

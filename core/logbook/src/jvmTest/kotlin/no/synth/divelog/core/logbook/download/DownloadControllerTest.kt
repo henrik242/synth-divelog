@@ -104,9 +104,10 @@ class DownloadControllerTest {
         port: String = "bt:AA:BB:CC:DD:EE:01",
         amount: DownloadAmount = DownloadAmount.NewOnly,
         cancel: () -> Boolean = { false },
+        type: DiveComputerType = DiveComputerType.SHEARWATER_PETREL,
     ) = runBlocking {
         controller.download(
-            type = DiveComputerType.SHEARWATER_PETREL,
+            type = type,
             portId = port,
             cancel = cancel,
             onProgress = { _, _ -> },
@@ -187,5 +188,30 @@ class DownloadControllerTest {
         val vyper2 = Device(vendor = "Suunto", model = "HelO2", bluetoothAddress = "usb-serial:suunto-vyper2:01020304")
         assertFalse(DiveComputerType.SUUNTO_VYPER.owns(vyper2))
         assertTrue(DiveComputerType.SUUNTO_VYPER2.owns(vyper2))
+    }
+
+    @Test
+    fun eachComputerIsOfferedOnlyThePortsItsLinkCanUse() {
+        val usb = SerialPortInfo("usb:0", "cable", SerialPortKind.USB_SERIAL)
+        val spp = SerialPortInfo("bt:AA:BB:CC:DD:EE:01", "Petrel", SerialPortKind.BLUETOOTH_SPP)
+        val ble = SerialPortInfo("ble:AA:BB:CC:DD:EE:02", "Peregrine", SerialPortKind.BLUETOOTH_LE)
+        fun ports(type: DiveComputerType) = listOf(usb, spp, ble).filter { type.canUse(it) }
+        assertEquals(listOf(usb), ports(DiveComputerType.SUUNTO_VYPER2))
+        assertEquals(listOf(usb, spp), ports(DiveComputerType.SHEARWATER_PETREL))
+        assertEquals(listOf(ble), ports(DiveComputerType.SHEARWATER_PEREGRINE))
+        // Without a Bluetooth LE link (desktop, iOS) the Peregrine is not offered at all.
+        val serialOnly = setOf(SerialPortKind.USB_SERIAL, SerialPortKind.BLUETOOTH_SPP)
+        assertFalse(DiveComputerType.SHEARWATER_PEREGRINE.reachableOver(serialOnly))
+        assertTrue(DiveComputerType.SHEARWATER_PETREL.reachableOver(serialOnly))
+    }
+
+    @Test
+    fun aPeregrineIsKnownByItsBluetoothLeAddress() {
+        val controller = controller(FakePorts()) { FakeProtocol(it, listOf(dive(1))) }
+        download(controller, port = "ble:aa:bb:cc:dd:ee:02", type = DiveComputerType.SHEARWATER_PEREGRINE)
+        val device = container.devices.all().single()
+        assertEquals("ble:shearwater-peregrine@AA:BB:CC:DD:EE:02", device.bluetoothAddress)
+        assertTrue(DiveComputerType.SHEARWATER_PEREGRINE.owns(device))
+        assertFalse(DiveComputerType.SHEARWATER_PETREL.owns(device))
     }
 }
