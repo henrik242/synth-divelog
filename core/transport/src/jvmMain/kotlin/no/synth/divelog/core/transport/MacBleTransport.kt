@@ -22,12 +22,10 @@ class MacBleTransport(
     @Volatile private var writeSize: Int? = null
 
     override fun open() {
-        val l = HelperLink(bridge, "connect", id) { error ->
-            notifications.end(TransportException(error ?: "Bluetooth helper exited"))
-        }
+        val l = HelperLink(bridge, "connect", id)
         link = l
         writeSize = l.awaitConnected("the dive computer", CONNECT_TIMEOUT_MS).toIntOrNull()
-        Thread({ pump(DataInputStream(l.process.inputStream)) }, "ble-bridge-reader").apply {
+        Thread({ pump(l) }, "ble-bridge-reader").apply {
             isDaemon = true
             start()
         }
@@ -54,8 +52,12 @@ class MacBleTransport(
         link = null
     }
 
-    /** One frame per notification: a BE16 length, then the bytes. Ends with the helper. */
-    private fun pump(input: DataInputStream) {
+    /**
+     * One frame per notification: a BE16 length, then the bytes. When the helper goes, the
+     * link ends after the last frame it wrote, with the reason it gave.
+     */
+    private fun pump(l: HelperLink) {
+        val input = DataInputStream(l.process.inputStream)
         try {
             while (true) {
                 val frame = ByteArray(input.readUnsignedShort())
@@ -63,7 +65,7 @@ class MacBleTransport(
                 notifications.offer(frame)
             }
         } catch (_: Exception) {
-            // The helper has gone; its exit reports why (HelperLink onExit).
+            notifications.end(TransportException(l.exitError() ?: "Bluetooth helper exited"))
         }
     }
 
@@ -90,6 +92,7 @@ class MacBleScanner(private val bridge: File) {
 
     fun scan() {
         if (process?.isAlive == true) return
+        problem = null // the new scan reports it again if it still holds
         val p = runCatching { ProcessBuilder(bridge.absolutePath, "scan").start() }.getOrNull() ?: return
         process = p
         Thread({

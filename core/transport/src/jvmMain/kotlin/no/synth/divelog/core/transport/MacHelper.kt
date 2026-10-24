@@ -24,24 +24,26 @@ object MacHelper {
 /**
  * A running helper that links to a device: it reports on stderr "CONNECTED <detail>" once
  * the link is up, or "ERROR <message>" before exiting, and relays the link on stdin/stdout.
- * [onExit] gets the last ERROR message (null if none) once the helper has gone.
  */
-internal class HelperLink(helper: File, vararg args: String, onExit: (error: String?) -> Unit = {}) {
+internal class HelperLink(helper: File, vararg args: String) {
     val process: Process = ProcessBuilder(helper.absolutePath, *args).start()
     private val status = LinkedBlockingQueue<String>()
+    @Volatile private var error: String? = null
 
-    init {
-        Thread({
-            var error: String? = null
-            process.errorStream.bufferedReader().forEachLine {
-                if (it.startsWith("ERROR ")) error = it.removePrefix("ERROR ")
-                status.put(it)
-            }
-            onExit(error)
-        }, "${helper.name}-status").apply {
-            isDaemon = true
-            start()
+    private val statusReader = Thread({
+        process.errorStream.bufferedReader().forEachLine {
+            if (it.startsWith("ERROR ")) error = it.removePrefix("ERROR ")
+            status.put(it)
         }
+    }, "${helper.name}-status").apply {
+        isDaemon = true
+        start()
+    }
+
+    /** The helper's last ERROR message, once it has gone (waiting briefly for its stderr), or null. */
+    fun exitError(): String? {
+        statusReader.join(EXIT_WAIT_MS)
+        return error
     }
 
     /** Wait for the link to come up and return the CONNECTED detail; [abort] ends the wait. */
@@ -72,5 +74,6 @@ internal class HelperLink(helper: File, vararg args: String, onExit: (error: Str
 
     private companion object {
         const val ABORTED = "ABORTED"
+        const val EXIT_WAIT_MS = 2_000L
     }
 }
