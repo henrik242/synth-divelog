@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,16 +15,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Waves
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,17 +38,25 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.logbook.format.Format
+import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.units.UnitSystem
+import no.synth.divelog.ui.common.BackHandler
 import no.synth.divelog.ui.common.observe
 import no.synth.divelog.ui.components.EmptyState
+import no.synth.divelog.ui.components.ExportActions
+import no.synth.divelog.ui.components.ExportDialog
 
 /**
  * The Dives section: the searchable dive list, or the open dive [openDiveId] (in its
  * editor when [editing]). The list keeps its filters and scroll position while a dive is
- * open. The list follows the database.
+ * open. The list follows the database. Select (in the top bar) or a long press picks dives
+ * to export through [exportActions].
  */
 @Composable
 fun DivesScreen(
@@ -58,6 +73,7 @@ fun DivesScreen(
     onDeleted: () -> Unit,
     onAddDives: () -> Unit,
     canDownload: Boolean,
+    exportActions: ExportActions,
     onTopBarActions: ((@Composable RowScope.() -> Unit)?) -> Unit,
 ) {
     val dives = observe(container, read = container.dives::allDives, flow = container.dives::allDivesFlow)
@@ -69,6 +85,9 @@ fun DivesScreen(
     var sort by rememberSaveable { mutableStateOf(DiveSort.DATE) }
     var selectedYear by rememberSaveable { mutableStateOf<Int?>(null) }
     val listState = rememberLazyListState()
+    var selecting by rememberSaveable { mutableStateOf(false) }
+    var selection by rememberSaveable(stateSaver = DiveSelection.Saver) { mutableStateOf(DiveSelection()) }
+    var exportOpen by rememberSaveable { mutableStateOf(false) }
 
     val years = remember(dives) {
         dives.map { Format.year(it.startEpochSeconds, it.utcOffsetSeconds) }.distinct().sortedDescending()
@@ -128,8 +147,61 @@ fun DivesScreen(
         return
     }
 
+    val diveIds = remember(dives) { dives.mapTo(HashSet()) { it.id } }
+    val shownIds = remember(shown) { shown.map { it.id } }
+    // Dives deleted elsewhere drop out of the selection.
+    LaunchedEffect(diveIds) { selection = selection.retainExisting(diveIds) }
+    // The dialog goes with the selection, so it cannot come back on its own later.
+    LaunchedEffect(selecting, selection.isEmpty) { if (!selecting || selection.isEmpty) exportOpen = false }
+
+    fun endSelecting() {
+        selecting = false
+        selection = DiveSelection()
+    }
+    BackHandler(enabled = selecting) { endSelecting() }
+
+    // Select in the top bar while the list shows and nothing is being picked.
+    val selectAction: @Composable RowScope.() -> Unit = {
+        IconButton(onClick = { selecting = true }) { Icon(Icons.Filled.Checklist, contentDescription = "Select dives") }
+    }
+    DisposableEffect(selecting, dives.isEmpty(), exportActions.available) {
+        onTopBarActions(if (selecting || dives.isEmpty() || !exportActions.available) null else selectAction)
+        onDispose { onTopBarActions(null) }
+    }
+
+    val onOpen: (Long) -> Unit = { id -> if (selecting) selection = selection.toggle(id) else onOpenDive(id) }
+    val onPick: ((Long, Boolean) -> Unit)? = if (exportActions.available) {
+        { id, range ->
+            selecting = true
+            selection = if (range) selection.extendTo(id, shownIds) else selection.toggle(id)
+        }
+    } else {
+        null
+    }
+
+    if (exportOpen) {
+        val count = selection.ids.size
+        ExportDialog(
+            title = "Export $count ${if (count == 1) "dive" else "dives"}",
+            actions = exportActions,
+            diveIds = selection.ids,
+            onExported = ::endSelecting,
+            onDismiss = { exportOpen = false },
+        )
+    }
+
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
+            if (selecting) {
+                SelectionBar(
+                    count = selection.ids.size,
+                    hidden = selection.hiddenCount(shownIds),
+                    allShownPicked = selection.allPicked(shownIds),
+                    onClose = ::endSelecting,
+                    onToggleAll = { selection = selection.toggleAll(shownIds) },
+                    onExport = { exportOpen = true },
+                )
+            }
             if (dives.isEmpty()) {
                 EmptyState(
                     if (canDownload) {
@@ -189,26 +261,82 @@ fun DivesScreen(
                                     )
                                 }
                             }
-                            items(monthDives) { dive ->
-                                DiveRow(dive, unitSystem, onClick = { onOpenDive(dive.id) }, siteName = dive.siteId?.let { siteNames[it] }, source = sources[dive.id])
+                            items(monthDives, key = { it.id }) { dive ->
+                                DiveItem(dive, unitSystem, siteNames, sources, selecting, selection, onOpen, onPick)
                                 HorizontalDivider()
                             }
                         }
                     } else {
-                        items(shown) { dive ->
-                            DiveRow(dive, unitSystem, onClick = { onOpenDive(dive.id) }, siteName = dive.siteId?.let { siteNames[it] }, source = sources[dive.id])
+                        items(shown, key = { it.id }) { dive ->
+                            DiveItem(dive, unitSystem, siteNames, sources, selecting, selection, onOpen, onPick)
                             HorizontalDivider()
                         }
                     }
                 }
             }
         }
-        ExtendedFloatingActionButton(
-            onClick = onAddDives,
-            icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-            text = { Text("Add dives") },
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-        )
+        if (!selecting) {
+            ExtendedFloatingActionButton(
+                onClick = onAddDives,
+                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                text = { Text("Add dives") },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+            )
+        }
+    }
+}
+
+/** A [DiveRow] in the list: [onOpen] opens or (while [selecting]) toggles it; [onPick] picks it. */
+@Composable
+private fun DiveItem(
+    dive: Dive,
+    unitSystem: UnitSystem,
+    siteNames: Map<Long, String>,
+    sources: Map<Long, String>,
+    selecting: Boolean,
+    selection: DiveSelection,
+    onOpen: (Long) -> Unit,
+    onPick: ((Long, Boolean) -> Unit)?,
+) {
+    DiveRow(
+        dive,
+        unitSystem,
+        onClick = { onOpen(dive.id) },
+        siteName = dive.siteId?.let { siteNames[it] },
+        source = sources[dive.id],
+        selected = if (selecting) dive.id in selection else null,
+        onPick = onPick?.let { pick -> { range -> pick(dive.id, range) } },
+    )
+}
+
+/**
+ * Shown while picking dives: the count ([hidden] of them filtered out of the list), close,
+ * select or deselect all shown, and export.
+ */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    hidden: Int,
+    allShownPicked: Boolean,
+    onClose: () -> Unit,
+    onToggleAll: () -> Unit,
+    onExport: () -> Unit,
+) {
+    Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondaryContainer) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Stop selecting") }
+            Column(Modifier.weight(1f).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }) {
+                Text("$count selected", style = MaterialTheme.typography.titleMedium)
+                if (hidden > 0) {
+                    Text("$hidden hidden by the filter", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            TextButton(onClick = onToggleAll) { Text(if (allShownPicked) "Deselect all" else "Select all") }
+            TextButton(onClick = onExport, enabled = count > 0) { Text("Export") }
+        }
     }
 }
 

@@ -11,7 +11,9 @@ import no.synth.divelog.core.logbook.io.ExportFile
  *
  * - [serialPorts]: the serial layer for dive-computer downloads.
  * - [pickImportFile]: picks a file and returns its bytes, or null if cancelled. Null hides file import.
- * - [saveExport]: saves or shares an exported logbook.
+ * - [saveExport]: saves an exported logbook to a file the user picks; false if cancelled.
+ * - [shareExport]: hands an exported logbook to another app (a share sheet).
+ *   Null hides that button in the export dialog; with both null there is no export.
  * - [prepareDownload]: runs before the download picker opens (runtime permissions).
  * - [downloadHint]: a connection note shown under the selected computer in the picker.
  * - [onDownloadActive]: brackets a running download (keep the process awake);
@@ -22,7 +24,8 @@ import no.synth.divelog.core.logbook.io.ExportFile
 class PlatformHooks(
     val serialPorts: SerialPorts = NoSerialPorts(),
     val pickImportFile: (suspend () -> ByteArray?)? = null,
-    val saveExport: suspend (ExportFile) -> Unit = {},
+    val saveExport: (suspend (ExportFile) -> Boolean)? = null,
+    val shareExport: (suspend (ExportFile) -> Unit)? = null,
     val prepareDownload: suspend () -> Unit = {},
     val downloadHint: (DiveComputerType) -> String? = { null },
     val onDownloadActive: (Boolean) -> Unit = {},

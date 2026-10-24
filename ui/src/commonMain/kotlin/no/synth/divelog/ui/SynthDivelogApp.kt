@@ -41,8 +41,11 @@ import no.synth.divelog.core.logbook.AppServices
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.ui.common.BackHandler
 import no.synth.divelog.ui.common.observe
+import no.synth.divelog.core.logbook.io.ExportFile
 import no.synth.divelog.ui.components.Breadcrumb
 import no.synth.divelog.ui.components.Crumb
+import no.synth.divelog.ui.components.ExportAction
+import no.synth.divelog.ui.components.ExportActions
 import no.synth.divelog.ui.dive.DivesScreen
 import no.synth.divelog.ui.labels.LabelDetail
 import no.synth.divelog.ui.labels.LabelKind
@@ -135,11 +138,27 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
     }
 
     val logbook = services.logbook
-    val onExport: (String) -> Unit = { formatId ->
-        runReported("Export failed") {
-            withContext(Dispatchers.Default) { logbook.export(formatId) }?.let { hooks.saveExport(it) }
-            null
+    // An export built off the main thread and handed to [deliver]; once that reports the file went
+    // out, the caller's onDone runs and [doneMessage] (if any) is shown.
+    fun exportAction(doneMessage: (ExportFile) -> String?, deliver: suspend (ExportFile) -> Boolean): ExportAction =
+        { formatId, diveIds, onDone ->
+            settings.exportFormat = formatId
+            runReported("Export failed") {
+                val file = withContext(Dispatchers.Default) { logbook.export(formatId, diveIds) }
+                if (file != null && deliver(file)) {
+                    onDone()
+                    doneMessage(file)
+                } else {
+                    null
+                }
+            }
         }
+    val exportActions = remember(hooks) {
+        ExportActions(
+            save = hooks.saveExport?.let { save -> exportAction({ "Saved ${it.name}" }, save) },
+            share = hooks.shareExport?.let { share -> exportAction({ null }) { share(it); true } },
+            lastFormatId = { settings.exportFormat },
+        )
     }
     val onReparse: () -> Unit = {
         runReported("Re-parse failed") {
@@ -218,6 +237,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         onDeleted = ::back,
                         onAddDives = addDives::open,
                         canDownload = hooks.serialPorts.downloadSupported,
+                        exportActions = exportActions,
                         onTopBarActions = { topBarActions = it },
                     )
                     Section.SITES -> when (top) {
@@ -260,7 +280,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         settings = settings,
                         unitSystem = unitSystem,
                         onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
-                        onExport = onExport,
+                        exportActions = exportActions,
                         onReparse = onReparse,
                         onCloudPush = onCloudPush,
                         onOpenComputers = { nav.push(Screen.Computers(null)) },

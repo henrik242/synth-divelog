@@ -23,23 +23,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import no.synth.divelog.core.logbook.io.LogbookIo
 import no.synth.divelog.core.logbook.settings.AppSettings
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.BuildInfo
 import no.synth.divelog.ui.components.CloudCredentialsDialog
+import no.synth.divelog.ui.components.ExportActions
+import no.synth.divelog.ui.components.ExportDialog
 
 /**
  * Units, export, maintenance, dive computers, privacy and attributions. A null [onCloudPush] hides
  * the cloud export; its credentials are kept in [settings]. A null [onCrashReportingChange] hides
- * the crash-report switch.
+ * the crash-report switch. [exportActions] says how an export can leave the app; with none, export is hidden.
  */
 @Composable
 fun SettingsSection(
     settings: AppSettings,
     unitSystem: UnitSystem,
     onUnitSystemChange: (UnitSystem) -> Unit,
-    onExport: (formatId: String) -> Unit,
+    exportActions: ExportActions,
     onReparse: () -> Unit,
     onCloudPush: ((email: String, pass: String) -> Unit)?,
     onOpenComputers: () -> Unit,
@@ -64,21 +65,38 @@ fun SettingsSection(
         HorizontalDivider()
 
         var cloudExportOpen by remember { mutableStateOf(false) }
+        var exportOpen by remember { mutableStateOf(false) }
 
         // Cloud import lives with the Add-dives button; only cloud export stays here.
-        Text("Export", style = MaterialTheme.typography.titleMedium)
+        if (exportActions.available || onCloudPush != null) {
+            Text("Export", style = MaterialTheme.typography.titleMedium)
+        }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // One button per export, so a new format appears here too.
-            LogbookIo.exportTargets().forEach { target ->
-                OutlinedButton(onClick = { onExport(target.id) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Export ${target.displayName}")
+            if (exportActions.available) {
+                OutlinedButton(onClick = { exportOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Export logbook")
                 }
+                Text(
+                    "To export only some dives, tap Select in the Dives list.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (onCloudPush != null) {
                 OutlinedButton(onClick = { cloudExportOpen = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Export to Subsurface cloud")
                 }
             }
+        }
+
+        if (exportOpen) {
+            ExportDialog(
+                title = "Export logbook",
+                actions = exportActions,
+                diveIds = null,
+                onExported = {},
+                onDismiss = { exportOpen = false },
+            )
         }
 
         if (cloudExportOpen && onCloudPush != null) {

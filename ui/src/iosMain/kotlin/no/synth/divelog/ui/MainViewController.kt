@@ -18,15 +18,16 @@ private val services by lazy { AppServices(createDatabase(), UserDefaultsStore()
  * iOS entry point: hosts the shared Compose UI in a UIViewController for the Swift app
  * to present. There is no serial layer or git client, so dive-computer download and cloud
  * sync are unavailable. Files are imported through the document picker and exported
- * through the share sheet. [setCrashReporting] switches Crashlytics, which lives on the
- * Swift side.
+ * through the share sheet (Share in the export dialog). [setCrashReporting] switches
+ * Crashlytics, which lives on the Swift side.
  */
 fun MainViewController(setCrashReporting: (Boolean) -> Unit): UIViewController = ComposeUIViewController {
     val host = LocalUIViewController.current
     val hooks = remember(host) {
         PlatformHooks(
             pickImportFile = { pickDocument(host) },
-            saveExport = { shareDocument(host, it) },
+            // The share sheet includes Save to Files.
+            shareExport = { shareDocument(host, it) },
             setCrashReporting = setCrashReporting,
         )
     }
