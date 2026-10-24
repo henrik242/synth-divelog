@@ -17,7 +17,13 @@ class SimulatedSerialPorts(
 ) : SerialPorts {
     override val downloadSupported = true
 
+    override val linkKinds: Set<SerialPortKind> get() = real.linkKinds + SerialPortKind.USB_SERIAL
+
     override fun list(): List<SerialPortInfo> = listOf(PORT) + real.list()
+
+    override fun discover() = real.discover()
+
+    override fun scanProblem(): String? = real.scanProblem()
 
     override suspend fun open(id: String, params: SerialParams): Transport =
         if (id == PORT.id) {

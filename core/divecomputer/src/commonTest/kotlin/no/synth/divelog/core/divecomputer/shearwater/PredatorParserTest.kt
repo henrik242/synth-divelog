@@ -98,4 +98,56 @@ class PredatorParserTest {
         // 100 ft = 30480 mm
         assertEquals(30_480, dive.maxDepthMm)
     }
+
+    /** Two metric samples at 20 m with the given sample bytes patched in at [patch]. */
+    private fun twoSamples(patch: (sample: Int, set: (offset: Int, value: Int) -> Unit) -> Unit): RawDive {
+        val data = record(timestamp = 0, units = 0, o2 = 21, samples = listOf(Triple(200, 10, 21), Triple(200, 10, 21)), durationMinutes = 1)
+        for (sample in 0 until 2) patch(sample) { offset, value -> data[block + sample * 16 + offset] = value.toByte() }
+        return RawDive(fingerprint = "a", formatId = PredatorDump.FORMAT_ID, data = data)
+    }
+
+    @Test
+    fun theDecoByteIsTheNdlWithoutAStopAndTheStopTimeWithOne() {
+        val dive = PredatorParser().parse(
+            twoSamples { sample, set ->
+                set(9, 12) // deco time: 12 min
+                set(5, 7) // time to surface, not a stop time
+                if (sample == 1) set(3, 6) // stop depth: 6 m (whole metres)
+            },
+        )
+        val (noStop, stop) = dive.samples
+        assertEquals(12 * 60, noStop.ndlSeconds)
+        assertEquals(null, noStop.stopTimeSeconds)
+        assertEquals(null, noStop.stopDepthMm)
+        assertEquals(null, stop.ndlSeconds)
+        assertEquals(12 * 60, stop.stopTimeSeconds)
+        assertEquals(6_000, stop.stopDepthMm)
+    }
+
+    @Test
+    fun anImperialStopDepthIsWholeFeetAndAStopWithoutATimeHasNone() {
+        val data = record(timestamp = 0, units = 1, o2 = 21, samples = listOf(Triple(660, 50, 21), Triple(660, 50, 21)), durationMinutes = 1)
+        data[block + 3] = 20 // first sample: a 20 ft stop, deco byte 0
+        data[block + 16 + 3] = 20 // second: the same stop, 3 minutes
+        data[block + 16 + 9] = 3
+        val (noTime, timed) = PredatorParser().parse(RawDive(fingerprint = "a", formatId = PredatorDump.FORMAT_ID, data = data)).samples
+        assertEquals(6_096, noTime.stopDepthMm) // 20 ft, not 2.0 ft
+        assertEquals(null, noTime.stopTimeSeconds)
+        assertEquals(null, noTime.ndlSeconds)
+        assertEquals(3 * 60, timed.stopTimeSeconds)
+    }
+
+    @Test
+    fun ppO2IsTheSensorAverageOnARebreatherAndAbsentOnOpenCircuit() {
+        fun ppO2(status: Int) = PredatorParser().parse(
+            twoSamples { _, set ->
+                set(11, status)
+                set(6, 130) // average ppO2, 1.30 bar
+                set(12, 54) // raw sensor byte: needs calibration, never ppO2 as is
+            },
+        ).samples.map { it.ppO2Mbar }
+        assertEquals(listOf(null, null), ppO2(status = 0x10)) // open circuit
+        assertEquals(listOf(1_300, 1_300), ppO2(status = 0x00)) // rebreather, internal sensors
+        assertEquals(listOf(null, null), ppO2(status = 0x02)) // rebreather, external ppO2
+    }
 }

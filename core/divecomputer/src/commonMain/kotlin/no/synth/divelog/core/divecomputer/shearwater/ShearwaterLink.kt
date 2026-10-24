@@ -10,7 +10,7 @@ import no.synth.divelog.core.divecomputer.transport.Transport
  * The command layer for Shearwater's diagnostic-style protocol. Each message is
  * a small command payload wrapped in a fixed header and sent as one SLIP frame;
  * the device replies with a mirrored header and an echoed command byte. This
- * implements the older one-byte-length framing used by the Predator and Petrel 1.
+ * implements the one-byte-length framing used by the Predator, Petrel 1 and Peregrine.
  */
 class ShearwaterLink(
     transport: Transport,
@@ -34,6 +34,30 @@ class ShearwaterLink(
         return unwrap(frame, requestCommand = payload.firstOrNull())
     }
 
+    /**
+     * End the session: write data by identifier 0x9020, which gets no reply. Without it a
+     * Petrel-family device reports a Bluetooth disconnect error on its screen when the
+     * link closes (libdivecomputer sends it on every close). A failure is ignored: the
+     * link may already be gone.
+     */
+    fun shutdown() {
+        runCatching { channel.writeFrame(wrap(SHUTDOWN)) }
+    }
+
+    /**
+     * Read data by identifier (`22 [id: BE16]` -> `62 [id: BE16] <data>`) and return the
+     * data. Newer models answer it with their serial, firmware, hardware and log format.
+     */
+    fun readIdentifier(id: Int): ByteArray {
+        val hi = ((id ushr 8) and 0xFF).toByte()
+        val lo = (id and 0xFF).toByte()
+        val response = exchange(byteArrayOf(CMD_READ_ID, hi, lo))
+        if (response.size < 3 || response[0] != RSP_READ_ID || response[1] != hi || response[2] != lo) {
+            throw ProtocolException("Bad response to identifier ${id.toString(16)}: ${response.toHex()}")
+        }
+        return response.copyOfRange(3, response.size)
+    }
+
     private fun wrap(payload: ByteArray): ByteArray {
         val out = ByteArray(HEADER_LEN + payload.size)
         out[0] = REQUEST_HI
@@ -48,8 +72,14 @@ class ShearwaterLink(
         if (frame.size < HEADER_LEN) {
             throw ProtocolException("Short response frame (${frame.size} bytes)")
         }
-        if (frame[0] != RESPONSE_HI || frame[1] != RESPONSE_LO) {
-            throw ProtocolException("Unexpected response header ${frame.copyOf(2).toHex()}")
+        if (frame[0] != RESPONSE_HI || frame[1] != RESPONSE_LO || frame[3] != 0.toByte()) {
+            throw ProtocolException("Unexpected response header ${frame.copyOf(HEADER_LEN).toHex()}")
+        }
+        // The length byte counts the payload plus one; a mismatch means a packet was lost
+        // or two replies ran together (libdivecomputer checks it the same way).
+        val length = frame[2].toInt() and 0xFF
+        if (length < 1 || length - 1 + HEADER_LEN != frame.size) {
+            throw ProtocolException("Response length $length does not match a ${frame.size}-byte frame")
         }
         val payload = frame.copyOfRange(HEADER_LEN, frame.size)
         if (payload.isNotEmpty() && (payload[0].toInt() and 0xFF) == NAK) {
@@ -76,5 +106,8 @@ class ShearwaterLink(
         private const val RESPONSE_HI = 0x01.toByte()
         private const val RESPONSE_LO = 0xFF.toByte()
         private const val NAK = 0x7F
+        private val SHUTDOWN = byteArrayOf(0x2E, 0x90.toByte(), 0x20, 0x00)
+        private const val CMD_READ_ID = 0x22.toByte()
+        private const val RSP_READ_ID = 0x62.toByte()
     }
 }

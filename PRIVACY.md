@@ -43,8 +43,10 @@ them:
 
 ## Dive computers
 
-Downloading dives uses Bluetooth or USB to talk to your dive computer. The app does not use
-Bluetooth to scan for or find your location, and it does not request location access.
+Downloading dives uses Bluetooth or USB to talk to your dive computer. On Android the app
+scans for nearby Bluetooth LE dive computers while you pick one; it never uses Bluetooth to
+find your location (the scan permission is declared that way), and it does not request
+location access.
 
 ## Import and export
 

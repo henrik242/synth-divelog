@@ -91,7 +91,12 @@ After a successful download the Petrel shows "bluetooth error: disconnect" on it
 screen. The exit handshake is clean (`37` -> `77 00`) and the download is complete,
 so this is cosmetic. The stock vendor software reportedly does not trigger it, so
 the device may expect a specific end-of-session step (an extra command, or a wait
-after the exit reply) before the socket closes. Not yet investigated. **Open item.**
+after the exit reply) before the socket closes.
+
+The download now ends with libdivecomputer's shutdown command, `2E 90 20 00` (write
+data by identifier `9020`, no reply), which stops the same error on the Peregrine
+([shearwater-peregrine.md](shearwater-peregrine.md)). **Open item:** confirm on a
+Petrel 1 that the error is gone.
 
 ## Protocol selection
 

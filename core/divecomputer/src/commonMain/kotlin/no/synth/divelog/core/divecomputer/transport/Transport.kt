@@ -17,6 +17,12 @@ interface Transport {
      */
     fun read(buffer: ByteArray, offset: Int, length: Int, timeoutMs: Long): Int
 
+    /**
+     * The most a packet link (Bluetooth LE) carries in one [write], known once open; null
+     * for a byte stream, which has no such limit.
+     */
+    val maxWriteSize: Int? get() = null
+
     fun close()
 }
 

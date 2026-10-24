@@ -22,7 +22,7 @@ class ShearwaterManifestTest {
             record(0xFFFF, byteArrayOf(0, 0, 0, 0), 0) + // terminator
             ByteArray(32) // trailing
 
-        val (entries, terminated) = ShearwaterPetrelProtocol.parseManifestPage(page)
+        val (entries, terminated) = ShearwaterLogbook.parseManifestPage(page)
         assertTrue(terminated)
         assertEquals(2, entries.size)
         assertEquals("68fdfbfe", entries[0].fingerprint)
@@ -36,7 +36,7 @@ class ShearwaterManifestTest {
         val page = (0 until 48).fold(ByteArray(0)) { acc, i ->
             acc + record(0xA5C4, byteArrayOf(i.toByte(), 0, 0, 0), (i * 0x100).toLong())
         }
-        val (entries, terminated) = ShearwaterPetrelProtocol.parseManifestPage(page)
+        val (entries, terminated) = ShearwaterLogbook.parseManifestPage(page)
         assertEquals(48, entries.size)
         assertTrue(!terminated)
     }

@@ -49,7 +49,7 @@ internal class AddDivesFlow(
     private val snackbar: SnackbarHostState,
 ) {
     private val controller = DownloadController(services.container, hooks.serialPorts, services.settings)
-    private val downloadTypes = DiveComputerType.entries
+    private val downloadTypes = DiveComputerType.entries.filter { it.reachableOver(hooks.serialPorts.linkKinds) }
 
     private var chooserOpen by mutableStateOf(false)
     private var cloudDialogOpen by mutableStateOf(false)
@@ -155,6 +155,8 @@ internal class AddDivesFlow(
                 onCancel = { downloadUi = DownloadUiState.Hidden },
                 preselectPortId = { type -> controller.preselectedPortId(type, pickerPorts) },
                 hint = hooks.downloadHint,
+                onDiscover = { hooks.serialPorts.discover() },
+                scanProblem = { hooks.serialPorts.scanProblem() },
             )
             is DownloadUiState.Running -> DownloadProgressDialog(state = ui, onCancel = { cancelDownload = true })
             is DownloadUiState.Reviewing -> DownloadReviewDialog(ui)

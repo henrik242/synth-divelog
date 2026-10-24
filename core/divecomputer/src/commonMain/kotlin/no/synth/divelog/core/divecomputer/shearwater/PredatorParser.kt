@@ -12,7 +12,10 @@ import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.units.BAR_PER_PSI
 import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
+import no.synth.divelog.core.model.units.feetToMm
+import kotlin.math.roundToInt
 
 /**
  * Parses the older Predator log format shared by the Predator and Petrel 1, and the
@@ -20,16 +23,21 @@ import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
  *
  * Block layout: a 128-byte opening block, a run of fixed-size sample records, then a
  * 128-byte closing block. The Predator stores 16-byte samples; the Petrel 1 stores
- * 32-byte records whose first 16 bytes hold the same fields (the rest is extra data
- * we ignore). The sample stride is chosen from the raw dive's format id. Depths are
- * tenths of a metre or foot per the opening block's units flag; temperature is a
- * signed whole degree Celsius. Field offsets were confirmed against real captures.
+ * 32-byte records whose first 16 bytes hold the same fields, plus CNS and (from log
+ * version 7) air-integration pressures. Depths are tenths of a metre or foot per the
+ * opening block's units flag; temperature is a signed whole degree Celsius. Field
+ * offsets were confirmed against real captures; the CNS, pressure and freedive fields
+ * follow libdivecomputer's `shearwater_predator_parser.c`.
  *
  * Record layout ([PNF_FORMAT_ID]): a stream of 32-byte records, each led by a type
  * byte. Opening (0x10) and closing (0x20) records are the first 32 bytes of those
  * blocks with byte 0 replaced by the type; a sample record (0x01) is the type byte
  * followed by the sample fields, so they sit one byte later. The closing record holds
- * the duration in seconds. Confirmed against 302 Shearwater Cloud dives.
+ * the duration in seconds. Confirmed against 302 Shearwater Cloud dives. From log
+ * version 9 the opening records also carry the sample interval, which replaces
+ * [sampleIntervalSeconds]. Extended records (0xE1) add two more transmitters, and a
+ * freedive log has packed freedive records (0x02) instead of samples. A Peregrine
+ * downloads its dives in this form too.
  */
 class PredatorParser(
     private val sampleIntervalSeconds: Int = DEFAULT_SAMPLE_INTERVAL_SECONDS,
@@ -38,33 +46,38 @@ class PredatorParser(
 
     override fun parse(raw: RawDive): IncomingDive {
         val d = raw.data
-        val layout = if (raw.formatId == PNF_FORMAT_ID) recordLayout(d) else blockLayout(d, raw.formatId)
+        val layout = layoutOf(d, raw.formatId)
         val header = layout.header
         val imperial = header[UNITS_OFFSET].toInt() == 1
         val number = u16be(header, NUMBER_OFFSET)
         val startEpoch = u32be(header, START_TIME_OFFSET)
         val durationSeconds = layout.durationSeconds
+        val interval = layout.intervalSeconds ?: sampleIntervalSeconds
 
         val samples = ArrayList<Sample>()
         val events = ArrayList<Event>()
         var previousGas: Pair<Int, Int>? = null
+        // Tank pressures by the log's own tank id, renumbered densely once all are known.
+        val pressures = ArrayList<Map<Int, Int>>()
 
         for ((index, offset) in layout.sampleOffsets.withIndex()) {
-            val time = index * sampleIntervalSeconds
+            val time = index * interval
             val depthMm = toMillimetres(u16be(d, offset + S_DEPTH), imperial)
             // The sample temperature follows the dive's unit flag: Fahrenheit for
             // an imperial dive, Celsius for a metric one.
-            val tempMk = if (imperial) {
-                fahrenheitToMilliKelvin(signed(d[offset + S_TEMP]))
-            } else {
-                celsiusToMilliKelvin(signed(d[offset + S_TEMP]))
-            }
-            val ndlSeconds = (d[offset + S_NDL].toInt() and 0xFF).let { if (it == 0) null else it * 60 }
-            val stopDepthMm = u16be(d, offset + S_STOP_DEPTH).let { if (it == 0) null else toMillimetres(it, imperial) }
-            val stopTimeSeconds = u16be(d, offset + S_TTS).let { if (it == 0) null else it * 60 }
+            val temperature = sampleTemperature(d[offset + S_TEMP])
+            val tempMk = if (imperial) fahrenheitToMilliKelvin(temperature) else celsiusToMilliKelvin(temperature)
+            // One byte holds the stop time when a stop depth (whole metres or feet) is
+            // set, else the NDL. The word at +4 is time to surface, not the stop time.
+            val stopDepth = u16be(d, offset + S_STOP_DEPTH)
+            val decoMinutes = d[offset + S_DECO_TIME].toInt() and 0xFF
+            val decoSeconds = if (decoMinutes == 0) null else decoMinutes * 60
+            val stopDepthMm = if (stopDepth == 0) null else stopDepthToMillimetres(stopDepth, imperial)
+            val stopTimeSeconds = if (stopDepth == 0) null else decoSeconds
+            val ndlSeconds = if (stopDepth == 0) decoSeconds else null
             val o2 = d[offset + S_O2].toInt() and 0xFF
             val he = d[offset + S_HE].toInt() and 0xFF
-            val ppO2Mbar = sensorPpO2Mbar(d, offset)
+            val ppO2Mbar = averagePpO2Mbar(d, offset)
 
             samples += Sample(
                 timeOffsetSeconds = time,
@@ -74,15 +87,18 @@ class PredatorParser(
                 ndlSeconds = ndlSeconds,
                 stopDepthMm = stopDepthMm,
                 stopTimeSeconds = stopTimeSeconds,
+                cnsPermille = if (layout.wide) (d[offset + S_CNS].toInt() and 0xFF) * 10 else null,
             )
+            pressures += tankPressures(d, offset, layout.extended[index], layout)
 
             val gas = o2 to he
             if (o2 > 0 && gas != previousGas) {
                 events += Event(timeOffsetSeconds = time, type = EventType.GAS_SWITCH, value = GasSwitch.value(o2, he))
                 previousGas = gas
             }
-
         }
+        withDenseTankIndexes(samples, pressures)
+        layout.freediveOffsets.forEachIndexed { index, offset -> samples += freediveSample(d, offset, index * interval, layout) }
 
         // Drop the surface tail the computer keeps recording after surfacing, so the
         // profile span and mean depth reflect the actual dive (to final ascent). The
@@ -112,7 +128,7 @@ class PredatorParser(
             number = number,
             startEpochSeconds = startEpoch,
             utcOffsetSeconds = 0, // device stores local time; offset refined later
-            durationSeconds = if (durationSeconds > 0) durationSeconds else samples.size * sampleIntervalSeconds,
+            durationSeconds = if (durationSeconds > 0) durationSeconds else samples.size * interval,
             maxDepthMm = if (samples.isNotEmpty()) maxDepthMm else null,
             meanDepthMm = meanDepthMm,
             waterTempMk = minTempMk,
@@ -127,12 +143,41 @@ class PredatorParser(
         )
     }
 
-    /** Where a layout keeps the opening fields, its samples (each at the sample-field base) and duration. */
-    private class Layout(val header: ByteArray, val sampleOffsets: List<Int>, val durationSeconds: Int)
+    /**
+     * Where a layout keeps the opening fields, its samples (each at the sample-field base)
+     * and duration, and the sample interval when the log records one. [wide] samples (32
+     * bytes: Petrel 1 blocks and records) also hold CNS and air-integration pressures;
+     * [extended] maps a sample's index to the fields of the extended record (0xE1) after
+     * it. A freedive log has [freediveOffsets] (8-byte samples) instead of samples.
+     */
+    private class Layout(
+        val header: ByteArray,
+        val sampleOffsets: List<Int>,
+        val durationSeconds: Int,
+        val wide: Boolean,
+        val logVersion: Int,
+        val intervalSeconds: Int? = null,
+        val aiMode: Int = 0,
+        val extended: Map<Int, Int> = emptyMap(),
+        val freediveOffsets: List<Int> = emptyList(),
+        val surfaceMbar: Int = DEFAULT_SURFACE_MBAR,
+        val waterDensity: Int = DEFAULT_WATER_DENSITY,
+    )
 
-    private fun blockLayout(d: ByteArray, formatId: String): Layout {
+    /**
+     * The layout of [d]. A Petrel-family log is told apart by its data, as libdivecomputer
+     * does: blocks start with 0xFFFF, records with a record type. The format id only
+     * separates those from the Predator's 16-byte samples.
+     */
+    private fun layoutOf(d: ByteArray, formatId: String): Layout {
+        val petrelFamily = formatId == PETREL_FORMAT_ID || formatId == PNF_FORMAT_ID
+        val records = petrelFamily && d.size >= 2 && u16be(d, 0) != 0xFFFF
+        return if (records) recordLayout(d) else blockLayout(d, wide = petrelFamily)
+    }
+
+    private fun blockLayout(d: ByteArray, wide: Boolean): Layout {
         if (d.size < 2 * BLOCK) throw ProtocolException("Predator record too small: ${d.size} bytes")
-        val stride = if (formatId == PETREL_FORMAT_ID) PETREL_SAMPLE_STRIDE else SAMPLE_SIZE
+        val stride = if (wide) PETREL_SAMPLE_STRIDE else SAMPLE_SIZE
         // The closing block is the first 128-aligned block (after the opening one)
         // that starts with the close marker. A ring-extracted Predator dive ends
         // exactly at its closing block, but a Petrel's per-dive blob carries one or
@@ -140,17 +185,116 @@ class PredatorParser(
         // reads the close marker as a 0xFFFE depth sample and padding as duration.
         val closing = closingBlockOffset(d)
         val offsets = generateSequence(BLOCK) { it + stride }.takeWhile { it + SAMPLE_SIZE <= closing }.toList()
-        return Layout(d, offsets, u16be(d, closing + CLOSE_DURATION_OFFSET) * 60)
+        return Layout(
+            d,
+            offsets,
+            u16be(d, closing + CLOSE_DURATION_OFFSET) * 60,
+            wide = wide,
+            logVersion = d[BLOCK_LOG_VERSION].toInt() and 0xFF,
+        )
     }
 
     private fun recordLayout(d: ByteArray): Layout {
         val records = (0 until d.size / RECORD).map { it * RECORD }
-        val opening = records.firstOrNull { d[it] == REC_OPENING }
-            ?: throw ProtocolException("Shearwater record log without an opening record")
-        val closing = records.firstOrNull { d[it] == REC_CLOSING }
-        val samples = records.filter { d[it] == REC_SAMPLE }.map { it + 1 }
-        val duration = closing?.let { u24be(d, it + REC_CLOSE_DURATION_SECONDS) } ?: 0
-        return Layout(d.copyOfRange(opening, opening + RECORD), samples, duration)
+        fun first(type: Byte) = records.firstOrNull { d[it] == type }
+        val opening = first(REC_OPENING) ?: throw ProtocolException("Shearwater record log without an opening record")
+        val duration = first(REC_CLOSING)?.let { u24be(d, it + REC_CLOSE_DURATION_SECONDS) } ?: 0
+        val opening4 = first(REC_OPENING_4)
+        val version = opening4?.let { d[it + REC_LOG_VERSION].toInt() and 0xFF } ?: 0
+        val samples = ArrayList<Int>()
+        val extended = HashMap<Int, Int>()
+        val freedive = ArrayList<Int>()
+        for (r in records) {
+            when (d[r]) {
+                REC_SAMPLE -> samples += r + 1
+                REC_SAMPLE_EXT -> if (samples.isNotEmpty()) extended[samples.lastIndex] = r + 1
+                // Four 8-byte samples packed in one record; a zero sample pads the last one.
+                REC_FREEDIVE -> (0 until 4).map { r + it * FREEDIVE_SAMPLE }
+                    .takeWhile { o -> (o until o + FREEDIVE_SAMPLE).any { d[it] != 0.toByte() } }
+                    .let { freedive += it }
+            }
+        }
+        return Layout(
+            d.copyOfRange(opening, opening + RECORD),
+            samples,
+            duration,
+            wide = true,
+            logVersion = version,
+            intervalSeconds = recordInterval(d, version, first(REC_OPENING_5)),
+            aiMode = if (version >= MIN_AI_LOG_VERSION) opening4?.let { d[it + REC_AI_MODE].toInt() and 0xFF } ?: 0 else 0,
+            extended = extended,
+            freediveOffsets = freedive,
+            surfaceMbar = first(REC_OPENING_1)?.let { u16be(d, it + REC_SURFACE_MBAR) }?.takeIf { it > 0 } ?: DEFAULT_SURFACE_MBAR,
+            waterDensity = first(REC_OPENING_3)?.let { u16be(d, it + REC_DENSITY) }?.takeIf { it > 0 } ?: DEFAULT_WATER_DENSITY,
+        )
+    }
+
+    /**
+     * The sample interval in whole seconds from opening record 5 ([opening5]), which holds
+     * it in milliseconds from log version 9 on. Null for an older log or an interval that
+     * is not whole seconds, so the default applies. Follows libdivecomputer's
+     * `shearwater_predator_parser.c`.
+     */
+    private fun recordInterval(d: ByteArray, version: Int, opening5: Int?): Int? {
+        if (version < MIN_INTERVAL_LOG_VERSION || opening5 == null) return null
+        val ms = u16be(d, opening5 + REC_INTERVAL_MS)
+        return if (ms > 0 && ms % 1_000 == 0) ms / 1_000 else null
+    }
+
+    /**
+     * Air-integration pressures of a wide sample from log version 7 (transmitters 1 and 2,
+     * or the HP CCR pair), plus those of its extended record (transmitters 3 and 4 from
+     * version 13, HP CCR from 14), keyed by the log's tank id 0..5. Readings are 2 psi
+     * steps under a battery nibble; values from 0xFFF0 mean off or no signal.
+     */
+    private fun tankPressures(d: ByteArray, offset: Int, extended: Int?, layout: Layout): Map<Int, Int> {
+        if (!layout.wide || layout.logVersion < MIN_AI_LOG_VERSION) return emptyMap()
+        val out = HashMap<Int, Int>()
+        val pairBase = if (layout.aiMode == AI_HPCCR) 4 else 0
+        for ((i, field) in listOf(S_TANK_1, S_TANK_2).withIndex()) {
+            transmitterMbar(u16be(d, offset + field))?.let { out[pairBase + i] = it }
+        }
+        if (extended != null) {
+            if (layout.logVersion >= MIN_EXT_TANKS_LOG_VERSION) {
+                for (i in 0 until 2) {
+                    transmitterMbar(u16be(d, extended + i * 2))?.let { out[2 + i] = it }
+                }
+            }
+            if (layout.logVersion >= MIN_EXT_HPCCR_LOG_VERSION) {
+                for (i in 0 until 2) {
+                    val raw = u16be(d, extended + 4 + i * 2)
+                    if (raw != 0) out[4 + i] = twoPsiToMbar(raw)
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * A transmitter field in mbar, or null for no reading: the special codes from 0xFFF0
+     * (off, no signal, not paired) and a zero reading, which an unused slot holds (we do
+     * not track which transmitters are enabled, as libdivecomputer does).
+     */
+    private fun transmitterMbar(raw: Int): Int? {
+        val steps = raw and 0x0FFF
+        return if (raw >= AI_SPECIAL || steps == 0) null else twoPsiToMbar(steps)
+    }
+
+    /** Fill in [pressures] with tank ids renumbered 0, 1, ... in id order, so tank 0 is the first transmitter in use. */
+    private fun withDenseTankIndexes(samples: MutableList<Sample>, pressures: List<Map<Int, Int>>) {
+        val index = pressures.flatMap { it.keys }.distinct().sorted().withIndex().associate { (i, id) -> id to i }
+        for (i in samples.indices) {
+            val p = pressures.getOrNull(i) ?: continue
+            if (p.isNotEmpty()) samples[i] = samples[i].copy(tankPressuresMbar = p.mapKeys { (id, _) -> index.getValue(id) })
+        }
+    }
+
+    /** One freedive sample: depth from absolute pressure (mbar at +1), temperature in tenths of a degree C (+3). */
+    private fun freediveSample(d: ByteArray, offset: Int, time: Int, layout: Layout): Sample {
+        val gaugeMbar = u16be(d, offset + 1) - layout.surfaceMbar
+        val depthMm = (gaugeMbar * PA_PER_MBAR * 1_000 / (layout.waterDensity * GRAVITY)).roundToInt().coerceAtLeast(0)
+        val tenths = u16be(d, offset + 3).toShort().toInt()
+        return Sample(timeOffsetSeconds = time, depthMm = depthMm, temperatureMk = tenths * 100 + ZERO_CELSIUS_MK)
     }
 
     /**
@@ -170,10 +314,21 @@ class PredatorParser(
     private fun toMillimetres(tenths: Int, imperial: Boolean): Int =
         if (imperial) (tenths * MM_PER_TENTH_FOOT).toInt() else tenths * MM_PER_TENTH_METRE
 
-    private fun sensorPpO2Mbar(d: ByteArray, sampleOffset: Int): Int? {
-        // Raw sensor millivolt-style reading; kept as a coarse ppO2 hint in mbar.
-        val raw = d[sampleOffset + S_SENSOR0].toInt() and 0xFF
-        return if (raw == 0) null else raw * 10
+    private fun stopDepthToMillimetres(whole: Int, imperial: Boolean): Int =
+        if (imperial) feetToMm(whole) else whole * 1_000
+
+    /**
+     * The averaged sensor ppO2 (hundredths of a bar) on a rebreather sample that uses the
+     * internal sensors; null on open circuit, where the sensor bytes carry no ppO2. The
+     * raw per-sensor bytes need calibration, so the average is used, as libdivecomputer
+     * does with SENSOR_AVERAGE.
+     */
+    private fun averagePpO2Mbar(d: ByteArray, sampleOffset: Int): Int? {
+        val status = d[sampleOffset + S_STATUS].toInt() and 0xFF
+        val rebreather = status and STATUS_OC == 0
+        if (!rebreather || status and STATUS_PPO2_EXTERNAL != 0) return null
+        val hundredths = d[sampleOffset + S_PPO2_AVERAGE].toInt() and 0xFF
+        return if (hundredths == 0) null else hundredths * 10
     }
 
     companion object {
@@ -191,25 +346,54 @@ class PredatorParser(
 
         // Opening block
         private const val NUMBER_OFFSET = 2
+        private const val BLOCK_LOG_VERSION = 127
         private const val UNITS_OFFSET = 8
         private const val START_TIME_OFFSET = 12
 
         // Sample fields
         private const val S_DEPTH = 0
         private const val S_STOP_DEPTH = 2
-        private const val S_TTS = 4
+        private const val S_PPO2_AVERAGE = 6
         private const val S_O2 = 7
         private const val S_HE = 8
-        private const val S_NDL = 9
-        private const val S_SENSOR0 = 12
+        private const val S_DECO_TIME = 9
+        private const val S_STATUS = 11
         private const val S_TEMP = 13
+        private const val S_TANK_2 = 19
+        private const val S_CNS = 22
+        private const val S_TANK_1 = 27
 
         // Typed records
         private const val RECORD = 32
         private const val REC_SAMPLE = 0x01.toByte()
+        private const val REC_FREEDIVE = 0x02.toByte()
+        private const val REC_SAMPLE_EXT = 0xE1.toByte()
+        private const val REC_OPENING_1 = 0x11.toByte()
+        private const val REC_OPENING_3 = 0x13.toByte()
         private const val REC_OPENING = 0x10.toByte()
         private const val REC_CLOSING = 0x20.toByte()
         private const val REC_CLOSE_DURATION_SECONDS = 6
+        private const val REC_OPENING_4 = 0x14.toByte()
+        private const val REC_OPENING_5 = 0x15.toByte()
+        private const val REC_LOG_VERSION = 16
+        private const val REC_INTERVAL_MS = 23
+        private const val MIN_INTERVAL_LOG_VERSION = 9
+        private const val REC_AI_MODE = 28
+        private const val REC_SURFACE_MBAR = 16
+        private const val REC_DENSITY = 3
+        private const val FREEDIVE_SAMPLE = 8
+
+        // Air integration
+        private const val MIN_AI_LOG_VERSION = 7
+        private const val MIN_EXT_TANKS_LOG_VERSION = 13
+        private const val MIN_EXT_HPCCR_LOG_VERSION = 14
+        private const val AI_HPCCR = 4
+        private const val AI_SPECIAL = 0xFFF0
+
+        private const val DEFAULT_SURFACE_MBAR = 1013
+        private const val DEFAULT_WATER_DENSITY = 1025
+        private const val PA_PER_MBAR = 100.0
+        private const val GRAVITY = 9.80665
 
         // Closing block (relative to its start)
         private const val CLOSE_DURATION_OFFSET = 6
@@ -219,7 +403,20 @@ class PredatorParser(
         private const val MM_PER_TENTH_METRE = 100
         private const val MM_PER_TENTH_FOOT = 30.48
 
-        private fun signed(b: Byte): Int = b.toInt()
+        // Sample status flags
+        private const val STATUS_PPO2_EXTERNAL = 0x02
+        private const val STATUS_OC = 0x10
+
+        /**
+         * A sample's whole-degree temperature byte. A negative raw value is a reading just
+         * below zero offset by 102 (libdivecomputer's fix), capped at zero.
+         */
+        private fun sampleTemperature(b: Byte): Int {
+            val t = b.toInt()
+            return if (t < 0) minOf(t + 102, 0) else t
+        }
+
+        private fun twoPsiToMbar(steps: Int): Int = (steps * 2 * BAR_PER_PSI * 1_000).roundToInt()
 
         private fun celsiusToMilliKelvin(celsius: Int): Int = celsius * 1_000 + ZERO_CELSIUS_MK
 

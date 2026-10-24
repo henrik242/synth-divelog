@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Bluetooth LE scan for the Peregrine; the scan is never used to infer location. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
 
     <!-- Cloud sync of a single dive-log file over HTTPS. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -16,6 +20,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <!-- USB host mode for the wired serial Suunto download over an OTG adapter. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
