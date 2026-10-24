@@ -142,7 +142,7 @@ class PredatorParserTest {
     }
 
     @Test
-    fun ppO2IsTheSensorAverageOnARebreatherAndAbsentOnOpenCircuit() {
+    fun ppO2IsTheByteAtSixOnARebreatherAndAbsentOnOpenCircuit() {
         fun ppO2(status: Int) = PredatorParser().parse(
             twoSamples { _, set ->
                 set(11, status)
@@ -152,7 +152,7 @@ class PredatorParserTest {
         ).samples.map { it.ppO2Mbar }
         assertEquals(listOf(null, null), ppO2(status = 0x10)) // open circuit
         assertEquals(listOf(1_300, 1_300), ppO2(status = 0x00)) // rebreather, internal sensors
-        assertEquals(listOf(null, null), ppO2(status = 0x02)) // rebreather, external ppO2
+        assertEquals(listOf(1_300, 1_300), ppO2(status = 0x02)) // rebreather, external ppO2: the setpoint
     }
 
     @Test

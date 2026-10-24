@@ -9,9 +9,15 @@ Status (2026-10-24): **verified end to end** on Android: a real Peregrine downlo
 open-circuit dives, reported its serial, parsed correctly (checked against the dives
 after the sample-field fixes below) and showed no Bluetooth error after the shutdown.
 The details follow libdivecomputer (`shearwater_common.c`, `shearwater_petrel.c`,
-`shearwater_predator_parser.c`) and Subsurface's BLE handling. Not yet confirmed from a
-capture: the service UUID, the agreed MTU, whether it bonds, and which log format it
-reports. Save a capture (`files/captures/`) as a replay test to pin them down.
+`shearwater_predator_parser.c`) and Subsurface's BLE handling.
+
+A capture of that download (firmware "V89 Classic") is replayed by
+`PeregrineCaptureRegressionTest` (`peregrine-capture.transcript.txt`, trimmed to the
+session setup and the newest dive). It confirms the record log format (base
+`0x80000000`), that every request goes out as one packet (18 bytes at most), that
+notifications run up to 77 bytes (so the agreed MTU was 80 or more), and the shutdown.
+A capture does not show the GATT layer, so the service UUID and whether the device
+bonds remain unconfirmed; the download worked, so the UUID or the fallback matched.
 
 ## Bluetooth LE link (Android)
 
@@ -63,8 +69,8 @@ dropped and the SLIP bytes run on across notifications.
    not end it.
 3. **Shutdown:** `2E 90 20 00` (write data by identifier `9020`), sent however the
    session ends. The device sends no reply. Without it the device reports a Bluetooth
-   disconnect error; with it the Peregrine showed none. The Petrel 1 now sends it too
-   (unverified there).
+   disconnect error; with it neither the Peregrine nor a Petrel 1 (which sends it too)
+   showed one.
 
 Each reply's length byte is checked against the frame (as libdivecomputer does), the
 only guard against a lost or merged notification. The model reported is always
@@ -86,9 +92,13 @@ apply to the Predator and Petrel too:
   apply is 0, not null (no stop: depth and time 0; in deco: NDL 0), since the file
   formats leave a null out and carry the previous value over it.
 - **ppO2:** only on a rebreather sample (status byte `+11` without the open-circuit
-  bit `0x10`) whose ppO2 is not external (`0x02`): the sensor average at `+6`, in
-  hundredths of a bar. The raw sensor bytes (`+12`, `+14`, `+15`) need calibration;
-  read as ppO2 they gave a constant ~0.54 bar on open circuit.
+  bit `0x10`): byte `+6`, in hundredths of a bar, the ppO2 the computer used. On
+  internal sensors it is their average. With the external-ppO2 bit (`0x02`), as on a
+  Petrel 1 run at a fixed setpoint with no sensors calibrated (calibration mask 0), it
+  is the setpoint (0.70 or 1.30 in the capture); libdivecomputer reports nothing there.
+  On open circuit `+6` holds the gas fraction times ambient pressure, which a logbook
+  works out itself, so it is left out. The raw sensor bytes (`+12`, `+14`, `+15`) need
+  calibration; read as ppO2 they gave a constant ~0.54 bar on open circuit.
 
 Further fields, from libdivecomputer and unit-tested only (no real log with them yet).
 Offsets are from the sample fields, which sit one byte after a record's type byte:
@@ -120,8 +130,6 @@ How these reach Subsurface XML and git exports is in `SubsurfaceShared` (`core/f
 ## Not yet done
 
 - Desktop (macOS CoreBluetooth helper) and iOS transports.
-- A replay test from a real capture (`ReplayTransport` takes the capture's
-  `maxWriteSize`, so a default-MTU capture replays with the same packets).
 - The UTC offset in opening record 5 (`+26` minutes, `+30` DST hours): applying it would
   make Peregrine dives real UTC while other computers' stay wall clock read as UTC, so
   a dive two computers logged would no longer line up.

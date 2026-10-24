@@ -357,15 +357,15 @@ class PredatorParser(
         if (imperial) feetToMm(whole) else whole * 1_000
 
     /**
-     * The averaged sensor ppO2 (hundredths of a bar) on a rebreather sample that uses the
-     * internal sensors; null on open circuit, where the sensor bytes carry no ppO2. The
-     * raw per-sensor bytes need calibration, so the average is used, as libdivecomputer
-     * does with SENSOR_AVERAGE.
+     * The ppO2 the computer used (hundredths of a bar) on a rebreather sample; null on open
+     * circuit, where it is only the gas fraction times depth. On internal sensors it is
+     * their average (libdivecomputer's SENSOR_AVERAGE); without them (external ppO2 flag,
+     * as on a fixed-setpoint Petrel with no sensors calibrated) it is the setpoint, which
+     * libdivecomputer leaves out. The raw per-sensor bytes need calibration, so never them.
      */
     private fun averagePpO2Mbar(d: ByteArray, sampleOffset: Int): Int? {
         val status = d[sampleOffset + S_STATUS].toInt() and 0xFF
-        val rebreather = status and STATUS_OC == 0
-        if (!rebreather || status and STATUS_PPO2_EXTERNAL != 0) return null
+        if (status and STATUS_OC != 0) return null
         val hundredths = d[sampleOffset + S_PPO2_AVERAGE].toInt() and 0xFF
         return if (hundredths == 0) null else hundredths * 10
     }
@@ -459,7 +459,6 @@ class PredatorParser(
         private const val MM_PER_TENTH_FOOT = 30.48
 
         // Sample status flags
-        private const val STATUS_PPO2_EXTERNAL = 0x02
         private const val STATUS_SC = 0x08
         private const val STATUS_OC = 0x10
 

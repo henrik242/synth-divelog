@@ -38,8 +38,7 @@ class ShearwaterPetrelProtocol(
                 limit,
             )
         } finally {
-            // Unverified on the Petrel 1, which shows "bluetooth error: disconnect"
-            // without it; the Peregrine clears that with the same command.
+            // Without it the Petrel shows "bluetooth error: disconnect" (verified on a Petrel 1).
             link.shutdown()
         }
     }

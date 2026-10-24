@@ -3,6 +3,7 @@ package no.synth.divelog.core.divecomputer.transport
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
@@ -63,6 +64,17 @@ class TransportsTest {
             Transcript(listOf(TransportEvent(Direction.WRITE, byteArrayOf(0x01, 0x02)))),
         )
         assertFailsWith<TransportException> { replay.write(byteArrayOf(0x01, 0x03)) }
+        // A caller that swallows the failure (as a shutdown does) still leaves it unfinished.
+        assertFalse(replay.finished)
+    }
+
+    @Test
+    fun aWriteAfterTheLastEventLeavesTheReplayUnfinished() {
+        val replay = ReplayTransport(Transcript(listOf(TransportEvent(Direction.WRITE, byteArrayOf(0x01)))))
+        replay.write(byteArrayOf(0x01))
+        assertTrue(replay.finished)
+        assertFailsWith<TransportException> { replay.write(byteArrayOf(0x02)) }
+        assertFalse(replay.finished)
     }
 
     @Test
