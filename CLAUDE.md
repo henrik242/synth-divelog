@@ -13,12 +13,12 @@ per-target entry point.
 | `:core:model` | Domain types and fixed-unit values. No deps on other modules. |
 | `:core:db` | SQLDelight schema, queries, repositories (`Flow`-based). |
 | `:core:divecomputer` | `Transport` interface, `DiveComputerKind`, protocols and parsers (pure common). |
-| `:core:transport` | Platform transports, no iOS target. Common `SerialLineTransport` (half-duplex line discipline) over jSerialComm (jvm) or usb-serial-for-android; Bluetooth via `BluetoothRfcommTransport` (android) and `MacRfcommTransport` (macOS); Bluetooth LE via `BleGattTransport` and `BleDiveComputers` scanning (android). |
+| `:core:transport` | Platform transports. Common `SerialLineTransport` (half-duplex line discipline) over jSerialComm (jvm) or usb-serial-for-android; Bluetooth via `BluetoothRfcommTransport` (android) and `MacRfcommTransport` (macOS); Bluetooth LE via `BleGattTransport`/`BleDiveComputers` (android) and `CoreBluetoothTransport`/`CoreBluetoothScanner` (appleMain: iOS, and the macOS `ble-bridge` executable behind `MacBleTransport`), sharing `NotificationQueue` and `ShearwaterBle` (common). |
 | `:core:formats` | File formats (Subsurface XML, UDDF, MacDive XML, Subsurface git tree) over a neutral `DiveLog`. |
 | `:core:gas` | Calculators for the Tools tab: gas blender (real-gas Z), tank buoyancy, MOD/END, Buhlmann ZHL-16C/GF planner. |
 | `:core:logbook` | App services without Compose: `AppServices`, settings, `LogbookIo` import/export (incl. Shearwater Cloud SQLite), cloud sync (JGit, `CloudGit`), `DownloadController`. |
 | `:ui` | Shared Compose Multiplatform screens. |
-| `:app:android`, `:app:desktop`, `iosApp/` | Per-platform entry points. iOS has no download or cloud sync (`cloud = null`). |
+| `:app:android`, `:app:desktop`, `iosApp/` | Per-platform entry points. iOS downloads over Bluetooth LE only (`IosSerialPorts`) and has no cloud sync (`cloud = null`). |
 
 - Platform features the shared UI calls (file pick, export save/share, download permissions) are `PlatformHooks` in `:ui`, one per entry point; a null hook hides its UI. Export formats are `LogbookIo.exportTargets()`.
 - **Keep Android/JVM APIs out of commonMain** in every shared module. JDK code both JVM and Android use goes in `jvmAndAndroidMain`.
@@ -40,7 +40,8 @@ per-target entry point.
 
 - **JDK 25:** MapLibre Compose (desktop map) renders through the Java FFM API, so `:ui` and `:app:desktop` use `jvmToolchain(25)` and run with `--enable-native-access=ALL-UNNAMED`. `:ui` still emits Java 17 bytecode. Gradle itself runs on JDK 17+ (CI uses 21). The map is one commonMain composable, `ui/.../sites/SiteLocationMap.kt`.
 - **macOS serial:** use the `cu.*` port, not `tty.*` (the dial-in node blocks on open under jSerialComm).
-- **Shearwater Petrel/Predator** speak classic Bluetooth SPP, not BLE; the **Peregrine** speaks BLE only (Android `BleGattTransport`, Shearwater's two-byte packet lead in `ShearwaterBlePackets`; no desktop or iOS path yet). On macOS the paired device's `cu.*` node never brings the link up; the desktop connects through the bundled Swift helper `app/desktop/native/rfcomm-bridge.swift` (`MacRfcommTransport`). Test without the app: `./gradlew :app:desktop:shearwaterCapture --args="PETREL 3"`.
+- **Shearwater Petrel/Predator** speak classic Bluetooth SPP, not BLE; the **Peregrine** speaks BLE only (Shearwater's two-byte packet lead in `ShearwaterBlePackets`). On macOS the paired device's `cu.*` node never brings the link up; the desktop connects through the bundled Swift helper `app/desktop/native/rfcomm-bridge.swift` (`MacRfcommTransport`). A JVM cannot reach CoreBluetooth, so desktop BLE runs `:core:transport`'s macOS executable `ble-bridge` (`BleBridge.kt`, the same CoreBluetooth code as iOS) and talks to it over stdin/stdout (`MacBleTransport`). Test without the app: `./gradlew :app:desktop:shearwaterCapture --args="PETREL 3"` (or `PEREGRINE`).
+- **Apple klibs on Linux:** `-Pkotlin.native.enableKlibsCrossCompilation=true` compiles (not links) the iOS and macOS targets, e.g. `./gradlew :ui:compileKotlinIosSimulatorArm64 :core:transport:compileKotlinMacosArm64 -Pkotlin.native.enableKlibsCrossCompilation=true`.
 - **Suunto HelO2 (Vyper2 family)** ignores a command sent less than ~500 ms after its previous reply; `txIdleMs = 600` handles it. When a serial download is flaky, check per-command timing before blaming the cable. Details in `docs/protocol/suunto-helo2.md`.
 - **DB migrations:** SQLDelight `.sqm` files bump `Schema.version`; Android/iOS drivers auto-migrate, the jvm `createDatabase` (`DriverFactory.jvm.kt`) tracks `PRAGMA user_version` by hand. Add a `.sqm` when changing the schema.
 - The Android debug build's application id is `no.synth.divelog.debug`.

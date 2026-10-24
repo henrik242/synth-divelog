@@ -28,6 +28,8 @@ kotlin {
         iosMain.dependencies {
             // Reads and writes Shearwater Cloud database files.
             implementation(libs.sqliter)
+            // Bluetooth LE downloads over CoreBluetooth.
+            implementation(project(":core:transport"))
         }
         // A raw driver for tests that count queries.
         jvmTest.dependencies {

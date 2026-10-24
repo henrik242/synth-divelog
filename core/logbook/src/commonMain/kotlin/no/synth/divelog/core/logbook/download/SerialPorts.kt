@@ -34,7 +34,8 @@ data class SerialPortInfo(
  * The platform serial layer the shared download runs over. Desktop lists jSerialComm
  * ports, Android lists USB-serial adapters, paired Bluetooth Classic SPP devices and
  * Bluetooth LE dive computers found by a scan (and requests the matching permission in
- * [open]), iOS has none. [open] returns an already-opened [Transport] ready for a
+ * [open]). macOS adds paired Bluetooth Classic devices and Bluetooth LE ones; iOS has
+ * Bluetooth LE only. [open] returns an already-opened [Transport] ready for a
  * protocol to drive; the caller closes it.
  *
  * Kept as an interface rather than an expect/actual class because the Android
@@ -42,7 +43,7 @@ data class SerialPortInfo(
  * each platform entry point builds the matching implementation and passes it in.
  */
 interface SerialPorts {
-    /** False where there is no wired serial path (iOS); the UI then shows it as unavailable. */
+    /** False where nothing can be downloaded from; the UI then shows it as unavailable. */
     val downloadSupported: Boolean
 
     /** The kinds of port [list] can return; a computer needing another link is not offered. */
@@ -64,15 +65,22 @@ interface SerialPorts {
     suspend fun open(id: String, params: SerialParams): Transport
 }
 
-/** No wired serial support: used on iOS and any platform without a serial path. */
+/** No download support, for a platform without any link to a dive computer. */
 class NoSerialPorts : SerialPorts {
     override val downloadSupported = false
 
     override fun list(): List<SerialPortInfo> = emptyList()
 
     override suspend fun open(id: String, params: SerialParams): Transport =
-        throw UnsupportedOperationException("Wired download is not available on this platform")
+        throw UnsupportedOperationException("Download is not available on this platform")
 }
+
+/** The picker's port for a Bluetooth LE computer a scan found by [id] (an address or CoreBluetooth UUID). */
+fun blePort(id: String, name: String?): SerialPortInfo =
+    SerialPortInfo(id = BLE_PREFIX + id, label = "${name ?: id} (Bluetooth LE)", kind = SerialPortKind.BLUETOOTH_LE)
+
+/** Where [blePort] put the computer's id. */
+internal const val BLE_PREFIX = "ble:"
 
 /**
  * Preselect a port that looks like a USB-serial adapter, else the first one, else null.

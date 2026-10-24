@@ -76,15 +76,7 @@ class AndroidSerialPorts(context: Context) : SerialPorts {
                 )
             }
 
-    private fun blePorts(): List<SerialPortInfo> =
-        ble.found().map { d ->
-            SerialPortInfo(
-                id = "$BLE_PREFIX${d.address}",
-                label = (d.name ?: d.address) + " (Bluetooth LE)",
-                kind = SerialPortKind.BLUETOOTH_LE,
-                descriptor = "ble:${d.address}",
-            )
-        }
+    private fun blePorts(): List<SerialPortInfo> = ble.found().map { blePort(it.address, it.name) }
 
     override suspend fun open(id: String, params: SerialParams): Transport {
         ble.stop()
@@ -151,7 +143,6 @@ class AndroidSerialPorts(context: Context) : SerialPorts {
         const val ACTION_USB_PERMISSION = "no.synth.divelog.USB_PERMISSION"
         const val USB_PREFIX = "usb:"
         const val BT_PREFIX = "bt:"
-        const val BLE_PREFIX = "ble:"
         const val TAG = "SynthDivelog"
     }
 }

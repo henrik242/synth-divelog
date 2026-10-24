@@ -24,9 +24,8 @@ data class BleDevice(
 /**
  * Finds a Shearwater Peregrine over Bluetooth LE. A scan cannot block the picker, so
  * [scan] runs one in the background for [SCAN_MS] (the picker calls it again while it
- * waits) and [found] returns what it has seen so far plus bonded Peregrines, by name. A
- * device counts if it carries a Peregrine name, or advertises Shearwater's service with
- * no name; other Shearwater models are left out until their own computer type exists.
+ * waits) and [found] returns what it has seen so far plus bonded Peregrines, by name.
+ * Which devices count is [ShearwaterBle.isPeregrine].
  *
  * Scanning needs BLUETOOTH_SCAN (declared neverForLocation) and listing bonded devices
  * BLUETOOTH_CONNECT; without them, or with Bluetooth off, the list is empty and
@@ -44,8 +43,7 @@ class BleDiveComputers(context: Context) {
             val d = result.device ?: return
             val name = result.scanRecord?.deviceName ?: runCatching { d.name }.getOrNull()
             val advertisesService = result.scanRecord?.serviceUuids.orEmpty().contains(SERVICE)
-            // Other Shearwaters may advertise the same service, so a named one must be a Peregrine.
-            if (isPeregrineName(name) || (advertisesService && name == null)) seen[d.address] = BleDevice(name, d.address, d)
+            if (ShearwaterBle.isPeregrine(name, advertisesService)) seen[d.address] = BleDevice(name, d.address, d)
         }
 
         override fun onScanFailed(errorCode: Int) {
@@ -108,7 +106,7 @@ class BleDiveComputers(context: Context) {
     private fun bonded(): List<BleDevice> = runCatching {
         adapter()?.bondedDevices.orEmpty()
             .filter { it.type == BluetoothDevice.DEVICE_TYPE_LE || it.type == BluetoothDevice.DEVICE_TYPE_DUAL }
-            .filter { isPeregrineName(it.name) }
+            .filter { ShearwaterBle.isPeregrineName(it.name) }
             .map { BleDevice(it.name, it.address, it) }
     }.getOrDefault(emptyList())
 
@@ -117,9 +115,6 @@ class BleDiveComputers(context: Context) {
     companion object {
         private const val SCAN_MS = 20_000L
         private val STOP_TOKEN = Any()
-        private val SERVICE = ParcelUuid(BleGattTransport.SHEARWATER_SERVICE)
-
-        /** Whether [name] is one a Peregrine advertises ("Peregrine", "Peregrine TX", ...). */
-        fun isPeregrineName(name: String?): Boolean = name != null && name.contains("Peregrine", ignoreCase = true)
+        private val SERVICE = ParcelUuid.fromString(ShearwaterBle.SERVICE_UUID)
     }
 }

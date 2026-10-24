@@ -5,6 +5,7 @@ import androidx.compose.ui.uikit.LocalUIViewController
 import androidx.compose.ui.window.ComposeUIViewController
 import no.synth.divelog.core.db.createDatabase
 import no.synth.divelog.core.logbook.AppServices
+import no.synth.divelog.core.logbook.download.IosSerialPorts
 import no.synth.divelog.core.logbook.settings.AppSettings
 import no.synth.divelog.core.logbook.settings.UserDefaultsStore
 import no.synth.divelog.ui.io.pickDocument
@@ -16,8 +17,8 @@ private val services by lazy { AppServices(createDatabase(), UserDefaultsStore()
 
 /**
  * iOS entry point: hosts the shared Compose UI in a UIViewController for the Swift app
- * to present. There is no serial layer or git client, so dive-computer download and cloud
- * sync are unavailable. Files are imported through the document picker and exported
+ * to present. Dive computers download over Bluetooth LE only (the Peregrine); there is no
+ * git client, so cloud sync is unavailable. Files are imported through the document picker and exported
  * through the share sheet (Share in the export dialog). [setCrashReporting] switches
  * Crashlytics, which lives on the Swift side.
  */
@@ -25,6 +26,7 @@ fun MainViewController(setCrashReporting: (Boolean) -> Unit): UIViewController =
     val host = LocalUIViewController.current
     val hooks = remember(host) {
         PlatformHooks(
+            serialPorts = IosSerialPorts(),
             pickImportFile = { pickDocument(host) },
             // The share sheet includes Save to Files.
             shareExport = { shareDocument(host, it) },

@@ -35,8 +35,10 @@ import no.synth.divelog.core.model.units.UnitSystem
  *
  * [identityKey] is a stable dedupe key standing in for the device identity, stored as
  * the device's address (dive dedupe keys on device plus fingerprint). A Suunto on the
- * cable is told apart by the serial it reports. The Petrel and Predator report no serial,
- * so with [byAddress] a Shearwater's key carries the Bluetooth address it was reached on.
+ * cable and the Peregrine are told apart by the serial they report (the Peregrine's
+ * Bluetooth LE address differs per platform: CoreBluetooth makes up a UUID of its own). The
+ * Petrel and Predator report no serial, so with [byAddress] their key carries the Bluetooth
+ * address they were reached on.
  * [links] are the port kinds it can be read through: a cable, Bluetooth Classic serial,
  * or Bluetooth LE.
  */
@@ -50,7 +52,7 @@ enum class DiveComputerType(
     SUUNTO_VYPER2(DiveComputerKind.SUUNTO_VYPER2, "usb-serial:suunto-vyper2", links = WIRED),
     SHEARWATER_PETREL(DiveComputerKind.SHEARWATER_PETREL, "serial-spp:shearwater-petrel", byAddress = true),
     SHEARWATER_PREDATOR(DiveComputerKind.SHEARWATER_PREDATOR, "serial-spp:shearwater-predator", byAddress = true),
-    SHEARWATER_PEREGRINE(DiveComputerKind.SHEARWATER_PEREGRINE, "ble:shearwater-peregrine", byAddress = true, links = BLE),
+    SHEARWATER_PEREGRINE(DiveComputerKind.SHEARWATER_PEREGRINE, "ble:shearwater-peregrine", links = BLE),
     ;
 
     val displayName: String get() = kind.displayName
@@ -89,7 +91,7 @@ enum class DiveComputerType(
 
     /** A Bluetooth address as AA:BB:CC:DD:EE:FF whichever way the platform spells it; other ports as they are. */
     private fun normalizedAddress(port: String): String {
-        val bare = port.removePrefix("bt:").removePrefix("ble:")
+        val bare = port.removePrefix("bt:")
         val hex = bare.filter { it != ':' && it != '-' }
         if (hex.length != 12 || !hex.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) return bare
         return hex.uppercase().chunked(2).joinToString(":")
