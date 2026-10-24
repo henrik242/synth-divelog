@@ -92,6 +92,8 @@ class LogbookIo(private val container: AppContainer) {
                     // Only a recording that starts or ends apart from the dive carries its own times.
                     startEpochSeconds = r.startEpochSeconds.takeIf { it != dive.startEpochSeconds },
                     durationSeconds = r.durationSeconds.takeIf { it != dive.durationSeconds },
+                    diveMode = r.diveMode,
+                    decoModel = r.decoModel,
                 )
             }
             val tanks = tanksByDive[dive.id].orEmpty().map { t ->
@@ -246,6 +248,8 @@ class LogbookIo(private val container: AppContainer) {
             fingerprint = fingerprint,
             samples = primary?.samples ?: emptyList(),
             events = primary?.events ?: emptyList(),
+            diveMode = primary?.diveMode,
+            decoModel = primary?.decoModel,
         )
         val decision = container.dives.classify(incoming)
         // A copy that names no computer adds no profile of its own: when the dive is
@@ -306,6 +310,8 @@ class LogbookIo(private val container: AppContainer) {
                     fingerprint = "import-extra:$diveId:$i",
                     samples = computer.samples,
                     events = computer.events,
+                    diveMode = computer.diveMode,
+                    decoModel = computer.decoModel,
                 ),
                 diveId,
             )

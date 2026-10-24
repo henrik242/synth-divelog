@@ -6,6 +6,9 @@ import no.synth.divelog.core.divecomputer.RawDive
 import no.synth.divelog.core.divecomputer.u16be
 import no.synth.divelog.core.divecomputer.u24be
 import no.synth.divelog.core.divecomputer.u32be
+import no.synth.divelog.core.model.DecoAlgorithm
+import no.synth.divelog.core.model.DecoModel
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.GasMix
@@ -59,6 +62,8 @@ class PredatorParser(
         var previousGas: Pair<Int, Int>? = null
         // Tank pressures by the log's own tank id, renumbered densely once all are known.
         val pressures = ArrayList<Map<Int, Int>>()
+        // An older log has no dive mode in its header; the sample status flags tell it.
+        var sampleMode: DiveMode? = null
 
         for ((index, offset) in layout.sampleOffsets.withIndex()) {
             val time = index * interval
@@ -71,13 +76,19 @@ class PredatorParser(
             // set, else the NDL. The word at +4 is time to surface, not the stop time.
             val stopDepth = u16be(d, offset + S_STOP_DEPTH)
             val decoMinutes = d[offset + S_DECO_TIME].toInt() and 0xFF
-            val decoSeconds = if (decoMinutes == 0) null else decoMinutes * 60
-            val stopDepthMm = if (stopDepth == 0) null else stopDepthToMillimetres(stopDepth, imperial)
-            val stopTimeSeconds = if (stopDepth == 0) null else decoSeconds
-            val ndlSeconds = if (stopDepth == 0) decoSeconds else null
+            // Zeros, not nulls, for "no stop" and "no NDL left", as libdivecomputer reports
+            // them: the file formats leave a null out and carry the previous value over it.
+            val decoSeconds = decoMinutes * 60
+            val stopDepthMm = if (stopDepth == 0) 0 else stopDepthToMillimetres(stopDepth, imperial)
+            val stopTimeSeconds = if (stopDepth == 0) 0 else decoSeconds
+            val ndlSeconds = if (stopDepth == 0) decoSeconds else 0
             val o2 = d[offset + S_O2].toInt() and 0xFF
             val he = d[offset + S_HE].toInt() and 0xFF
             val ppO2Mbar = averagePpO2Mbar(d, offset)
+            val status = d[offset + S_STATUS].toInt() and 0xFF
+            if (status and STATUS_OC == 0) {
+                sampleMode = if (status and STATUS_SC != 0) DiveMode.SEMI_CLOSED else DiveMode.CLOSED_CIRCUIT
+            }
 
             samples += Sample(
                 timeOffsetSeconds = time,
@@ -87,6 +98,7 @@ class PredatorParser(
                 ndlSeconds = ndlSeconds,
                 stopDepthMm = stopDepthMm,
                 stopTimeSeconds = stopTimeSeconds,
+                ttsSeconds = u16be(d, offset + S_TTS) * 60,
                 cnsPermille = if (layout.wide) (d[offset + S_CNS].toInt() and 0xFF) * 10 else null,
             )
             pressures += tankPressures(d, offset, layout.extended[index], layout)
@@ -140,6 +152,9 @@ class PredatorParser(
             // Every mix the samples report is announced by a switch, the first one included.
             gases = events.filter { it.type == EventType.GAS_SWITCH }.mapNotNull { it.value }.distinct()
                 .map { GasMix(o2Permille = GasSwitch.o2Percent(it) * 10, hePermille = GasSwitch.hePercent(it) * 10) },
+            diveMode = layout.diveMode
+                ?: if (layout.freediveOffsets.isNotEmpty()) DiveMode.FREEDIVE else sampleMode ?: DiveMode.OPEN_CIRCUIT,
+            decoModel = layout.decoModel,
         )
     }
 
@@ -162,6 +177,10 @@ class PredatorParser(
         val freediveOffsets: List<Int> = emptyList(),
         val surfaceMbar: Int = DEFAULT_SURFACE_MBAR,
         val waterDensity: Int = DEFAULT_WATER_DENSITY,
+        /** From the header from log version 8 on; else null, and the samples tell it. */
+        val diveMode: DiveMode? = null,
+        /** From the header in every log version; null for an unknown model byte. */
+        val decoModel: DecoModel? = null,
     )
 
     /**
@@ -185,12 +204,15 @@ class PredatorParser(
         // reads the close marker as a 0xFFFE depth sample and padding as duration.
         val closing = closingBlockOffset(d)
         val offsets = generateSequence(BLOCK) { it + stride }.takeWhile { it + SAMPLE_SIZE <= closing }.toList()
+        val version = d[BLOCK_LOG_VERSION].toInt() and 0xFF
         return Layout(
             d,
             offsets,
             u16be(d, closing + CLOSE_DURATION_OFFSET) * 60,
             wide = wide,
-            logVersion = d[BLOCK_LOG_VERSION].toInt() and 0xFF,
+            logVersion = version,
+            diveMode = if (version >= MIN_MODE_LOG_VERSION) diveMode(d[BLOCK_DIVE_MODE]) else null,
+            decoModel = decoModel(d, BLOCK_DECO_MODEL, BLOCK_GF),
         )
     }
 
@@ -226,6 +248,8 @@ class PredatorParser(
             freediveOffsets = freedive,
             surfaceMbar = first(REC_OPENING_1)?.let { u16be(d, it + REC_SURFACE_MBAR) }?.takeIf { it > 0 } ?: DEFAULT_SURFACE_MBAR,
             waterDensity = first(REC_OPENING_3)?.let { u16be(d, it + REC_DENSITY) }?.takeIf { it > 0 } ?: DEFAULT_WATER_DENSITY,
+            diveMode = if (version >= MIN_MODE_LOG_VERSION) opening4?.let { diveMode(d[it + REC_DIVE_MODE]) } else null,
+            decoModel = first(REC_OPENING_2)?.let { decoModel(d, it + REC_DECO_MODEL, opening + REC_GF) },
         )
     }
 
@@ -239,6 +263,21 @@ class PredatorParser(
         if (version < MIN_INTERVAL_LOG_VERSION || opening5 == null) return null
         val ms = u16be(d, opening5 + REC_INTERVAL_MS)
         return if (ms > 0 && ms % 1_000 == 0) ms / 1_000 else null
+    }
+
+    /**
+     * The deco model byte at [modelAt] (0 GF, 1 VPM-B, 2 VPM-B/GFS, 3 DCIEM) with the
+     * conservatism after it, and gradient factors low and high at [gfAt], as
+     * libdivecomputer reads them. Null for an unknown model.
+     */
+    private fun decoModel(d: ByteArray, modelAt: Int, gfAt: Int): DecoModel? {
+        fun percent(at: Int) = (d[at].toInt() and 0xFF).takeIf { it in 1..MAX_GF }
+        return when (d[modelAt].toInt() and 0xFF) {
+            DECO_GF -> DecoModel(DecoAlgorithm.BUHLMANN, gfLowPercent = percent(gfAt), gfHighPercent = percent(gfAt + 1))
+            DECO_VPMB, DECO_VPMB_GFS -> DecoModel(DecoAlgorithm.VPM, conservatism = d[modelAt + 1].toInt() and 0xFF)
+            DECO_DCIEM -> DecoModel(DecoAlgorithm.DCIEM)
+            else -> null
+        }
     }
 
     /**
@@ -347,12 +386,16 @@ class PredatorParser(
         // Opening block
         private const val NUMBER_OFFSET = 2
         private const val BLOCK_LOG_VERSION = 127
+        private const val BLOCK_GF = 4
+        private const val BLOCK_DECO_MODEL = 67
+        private const val BLOCK_DIVE_MODE = 112
         private const val UNITS_OFFSET = 8
         private const val START_TIME_OFFSET = 12
 
         // Sample fields
         private const val S_DEPTH = 0
         private const val S_STOP_DEPTH = 2
+        private const val S_TTS = 4
         private const val S_PPO2_AVERAGE = 6
         private const val S_O2 = 7
         private const val S_HE = 8
@@ -369,6 +412,7 @@ class PredatorParser(
         private const val REC_FREEDIVE = 0x02.toByte()
         private const val REC_SAMPLE_EXT = 0xE1.toByte()
         private const val REC_OPENING_1 = 0x11.toByte()
+        private const val REC_OPENING_2 = 0x12.toByte()
         private const val REC_OPENING_3 = 0x13.toByte()
         private const val REC_OPENING = 0x10.toByte()
         private const val REC_CLOSING = 0x20.toByte()
@@ -379,9 +423,20 @@ class PredatorParser(
         private const val REC_INTERVAL_MS = 23
         private const val MIN_INTERVAL_LOG_VERSION = 9
         private const val REC_AI_MODE = 28
+        private const val REC_DIVE_MODE = 1
+        private const val REC_GF = 4
+        private const val REC_DECO_MODEL = 18
+        private const val MIN_MODE_LOG_VERSION = 8
         private const val REC_SURFACE_MBAR = 16
         private const val REC_DENSITY = 3
         private const val FREEDIVE_SAMPLE = 8
+
+        // Deco models as the logs number them
+        private const val DECO_GF = 0
+        private const val DECO_VPMB = 1
+        private const val DECO_VPMB_GFS = 2
+        private const val DECO_DCIEM = 3
+        private const val MAX_GF = 150
 
         // Air integration
         private const val MIN_AI_LOG_VERSION = 7
@@ -405,7 +460,18 @@ class PredatorParser(
 
         // Sample status flags
         private const val STATUS_PPO2_EXTERNAL = 0x02
+        private const val STATUS_SC = 0x08
         private const val STATUS_OC = 0x10
+
+        /** A header dive-mode byte: CC, OC tec, gauge, ppO2 display, SC, CC2, OC rec, freedive. */
+        private fun diveMode(b: Byte): DiveMode? = when (b.toInt() and 0xFF) {
+            0, 5 -> DiveMode.CLOSED_CIRCUIT
+            1, 6 -> DiveMode.OPEN_CIRCUIT
+            2, 3 -> DiveMode.GAUGE
+            4 -> DiveMode.SEMI_CLOSED
+            7 -> DiveMode.FREEDIVE
+            else -> null
+        }
 
         /**
          * A sample's whole-degree temperature byte. A negative raw value is a reading just

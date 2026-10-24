@@ -1,5 +1,8 @@
 package no.synth.divelog.core.formats
 
+import no.synth.divelog.core.model.DecoAlgorithm
+import no.synth.divelog.core.model.DecoModel
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.GasMix
@@ -18,6 +21,15 @@ internal object SubsurfaceShared {
 
     /** Extra-data key holding the dive's offset from UTC, seconds east, written "%+d". */
     const val KEY_UTC_OFFSET = "Time offset from UTC [s]"
+
+    /**
+     * Extra-data key for the deco model: written as [DecoModel.label] ("Buhlmann GF
+     * 30/70", "VPM +2", "DCIEM"), read leniently ([decoModel]).
+     */
+    const val KEY_DECO_MODEL = "Deco model"
+
+    /** Extra-data key for a dive mode Subsurface's `dctype` has no value for (gauge). */
+    const val KEY_DIVE_MODE = "Dive mode"
 
     /** Site taxonomy categories ("geo" entries): country and first admin level. */
     const val GEO_COUNTRY = 2
@@ -163,8 +175,11 @@ internal object SubsurfaceShared {
         return GasSwitch.value(AIR_O2 / 10, 0)
     }
 
-
-    /** The values a sample carries forward to the next one (everything but tank pressures). */
+    /**
+     * The values a sample carries forward to the next one (everything but tank pressures).
+     * A writer leaves out a value that has not changed, so a null is read back as the
+     * previous value: a source must log "none" as 0 (no stop, no TTS), not as null.
+     */
     fun carried(previous: Sample, s: Sample) = Sample(
         timeOffsetSeconds = s.timeOffsetSeconds,
         depthMm = s.depthMm ?: previous.depthMm,
@@ -173,8 +188,61 @@ internal object SubsurfaceShared {
         ndlSeconds = s.ndlSeconds ?: previous.ndlSeconds,
         stopDepthMm = s.stopDepthMm ?: previous.stopDepthMm,
         stopTimeSeconds = s.stopTimeSeconds ?: previous.stopTimeSeconds,
+        ttsSeconds = s.ttsSeconds ?: previous.ttsSeconds,
         cnsPermille = s.cnsPermille ?: previous.cnsPermille,
     )
+
+    /**
+     * Subsurface's dive computer type (`dctype`) for [mode]. Subsurface itself leaves it
+     * out for open circuit, its default; this writes "OC" so a known mode stays apart from
+     * an unknown one. Gauge has no type and goes in [KEY_DIVE_MODE] ([diveModeExtra]).
+     */
+    fun dcType(mode: DiveMode): String? = when (mode) {
+        DiveMode.OPEN_CIRCUIT -> "OC"
+        DiveMode.CLOSED_CIRCUIT -> "CCR"
+        DiveMode.SEMI_CLOSED -> "PSCR"
+        DiveMode.FREEDIVE -> "Freedive"
+        DiveMode.GAUGE -> null
+    }
+
+    /** The [KEY_DIVE_MODE] value for a mode `dctype` cannot carry. */
+    fun diveModeExtra(mode: DiveMode): String? = if (mode == DiveMode.GAUGE) "Gauge" else null
+
+    /** A computer's mode from its `dctype` and extra data, or null when neither says. */
+    fun diveMode(dctype: String?, extra: Map<String, String>): DiveMode? =
+        when (dctype?.trim()?.uppercase()) {
+            "OC" -> DiveMode.OPEN_CIRCUIT
+            "CCR" -> DiveMode.CLOSED_CIRCUIT
+            "PSCR" -> DiveMode.SEMI_CLOSED
+            "FREEDIVE" -> DiveMode.FREEDIVE
+            else -> DiveMode.GAUGE.takeIf { extra[KEY_DIVE_MODE]?.trim().equals("Gauge", ignoreCase = true) }
+        }
+
+    private val GRADIENT_FACTORS = Regex("(?:GF|ZHL-16C?|B[UÜ]HLMANN)\\D*?(\\d{1,3})\\s*/\\s*(\\d{1,3})")
+    private val CONSERVATISM = Regex("\\+\\s*(\\d+)")
+
+    /**
+     * A deco-model extra data value, read leniently: "GF 30/70", "Buhlmann GF 30/70",
+     * "Buhlmann ZHL-16C 50/70" (as in Subsurface's own sample logs), "Buhlmann",
+     * "VPM-B +2", "DCIEM". Gradient factors outside 1..150 are left out.
+     */
+    fun decoModel(text: String?): DecoModel? {
+        val t = text?.trim()?.uppercase() ?: return null
+        GRADIENT_FACTORS.find(t)?.let { m ->
+            val (low, high) = m.groupValues.drop(1).map { it.toInt() }
+            return if (low in 1..150 && high in 1..150) {
+                DecoModel(DecoAlgorithm.BUHLMANN, low, high)
+            } else {
+                DecoModel(DecoAlgorithm.BUHLMANN)
+            }
+        }
+        return when {
+            "VPM" in t -> DecoModel(DecoAlgorithm.VPM, conservatism = CONSERVATISM.find(t)?.groupValues?.get(1)?.toInt())
+            "DCIEM" in t -> DecoModel(DecoAlgorithm.DCIEM)
+            "BUHLMANN" in t || "BÜHLMANN" in t || "ZHL" in t -> DecoModel(DecoAlgorithm.BUHLMANN)
+            else -> null
+        }
+    }
 
     /** Pressures are logged per sensor; [sensorTanks] ties a sensor to its tank. */
     fun mapSensors(samples: List<Sample>, sensorTanks: Map<Int, Int>): List<Sample> =

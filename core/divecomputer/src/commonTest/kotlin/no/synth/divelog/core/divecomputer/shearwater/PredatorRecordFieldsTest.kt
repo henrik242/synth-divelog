@@ -1,6 +1,9 @@
 package no.synth.divelog.core.divecomputer.shearwater
 
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.model.DecoAlgorithm
+import no.synth.divelog.core.model.DecoModel
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 import kotlin.test.Test
@@ -76,6 +79,7 @@ class PredatorRecordFieldsTest {
         assertEquals(listOf(0, 10, 20), dive.samples.map { it.timeOffsetSeconds })
         assertEquals(listOf(4_974, 9_998, 1_990), dive.samples.map { it.depthMm }) // (mbar - 1000) * 100 / (1025 * g)
         assertEquals(ZERO_CELSIUS_MK + 9_500, dive.samples[0].temperatureMk)
+        assertEquals(DiveMode.FREEDIVE, dive.diveMode)
     }
 
     @Test
@@ -83,5 +87,53 @@ class PredatorRecordFieldsTest {
         // A record log stored under the Petrel block id still parses as records.
         val records = log(9, sample(100), sample(200))
         assertEquals(20_000, parse(records, PredatorParser.PETREL_FORMAT_ID).maxDepthMm)
+    }
+
+    @Test
+    fun theHeaderGivesTheDiveModeAndDecoModel() {
+        // Opening 0: GF 30/70; opening 2: deco model 0 (GF); opening 4: log version 8, mode 6 (OC rec).
+        val data = record(0x10, 4 to 30, 5 to 70) + record(0x12, 18 to 0) + record(0x14, 1 to 6, 16 to 8) + sample(100)
+        val dive = parse(data)
+        assertEquals(DiveMode.OPEN_CIRCUIT, dive.diveMode)
+        assertEquals(DecoModel(DecoAlgorithm.BUHLMANN, gfLowPercent = 30, gfHighPercent = 70), dive.decoModel)
+
+        // Header mode 0 (CC) over open-circuit samples: the header wins.
+        val vpm = record(0x10) + record(0x12, 18 to 1, 19 to 3) + record(0x14, 1 to 0, 16 to 8) + sample(100, 11 to 0x10)
+        assertEquals(DiveMode.CLOSED_CIRCUIT, parse(vpm).diveMode)
+        assertEquals(DecoModel(DecoAlgorithm.VPM, conservatism = 3), parse(vpm).decoModel)
+    }
+
+    @Test
+    fun everyDecoModelByte() {
+        fun deco(model: Int, gfLow: Int = 30, gfHigh: Int = 70) =
+            parse(record(0x10, 4 to gfLow, 5 to gfHigh) + record(0x12, 18 to model, 19 to 2) + record(0x14, 16 to 8) + sample(100)).decoModel
+        assertEquals(DecoModel(DecoAlgorithm.BUHLMANN, 30, 70), deco(0))
+        assertEquals(DecoModel(DecoAlgorithm.VPM, conservatism = 2), deco(1))
+        assertEquals(DecoModel(DecoAlgorithm.VPM, conservatism = 2), deco(2)) // VPM-B/GFS
+        assertEquals(DecoModel(DecoAlgorithm.DCIEM), deco(3))
+        assertEquals(null, deco(9))
+        // Gradient factors out of 1..150 are garbage, not settings.
+        assertEquals(DecoModel(DecoAlgorithm.BUHLMANN), deco(0, gfLow = 0, gfHigh = 151))
+    }
+
+    @Test
+    fun anUnknownHeaderModeFallsBackToTheSamples() {
+        val data = record(0x10) + record(0x14, 1 to 9, 16 to 8) + sample(100, 11 to 0x10)
+        assertEquals(DiveMode.OPEN_CIRCUIT, parse(data).diveMode)
+    }
+
+    @Test
+    fun anOlderLogTakesItsDiveModeFromTheSamples() {
+        // Log version 7: no mode in the header. Status 0x08 (no OC bit, SC bit) is semi-closed.
+        assertEquals(DiveMode.SEMI_CLOSED, parse(log(7, sample(100, 11 to 0x08))).diveMode)
+        assertEquals(DiveMode.CLOSED_CIRCUIT, parse(log(7, sample(100, 11 to 0x00))).diveMode)
+        assertEquals(DiveMode.OPEN_CIRCUIT, parse(log(7, sample(100, 11 to 0x10))).diveMode)
+    }
+
+    @Test
+    fun timeToSurfaceIsTheWordAfterTheStopDepthInMinutes() {
+        val dive = parse(log(9, sample(100, *be16(4, 12)), sample(100)))
+        // 0 stays 0: a file format would carry the previous value over a null.
+        assertEquals(listOf(12 * 60, 0), dive.samples.map { it.ttsSeconds })
     }
 }

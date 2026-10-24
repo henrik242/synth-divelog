@@ -10,6 +10,7 @@ CREATE TABLE sample (
     stopTimeSeconds INTEGER,
     cnsPermille INTEGER,
     activeGasIndex INTEGER,
+    ttsSeconds INTEGER,
     PRIMARY KEY (recordId, timeOffsetSeconds)
 );
 
@@ -22,8 +23,8 @@ CREATE TABLE sampleTankPressure (
 );
 
 insertSample:
-INSERT INTO sample(recordId, timeOffsetSeconds, depthMm, temperatureMk, ppO2Mbar, ndlSeconds, ceilingMm, stopDepthMm, stopTimeSeconds, cnsPermille, activeGasIndex)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO sample(recordId, timeOffsetSeconds, depthMm, temperatureMk, ppO2Mbar, ndlSeconds, ceilingMm, stopDepthMm, stopTimeSeconds, cnsPermille, activeGasIndex, ttsSeconds)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectSamplesForRecord:
 SELECT * FROM sample WHERE recordId = ? ORDER BY timeOffsetSeconds;

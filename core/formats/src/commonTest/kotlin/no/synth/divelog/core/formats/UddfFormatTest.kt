@@ -246,4 +246,29 @@ class UddfFormatTest {
         val twoParas = xml.replace(Regex("<notes>.*</notes>"), "<notes><para>One</para><para>Two</para></notes>")
         assertEquals("One\nTwo", format.read(twoParas).dives.single().notes)
     }
+
+    @Test
+    fun aZeroStopIsNoDecoStop() {
+        // Shearwater samples log "no stop" as a 0 depth and time, and NDL 0 while in deco.
+        val log = DiveLog(
+            listOf(
+                DiveEntry(
+                    startEpochSeconds = 1_717_042_440,
+                    utcOffsetSeconds = 0,
+                    durationSeconds = 60,
+                    computers = listOf(
+                        ComputerEntry(
+                            samples = listOf(
+                                Sample(0, depthMm = 5_000, ndlSeconds = 5_940, stopDepthMm = 0, stopTimeSeconds = 0),
+                                Sample(10, depthMm = 20_000, ndlSeconds = 0, stopDepthMm = 3_000, stopTimeSeconds = 120),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val xml = UddfFormat().write(log)
+        assertEquals(1, Regex("<decostop ").findAll(xml).count(), xml)
+        assertEquals(1, Regex("<nodecotime>").findAll(xml).count(), xml)
+    }
 }

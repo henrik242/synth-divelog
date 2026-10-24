@@ -279,6 +279,9 @@ fun DiveDetailScreen(
                     deviceDescription(devices[sourceDeviceId]),
                     onClick = sourceDeviceId?.let { { onOpenDevice(it) } },
                 )
+                // How the selected computer logged the dive, when it says.
+                selectedRecord?.diveMode?.let { SummaryRow("Mode", Format.diveMode(it)) }
+                selectedRecord?.decoModel?.let { SummaryRow("Deco", it.label) }
                 SummaryRow(
                     "Site",
                     site?.name ?: "-",

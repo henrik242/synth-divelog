@@ -279,6 +279,11 @@ class DiveRepository(private val db: DiveDatabase) {
             incoming.rawData,
             incoming.rawFormatId,
             incoming.fingerprint,
+            incoming.diveMode?.name,
+            incoming.decoModel?.algorithm?.name,
+            incoming.decoModel?.gfLowPercent?.toLong(),
+            incoming.decoModel?.gfHighPercent?.toLong(),
+            incoming.decoModel?.conservatism?.toLong(),
         )
         val recordId = records.lastInsertRowId().executeAsOne()
         insertSamplesAndEvents(recordId, incoming)
@@ -301,6 +306,7 @@ class DiveRepository(private val db: DiveDatabase) {
                 s.stopTimeSeconds?.toLong(),
                 s.cnsPermille?.toLong(),
                 s.activeGasIndex?.toLong(),
+                s.ttsSeconds?.toLong(),
             )
             for ((tankIndex, mbar) in s.tankPressuresMbar) {
                 samples.insertSampleTankPressure(
@@ -333,6 +339,11 @@ class DiveRepository(private val db: DiveDatabase) {
             start,
             incoming.durationSeconds.toLong(),
             incoming.maxDepthMm?.toLong(),
+            incoming.diveMode?.name,
+            incoming.decoModel?.algorithm?.name,
+            incoming.decoModel?.gfLowPercent?.toLong(),
+            incoming.decoModel?.gfHighPercent?.toLong(),
+            incoming.decoModel?.conservatism?.toLong(),
             recordId,
         )
         insertSamplesAndEvents(recordId, incoming)

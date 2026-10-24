@@ -1,5 +1,7 @@
 package no.synth.divelog.core.formats
 
+import no.synth.divelog.core.model.DecoModel
+import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.Sample
@@ -68,6 +70,8 @@ data class ComputerEntry(
     val startEpochSeconds: Long? = null,
     /** Length of this computer's recording; null when it is the dive's duration. */
     val durationSeconds: Int? = null,
+    val diveMode: DiveMode? = null,
+    val decoModel: DecoModel? = null,
 )
 
 /** A dive-log file format reader/writer over the domain-neutral [DiveLog]. */

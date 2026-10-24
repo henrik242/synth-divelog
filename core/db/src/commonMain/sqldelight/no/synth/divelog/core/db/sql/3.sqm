@@ -1,0 +1,9 @@
+-- How each computer logged its dive (dive mode, deco model and settings), and the
+-- time to surface per sample.
+ALTER TABLE diveComputerRecord ADD COLUMN diveMode TEXT;
+ALTER TABLE diveComputerRecord ADD COLUMN decoAlgorithm TEXT;
+ALTER TABLE diveComputerRecord ADD COLUMN gfLowPercent INTEGER;
+ALTER TABLE diveComputerRecord ADD COLUMN gfHighPercent INTEGER;
+ALTER TABLE diveComputerRecord ADD COLUMN decoConservatism INTEGER;
+
+ALTER TABLE sample ADD COLUMN ttsSeconds INTEGER;

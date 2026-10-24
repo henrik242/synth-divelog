@@ -50,8 +50,59 @@ data class DiveComputerRecord(
     val maxDepthMm: Int? = null,
     val rawFormatId: String,
     val fingerprint: String,
+    val diveMode: DiveMode? = null,
+    val decoModel: DecoModel? = null,
 ) {
     val endEpochSeconds: Long get() = startEpochSeconds + durationSeconds
+}
+
+/** How a computer was set to log the dive. The names are stored in the database: renaming one loses it. */
+enum class DiveMode {
+    OPEN_CIRCUIT,
+    CLOSED_CIRCUIT,
+    SEMI_CLOSED,
+    GAUGE,
+    FREEDIVE,
+    ;
+
+    companion object {
+        /** Parse a stored name, or null for anything unknown. */
+        fun fromStored(name: String?): DiveMode? = entries.firstOrNull { it.name == name }
+    }
+}
+
+/** The decompression algorithm a computer ran. The names are stored in the database: renaming one loses it. */
+enum class DecoAlgorithm {
+    BUHLMANN,
+    VPM,
+    DCIEM,
+    ;
+
+    companion object {
+        /** Parse a stored name, or null for anything unknown. */
+        fun fromStored(name: String?): DecoAlgorithm? = entries.firstOrNull { it.name == name }
+    }
+}
+
+/**
+ * The decompression model and its settings for a dive. The gradient factors (percent)
+ * apply to [DecoAlgorithm.BUHLMANN] only, [conservatism] to [DecoAlgorithm.VPM] only;
+ * each is null when the log does not give it.
+ */
+data class DecoModel(
+    val algorithm: DecoAlgorithm,
+    val gfLowPercent: Int? = null,
+    val gfHighPercent: Int? = null,
+    val conservatism: Int? = null,
+) {
+    /** For display and export: "Buhlmann GF 30/70", "Buhlmann", "VPM +2", "VPM" or "DCIEM". */
+    val label: String
+        get() = when (algorithm) {
+            DecoAlgorithm.BUHLMANN ->
+                if (gfLowPercent != null && gfHighPercent != null) "Buhlmann GF $gfLowPercent/$gfHighPercent" else "Buhlmann"
+            DecoAlgorithm.VPM -> if (conservatism != null) "VPM +$conservatism" else "VPM"
+            DecoAlgorithm.DCIEM -> "DCIEM"
+        }
 }
 
 /** One profile point relative to the start of a computer record. */
@@ -64,6 +115,8 @@ data class Sample(
     val ceilingMm: Int? = null,
     val stopDepthMm: Int? = null,
     val stopTimeSeconds: Int? = null,
+    /** Time to surface: the computer's estimate of the ascent, stops included. */
+    val ttsSeconds: Int? = null,
     val cnsPermille: Int? = null,
     val activeGasIndex: Int? = null,
     /** Cylinder pressures at this instant, keyed by tank index, millibar. */
@@ -115,6 +168,8 @@ data class IncomingDive(
     val events: List<Event> = emptyList(),
     /** Gases breathed, in order of first use. Stored as the dive's tanks. */
     val gases: List<GasMix> = emptyList(),
+    val diveMode: DiveMode? = null,
+    val decoModel: DecoModel? = null,
 ) {
     val endEpochSeconds: Long get() = startEpochSeconds + durationSeconds
 }

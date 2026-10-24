@@ -25,6 +25,8 @@ per-target entry point.
 - Shared modules apply the `synth.kmp-library` convention plugin (`build-logic/`): `jvm()` (so common tests run on the JVM), Android, and the `jvmAndAndroid` source set. Each module adds its own iOS targets.
 - Storage uses fixed integer units: depth mm, pressure mbar, temperature mK, duration s, gas permille. Conversion constants (`MM_PER_FOOT`, `ATM_BAR`, `ZERO_CELSIUS_MK`, ...) live in `core/model` `units/Constants.kt`.
 - Each downloaded dive keeps its raw blob plus a format id, so it can be re-parsed after a parser fix (`DiveComputerKind.parserFor`).
+- **Adding a per-record or per-sample field** touches: the model (`Diving.kt`, and `ComputerEntry` in `core/formats`), the `.sq` `CREATE TABLE` (new columns last, in the order the `.sqm` adds them) plus every explicit column list in `Record.sq`, `Mappers.kt`, `DiveRepository` insert and re-parse, the Subsurface XML and git writers and readers (`SubsurfaceShared.carried` for sample values), `LogbookIo` export, import and extra computers, `RoundTripFixture`, and the migration tests (`undo3Sqm` pattern).
+- **Subsurface formats carry sample values forward:** a writer leaves out a value that has not changed and a reader takes the previous one for a missing value. A parser must log "none" as 0 (no stop, no TTS), never as null, or the last value sticks after export and import.
 - `DiveComputerKind` ties a model family to its `SerialParams`, protocol and parser. Each protocol owns its line settings as `SERIAL_PARAMS` (`SuuntoVyperProtocol`, `SuuntoVyper2Protocol`, `ShearwaterLink`).
 
 ## Conventions
@@ -47,7 +49,7 @@ per-target entry point.
 
 ```sh
 ./gradlew jvmTest                     # common tests on the JVM (CI)
-./gradlew :app:android:assembleDebug  # Android debug APK
+./gradlew :app:android:assembleDebug  # Android debug APK (needs app/android/google-services.json; CI copies .github/dummy/google-services-dummy.json)
 ./gradlew :app:desktop:run            # desktop app
 ./gradlew :ui:compileKotlinIosSimulatorArm64   # iOS compile check
 ./gradlew :app:desktop:suuntoCapture --args="VYPER2 proto <port>"   # Suunto download on real hardware

@@ -82,7 +82,9 @@ apply to the Predator and Petrel too:
 
 - **NDL / stop:** byte `+9` is the stop time in minutes when the stop depth (BE16 at
   `+2`, whole metres or feet) is set, else the NDL. The word at `+4` is time to surface,
-  not the stop time (it read as a 1:00 stop on every no-deco sample).
+  not the stop time (it read as a 1:00 stop on every no-deco sample). What does not
+  apply is 0, not null (no stop: depth and time 0; in deco: NDL 0), since the file
+  formats leave a null out and carry the previous value over it.
 - **ppO2:** only on a rebreather sample (status byte `+11` without the open-circuit
   bit `0x10`) whose ppO2 is not external (`0x02`): the sensor average at `+6`, in
   hundredths of a bar. The raw sensor bytes (`+12`, `+14`, `+15`) need calibration;
@@ -104,14 +106,22 @@ Offsets are from the sample fields, which sit one byte after a record's type byt
   density (opening record 3 `+3`), and temperature in tenths of a degree at `+3`.
 - **Layout:** a Petrel-family log is read as blocks when it starts with `0xFFFF`, else
   as records, whatever its format id says.
+- **Time to surface:** the BE16 at `+4`, in minutes.
+- **Deco model:** byte 0 GF, 1 VPM-B, 2 VPM-B/GFS, 3 DCIEM, with the VPM conservatism
+  after it (block `+67`, opening record 2 `+18`); gradient factors low and high at block
+  `+4` or the opening record (`0x10`) `+4`.
+- **Dive mode:** from log version 8 a header byte (block `+112`, opening record 4 `+1`):
+  0 and 5 closed circuit, 1 and 6 open circuit, 2 and 3 gauge, 4 semi-closed, 7
+  freedive. Older logs take it from the samples' status flags (no open-circuit bit is a
+  rebreather, the `0x08` bit semi-closed), and freedive records mean freedive.
+
+How these reach Subsurface XML and git exports is in `SubsurfaceShared` (`core/formats`).
 
 ## Not yet done
 
 - Desktop (macOS CoreBluetooth helper) and iOS transports.
 - A replay test from a real capture (`ReplayTransport` takes the capture's
   `maxWriteSize`, so a default-MTU capture replays with the same packets).
-- GF, deco model, dive mode and time to surface: they need fields in the model, the
-  database and the file formats first.
 - The UTC offset in opening record 5 (`+26` minutes, `+30` DST hours): applying it would
   make Peregrine dives real UTC while other computers' stay wall clock read as UTC, so
   a dive two computers logged would no longer line up.

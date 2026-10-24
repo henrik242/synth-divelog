@@ -24,6 +24,17 @@ class RoundTripTest {
     // Subsurface keeps visibility as 0..5 stars only; the other formats as a distance only.
     private fun DiveEntry.subsurface() = withoutCeilingAndGas().copy(visibility = null)
 
+    // UDDF writes a deco stop only when there is one (a 0 depth is none), and no 0 no-deco
+    // time under a stop, so those zeros read back as nothing.
+    private fun Sample.uddfStop(): Sample {
+        val stop = (stopDepthMm ?: 0) > 0
+        return copy(
+            stopDepthMm = stopDepthMm.takeIf { stop },
+            stopTimeSeconds = stopTimeSeconds.takeIf { stop },
+            ndlSeconds = ndlSeconds.takeIf { !(stop && it == 0) },
+        )
+    }
+
     private fun assertStable(format: DiveFormat) {
         val first = format.write(log)
         assertEquals(first, format.write(format.read(first)))
@@ -57,17 +68,23 @@ class RoundTripTest {
     @Test
     fun uddfKeepsOneProfilePerDiveAndNoTagsOrWorkingPressures() {
         val read = UddfFormat().read(UddfFormat().write(log))
-        // UDDF has no tags, no working pressure on tankdata, one profile per dive, and
-        // alarms only for ascent, deco, surface and errors (no bookmarks or others).
+        // UDDF has no tags, no working pressure on tankdata, one profile per dive, alarms
+        // only for ascent, deco, surface and errors (no bookmarks or others), and none of
+        // the dive settings or time to surface.
         fun DiveEntry.uddf() = copy(
             visibilityRating = null,
             tags = emptyList(),
             tanks = tanks.map { it.copy(workingPressureMbar = null) },
             computers = computers.take(1).map { c ->
-                c.withoutCeilingAndGas().copy(
-                    airTempMk = airTempMk,
-                    events = c.events.filter { it.type != EventType.BOOKMARK && it.type != EventType.OTHER },
-                )
+                c.withoutCeilingAndGas().let { u ->
+                    u.copy(
+                        airTempMk = airTempMk,
+                        events = c.events.filter { it.type != EventType.BOOKMARK && it.type != EventType.OTHER },
+                        samples = u.samples.map { it.uddfStop().copy(ttsSeconds = null) },
+                        diveMode = null,
+                        decoModel = null,
+                    )
+                }
             },
         )
         assertEquals(DiveLog(listOf(rich.uddf(), plain.uddf(), manual.uddf())), read)
@@ -80,17 +97,21 @@ class RoundTripTest {
     fun macDiveKeepsTheLocalTimeAndOneComputersBasicProfile() {
         val read = MacDiveXml().read(MacDiveXml().write(log))
         // MacDive has local time only, one computer per dive, one tank pressure per sample,
-        // no stop, CNS or ceiling samples, and events by name without a value.
+        // no stop, CNS, ceiling or time-to-surface samples, no dive settings, and events by
+        // name without a value.
         fun DiveEntry.macDive() = copy(
             startEpochSeconds = startEpochSeconds + utcOffsetSeconds,
             utcOffsetSeconds = 0,
             visibilityRating = null,
             computers = computers.take(1).map { c ->
                 c.copy(
+                    diveMode = null,
+                    decoModel = null,
                     samples = c.samples.map { s ->
                         s.withoutCeilingAndGas().copy(
                             stopDepthMm = null,
                             stopTimeSeconds = null,
+                            ttsSeconds = null,
                             cnsPermille = null,
                             tankPressuresMbar = s.tankPressuresMbar.filterKeys { it == 0 },
                         )
