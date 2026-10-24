@@ -12,6 +12,12 @@ downloaded 603 dives across 13 manifest pages with zero protocol errors. Earlier
 link drops during the first data block were fixed by preferring an insecure RFCOMM
 socket (see [transport.md](transport.md)).
 
+A capture of a later download (2026-10-24, log version 8) is replayed by
+`PetrelCaptureRegressionTest` (`petrel-capture.transcript.txt`, trimmed to the first
+manifest page and the three newest dives). Its closed-circuit dive was run at a fixed
+setpoint with no sensors calibrated: the samples carry the external-ppO2 flag and the
+setpoint as ppO2 (see the ppO2 note in [shearwater-peregrine.md](shearwater-peregrine.md#parsing)).
+
 ## Why the Predator path does not work here
 
 The first Petrel attempt used the Predator's full-dump download (init `0x35` at the
@@ -85,7 +91,7 @@ Both stages are implemented and unit-tested in `ShearwaterCompression`
 (`decompressLre`, then `decompressXor`). The Predator dump is neither compressed
 nor XORed; this applies only to Petrel per-dive reads.
 
-## Clean close (open item)
+## Clean close
 
 After a successful download the Petrel shows "bluetooth error: disconnect" on its
 screen. The exit handshake is clean (`37` -> `77 00`) and the download is complete,
@@ -94,9 +100,9 @@ the device may expect a specific end-of-session step (an extra command, or a wai
 after the exit reply) before the socket closes.
 
 The download now ends with libdivecomputer's shutdown command, `2E 90 20 00` (write
-data by identifier `9020`, no reply), which stops the same error on the Peregrine
-([shearwater-peregrine.md](shearwater-peregrine.md)). **Open item:** confirm on a
-Petrel 1 that the error is gone.
+data by identifier `9020`, no reply), as on the Peregrine
+([shearwater-peregrine.md](shearwater-peregrine.md)). Verified on a Petrel 1,
+2026-10-24: with it the error no longer shows.
 
 ## Protocol selection
 

@@ -25,6 +25,15 @@ class ReplayTransport(
 
     private var closed = false
 
+    // Set by a write that did not match, kept even when the caller swallows the exception.
+    private var writeFailure: String? = null
+
+    /**
+     * True once every recorded event has been replayed and every write matched: nothing the
+     * device saw was left out or sent wrong, even where the protocol ignores a failed write.
+     */
+    val finished: Boolean get() = writeFailure == null && index >= events.size && pendingPos >= pending.size
+
     override fun open() {
         closed = false
     }
@@ -33,12 +42,13 @@ class ReplayTransport(
         if (closed) throw TransportClosedException()
         if (!strictWrites) return // lenient: writes are not part of the fixture
         val event = nextEvent(Direction.WRITE)
-            ?: throw TransportException("Unexpected write of ${data.size} bytes")
-        if (!sameWrite(event.data, data)) {
-            throw TransportException(
-                "Write mismatch:\n  expected ${event.data.toHex()}\n  actual   ${data.toHex()}",
-            )
+        val failure = when {
+            event == null -> "Unexpected write of ${data.size} bytes: ${data.toHex()}"
+            !sameWrite(event.data, data) -> "Write mismatch:\n  expected ${event.data.toHex()}\n  actual   ${data.toHex()}"
+            else -> return
         }
+        writeFailure = writeFailure ?: failure
+        throw TransportException(failure)
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int, timeoutMs: Long): Int {
