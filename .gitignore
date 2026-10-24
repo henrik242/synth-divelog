@@ -30,8 +30,9 @@ local.properties
 xcuserdata/
 *.xcuserstate
 
-# Agent worktrees and local tooling state
-.claude/
+# Agent worktrees and local tooling state; only the shared settings.json is tracked
+.claude/*
+!.claude/settings.json
 
 # fastlane
 /.bundle/
