@@ -5,41 +5,35 @@ import no.synth.divelog.core.divecomputer.DeviceInfo
 import no.synth.divelog.core.divecomputer.DiveComputerKind
 import no.synth.divelog.core.divecomputer.DownloadListener
 import no.synth.divelog.core.divecomputer.RawDive
+import no.synth.divelog.core.divecomputer.transport.Transport
+import no.synth.divelog.core.transport.MacBleScanner
+import no.synth.divelog.core.transport.MacBleTransport
 import no.synth.divelog.core.transport.MacRfcommTransport
 import java.time.Instant
 
 /**
- * Command-line Shearwater download over the macOS Bluetooth bridge, to test the link
- * and protocol without the app. Lists the paired serial-port devices, connects to the
- * chosen one, downloads the latest dives and prints them parsed.
+ * Command-line Shearwater download over the macOS Bluetooth bridges, to test the link
+ * and protocol without the app. A Petrel or Predator is picked from the paired serial-port
+ * devices, a Peregrine from a Bluetooth LE scan; it then downloads the latest dives and
+ * prints them parsed.
  *
- * Run: ./gradlew :app:desktop:shearwaterCapture --args="[PETREL|PREDATOR] [name or address] [dive count]"
- * Defaults: PETREL, the paired device whose name matches the model, 3 dives.
+ * Run: ./gradlew :app:desktop:shearwaterCapture --args="[PETREL|PREDATOR|PEREGRINE] [name or id] [dive count]"
+ * Defaults: PETREL, the device whose name matches the model, 3 dives.
  */
 fun main(args: Array<String>) {
-    val bridge = MacRfcommTransport.locateBridge()
-    if (bridge == null) {
-        println("No rfcomm-bridge found (macOS only; run through Gradle so it gets built).")
-        return
+    val kind = when {
+        args.any { it.equals("PREDATOR", ignoreCase = true) } -> DiveComputerKind.SHEARWATER_PREDATOR
+        args.any { it.equals("PEREGRINE", ignoreCase = true) } -> DiveComputerKind.SHEARWATER_PEREGRINE
+        else -> DiveComputerKind.SHEARWATER_PETREL
     }
-    val paired = MacRfcommTransport.pairedDevices(bridge)
-    println("Paired serial-port devices: ${if (paired.isEmpty()) "(none)" else paired.joinToString { "${it.name} ${it.address}" }}")
-
-    val predator = args.any { it.equals("PREDATOR", ignoreCase = true) }
-    val kind = if (predator) DiveComputerKind.SHEARWATER_PREDATOR else DiveComputerKind.SHEARWATER_PETREL
-    val model = if (predator) "Predator" else "Petrel"
+    val model = kind.name.removePrefix("SHEARWATER_").lowercase().replaceFirstChar { it.uppercase() }
     val count = args.firstNotNullOfOrNull { it.toIntOrNull() } ?: 3
-    val target = args.firstOrNull { it.uppercase() !in setOf("PETREL", "PREDATOR") && it.toIntOrNull() == null } ?: model
-    val device = paired.firstOrNull { it.address.equals(target, ignoreCase = true) || it.name.equals(target, ignoreCase = true) }
-    if (device == null) {
-        println("No paired device matches \"$target\".")
-        return
-    }
+    val target = args.firstOrNull { !it.equals(kind.name.removePrefix("SHEARWATER_"), ignoreCase = true) && it.toIntOrNull() == null }
+    val transport = (if (kind == DiveComputerKind.SHEARWATER_PEREGRINE) bleTransport(target) else sppTransport(target ?: model)) ?: return
 
     val start = System.currentTimeMillis()
     fun elapsed() = "%.1fs".format((System.currentTimeMillis() - start) / 1000.0)
-    println("Connecting to ${device.name} (${device.address}) as $model; put it in download mode")
-    val transport = MacRfcommTransport(bridge, device.address)
+    println("Connecting as $model; put it in download mode")
     try {
         transport.open()
         println("Connected after ${elapsed()}")
@@ -62,4 +56,38 @@ fun main(args: Array<String>) {
     } finally {
         transport.close()
     }
+}
+
+/** The paired serial-port device named or addressed [target], through rfcomm-bridge. */
+private fun sppTransport(target: String): Transport? {
+    val bridge = MacRfcommTransport.locateBridge()
+        ?: return null.also { println("No rfcomm-bridge found (macOS only; run through Gradle so it gets built).") }
+    val paired = MacRfcommTransport.pairedDevices(bridge)
+    println("Paired serial-port devices: ${if (paired.isEmpty()) "(none)" else paired.joinToString { "${it.name} ${it.address}" }}")
+    val device = paired.firstOrNull { it.address.equals(target, ignoreCase = true) || it.name.equals(target, ignoreCase = true) }
+        ?: return null.also { println("No paired device matches \"$target\".") }
+    println("Using ${device.name} (${device.address})")
+    return MacRfcommTransport(bridge, device.address)
+}
+
+/** The Peregrine a Bluetooth LE scan finds (named or identified by [target], else the first), through ble-bridge. */
+private fun bleTransport(target: String?): Transport? {
+    val bridge = MacBleScanner.locateBridge()
+        ?: return null.also { println("No ble-bridge found (macOS only; run through Gradle so it gets built).") }
+    val scanner = MacBleScanner(bridge)
+    println("Scanning for a Peregrine; start Bluetooth on it")
+    scanner.scan()
+    val deadline = System.currentTimeMillis() + 20_000
+    while (System.currentTimeMillis() < deadline) {
+        val device = scanner.found().firstOrNull { target == null || it.id.equals(target, ignoreCase = true) || it.name.equals(target, ignoreCase = true) }
+        if (device != null) {
+            scanner.stop()
+            println("Using ${device.name ?: "(no name)"} (${device.id})")
+            return MacBleTransport(bridge, device.id)
+        }
+        Thread.sleep(250)
+    }
+    scanner.stop()
+    println("No Peregrine found${scanner.problem()?.let { ": $it" } ?: ""}")
+    return null
 }

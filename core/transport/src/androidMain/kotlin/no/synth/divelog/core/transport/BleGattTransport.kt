@@ -21,15 +21,13 @@ import java.util.concurrent.TimeUnit
 /**
  * A Bluetooth LE dive computer reached through one GATT characteristic: writes go to it
  * and its notifications come back. Packet boundaries are kept: one [write] is one GATT
- * write and a [read] with room for it returns one whole notification, which the
- * protocol's own packet layer (ShearwaterBlePackets) relies on.
+ * write and a read returns bytes of one notification only ([NotificationQueue]).
  *
  * [open] connects (retrying once on Android's common first-connect error 133), asks for
  * a larger MTU (keeping the default 23 if that is refused; [maxWriteSize] tells the
  * packet layer what fits), finds the serial service and characteristic, and turns on
  * notifications. Android serves one GATT operation at a time, so each step waits for its
- * callback. Notifications queue on the binder thread and [read] waits on that queue with
- * a deadline. Whether the Peregrine needs bonding is unverified; if a device does,
+ * callback. Whether the Peregrine needs bonding is unverified; if a device does,
  * Android starts it when the notification setup is refused and shows the system pairing
  * dialog. [close] from another thread ends a wait in progress, and a transport closed
  * before [open] never connects.
@@ -40,10 +38,8 @@ class BleGattTransport(
     private val context: Context,
     private val device: BluetoothDevice,
 ) : Transport {
-    private val notifications = LinkedBlockingQueue<ByteArray>()
+    private val notifications = NotificationQueue()
     private val results = LinkedBlockingQueue<Result>()
-    private var leftover = END
-    private var leftoverPos = 0
 
     @Volatile private var gatt: BluetoothGatt? = null
     @Volatile private var characteristic: BluetoothGattCharacteristic? = null
@@ -71,7 +67,7 @@ class BleGattTransport(
                     lostStatus = status
                     // Wake whichever wait is pending: a setup step or a read.
                     results.put(Result.Connected(DISCONNECTED))
-                    notifications.put(END)
+                    notifications.end(TransportException("Connection to ${device.address} lost (status $status)"))
                 }
             }
         }
@@ -93,7 +89,7 @@ class BleGattTransport(
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
-            if (value.isNotEmpty()) notifications.put(value.copyOf())
+            notifications.offer(value)
         }
     }
 
@@ -182,29 +178,12 @@ class BleGattTransport(
         await<Result.Written>("write", WRITE_TIMEOUT_MS)
     }
 
-    override fun read(buffer: ByteArray, offset: Int, length: Int, timeoutMs: Long): Int {
-        if (closed) throw TransportClosedException()
-        if (leftoverPos >= leftover.size) {
-            val packet = notifications.poll(timeoutMs.coerceAtLeast(1), TimeUnit.MILLISECONDS)
-                ?: throw TransportTimeoutException()
-            if (packet.isEmpty()) {
-                notifications.put(END) // later reads see the end too
-                if (closed) throw TransportClosedException()
-                throw TransportException("Connection to ${device.address} lost (status ${lostStatus ?: 0})")
-            }
-            leftover = packet
-            leftoverPos = 0
-        }
-        // A caller reading less than a whole packet gets the rest on its next read.
-        val n = minOf(length, leftover.size - leftoverPos)
-        leftover.copyInto(buffer, offset, leftoverPos, leftoverPos + n)
-        leftoverPos += n
-        return n
-    }
+    override fun read(buffer: ByteArray, offset: Int, length: Int, timeoutMs: Long): Int =
+        notifications.read(buffer, offset, length, timeoutMs)
 
     override fun close() {
         closed = true
-        notifications.put(END)
+        notifications.close()
         results.put(Result.Connected(DISCONNECTED))
         release()
     }
@@ -250,14 +229,7 @@ class BleGattTransport(
         TransportException("${device.address} disconnected during $what (status ${lostStatus ?: 0})")
 
     companion object {
-        /**
-         * Shearwater's serial service, as Subsurface lists it; not yet confirmed on a
-         * device, so [serialCharacteristic] also falls back to any vendor service.
-         */
-        val SHEARWATER_SERVICE: UUID = UUID.fromString("fe25c237-0ece-443c-b0aa-e02033e7029d")
-
         private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-        private val BASE_UUID: UUID = UUID.fromString("00000000-0000-1000-8000-00805f9b34fb")
 
         private const val REQUESTED_MTU = 247
         private const val DEFAULT_MTU = 23
@@ -272,19 +244,10 @@ class BleGattTransport(
         private const val SETUP_TIMEOUT_MS = 30_000L
         private const val WRITE_TIMEOUT_MS = 5_000L
 
-        /** Queued when the link ends; notifications are never empty. */
-        private val END = ByteArray(0)
-
-        /**
-         * The characteristic a dive computer's serial link rides: in Shearwater's service if
-         * present, else the first non-standard service with one that both notifies (or
-         * indicates) and takes writes.
-         */
-        internal fun serialCharacteristic(services: List<BluetoothGattService>): BluetoothGattCharacteristic? {
-            val ordered = services.filter { it.uuid == SHEARWATER_SERVICE } +
-                services.filter { it.uuid != SHEARWATER_SERVICE && !isStandard(it.uuid) }
-            return ordered.asSequence().flatMap { it.characteristics.orEmpty().asSequence() }.firstOrNull(::isSerial)
-        }
+        /** The characteristic the serial link rides, searched in [ShearwaterBle.serialServices] order. */
+        internal fun serialCharacteristic(services: List<BluetoothGattService>): BluetoothGattCharacteristic? =
+            ShearwaterBle.serialServices(services) { it.uuid.toString() }
+                .asSequence().flatMap { it.characteristics.orEmpty().asSequence() }.firstOrNull(::isSerial)
 
         private fun isSerial(c: BluetoothGattCharacteristic): Boolean {
             val p = c.properties
@@ -292,10 +255,5 @@ class BleGattTransport(
             val writes = p and (BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0
             return notifies && writes
         }
-
-        /** A Bluetooth SIG service (0000xxxx-0000-1000-8000-00805f9b34fb): GAP, GATT, battery, device info. */
-        private fun isStandard(uuid: UUID): Boolean =
-            uuid.leastSignificantBits == BASE_UUID.leastSignificantBits &&
-                (uuid.mostSignificantBits and 0xFFFFFFFFL) == (BASE_UUID.mostSignificantBits and 0xFFFFFFFFL)
     }
 }

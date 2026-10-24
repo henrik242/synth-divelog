@@ -57,10 +57,11 @@ class DownloadControllerTest {
         private val dives: List<RawDive>,
         private val failWith: Exception? = null,
         private val blockAfter: Boolean = false,
+        private val info: DeviceInfo = DeviceInfo(vendor = "Shearwater", model = "Petrel"),
     ) : DiveComputerProtocol {
         var knownFingerprint: String? = null
 
-        override fun readDeviceInfo() = DeviceInfo(vendor = "Shearwater", model = "Petrel")
+        override fun readDeviceInfo() = info
 
         override fun download(
             knownFingerprint: String?,
@@ -206,11 +207,14 @@ class DownloadControllerTest {
     }
 
     @Test
-    fun aPeregrineIsKnownByItsBluetoothLeAddress() {
-        val controller = controller(FakePorts()) { FakeProtocol(it, listOf(dive(1))) }
+    fun aPeregrineIsKnownByItsSerialOnEveryPlatform() {
+        val peregrine = DeviceInfo(vendor = "Shearwater", model = "Peregrine", serial = "12345678")
+        val controller = controller(FakePorts()) { FakeProtocol(it, listOf(dive(1)), info = peregrine) }
+        // Android names it by its address, CoreBluetooth (iOS, macOS) by a UUID of its own.
         download(controller, port = "ble:aa:bb:cc:dd:ee:02", type = DiveComputerType.SHEARWATER_PEREGRINE)
+        download(controller, port = "ble:0F3C2A1B-7D44-4E2A-9C61-5B8E2D9A1F00", type = DiveComputerType.SHEARWATER_PEREGRINE)
         val device = container.devices.all().single()
-        assertEquals("ble:shearwater-peregrine@AA:BB:CC:DD:EE:02", device.bluetoothAddress)
+        assertEquals("ble:shearwater-peregrine:12345678", device.bluetoothAddress)
         assertTrue(DiveComputerType.SHEARWATER_PEREGRINE.owns(device))
         assertFalse(DiveComputerType.SHEARWATER_PETREL.owns(device))
     }

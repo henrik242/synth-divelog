@@ -10,6 +10,7 @@ open-circuit dives, reported its serial, parsed correctly (checked against the d
 after the sample-field fixes below) and showed no Bluetooth error after the shutdown.
 The details follow libdivecomputer (`shearwater_common.c`, `shearwater_petrel.c`,
 `shearwater_predator_parser.c`) and Subsurface's BLE handling.
+iOS and the macOS desktop share one CoreBluetooth link, which has not met a device yet.
 
 A capture of that download (firmware "V89 Classic") is replayed by
 `PeregrineCaptureRegressionTest` (`peregrine-capture.transcript.txt`, trimmed to the
@@ -19,12 +20,20 @@ notifications run up to 77 bytes (so the agreed MTU was 80 or more), and the shu
 A capture does not show the GATT layer, so the service UUID and whether the device
 bonds remain unconfirmed; the download worked, so the UUID or the fallback matched.
 
-## Bluetooth LE link (Android)
+## Bluetooth LE link
 
-- **Finding it** (`BleDiveComputers`): an unfiltered scan keeps running while the picker
-  has the Peregrine selected, and the list updates by itself. A device counts if its
-  name contains "Peregrine", or it advertises the Shearwater service without a name.
-  Bonded Peregrines are listed too. Needs `BLUETOOTH_SCAN` (declared
+The parts every platform shares are in `core:transport` commonMain: which scan results
+count (`ShearwaterBle.isPeregrine`: a name containing "Peregrine", or the Shearwater service
+advertised without a name), the service order for finding the serial characteristic
+(`ShearwaterBle.serialServices`), and `NotificationQueue`, which hands notifications to the
+blocking reads and keeps their boundaries. An unfiltered scan keeps running while the
+picker has the Peregrine selected, and the list updates by itself. The computer is known
+by the serial it reports, not its address, since CoreBluetooth gives each device a UUID of
+its own instead of the Bluetooth address.
+
+### Android
+
+- **Finding it** (`BleDiveComputers`): bonded Peregrines are listed too. Needs `BLUETOOTH_SCAN` (declared
   `neverForLocation`); the picker says when Bluetooth is off or the permission is
   missing. Opening any port stops the scan.
 - **Service** `fe25c237-0ece-443c-b0aa-e02033e7029d` (from Subsurface). The transport
@@ -37,6 +46,26 @@ bonds remain unconfirmed; the download worked, so the UUID or the fallback match
   connection asks for high priority.
 - One `write` is one GATT write and one `read` returns one notification; packet
   boundaries matter to the layer above.
+
+### iOS and macOS (unverified on a device)
+
+`CoreBluetoothTransport` and `CoreBluetoothScanner` (`appleMain`) do the same over
+CoreBluetooth. The scanner runs on the main queue and the transport's callbacks on a queue
+of their own. `open` waits for Bluetooth to be on, takes the peripheral from the system
+cache by its UUID (else scans up to 20 s for it), connects, discovers the services and the
+serial characteristic, and turns on notifications. The system pairs on the way if the
+device asks. The MTU is CoreBluetooth's to agree; `maxWriteSize` is
+`maximumWriteValueLength`. Writes go without response when the characteristic allows it,
+waiting while CoreBluetooth's buffer is full, else with a response.
+
+- **iOS** (`IosSerialPorts`) offers the Peregrine only. `NSBluetoothAlwaysUsageDescription`
+  is in `Info.plist`, and the first scan asks for permission.
+- **macOS:** a JVM cannot reach CoreBluetooth, so the desktop app bundles `ble-bridge`,
+  `core:transport`'s macOS executable (`BleBridge.kt`), and drives it over stdin/stdout:
+  `ble-bridge scan` prints the Peregrines it finds (`MacBleScanner`), and
+  `ble-bridge connect <uuid>` relays the link as frames of a BE16 length and the bytes,
+  one per write or notification, so packet boundaries survive the pipe (`MacBleTransport`).
+  `./gradlew :app:desktop:shearwaterCapture --args="PEREGRINE"` tests it without the app.
 
 ## Packet layer
 
@@ -129,7 +158,8 @@ How these reach Subsurface XML and git exports is in `SubsurfaceShared` (`core/f
 
 ## Not yet done
 
-- Desktop (macOS CoreBluetooth helper) and iOS transports.
+- A download on iOS or macOS on a real Peregrine.
+- Desktop BLE on Windows and Linux.
 - The UTC offset in opening record 5 (`+26` minutes, `+30` DST hours): applying it would
   make Peregrine dives real UTC while other computers' stay wall clock read as UTC, so
   a dive two computers logged would no longer line up.

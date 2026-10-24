@@ -76,39 +76,59 @@ compose.desktop {
                 }
             }
         }
-        // Bundled helper binaries (the macOS Bluetooth serial bridge); see buildRfcommBridge.
+        // Bundled helper binaries (the macOS Bluetooth bridges); see buildRfcommBridge.
         nativeDistributions.appResourcesRootDir.set(layout.buildDirectory.dir("appResources"))
     }
 }
 
-// The macOS Bluetooth serial bridge: opens a paired device's RFCOMM channel and relays it
-// over stdin/stdout, since the /dev/cu.* nodes no longer bring the link up. Built into the
-// app resources, where MacRfcommTransport.locateBridge() finds it at runtime. Compose signs
-// the app but not files in its resources, and notarization rejects an unsigned helper, so a
-// signed build (-Pcompose.desktop.mac.sign=true) signs the bridge here.
-val rfcommBridge = layout.buildDirectory.file("appResources/macos/rfcomm-bridge")
+// The macOS Bluetooth helpers, built into the app resources, where MacHelper.locate() finds
+// them at runtime:
+// - rfcomm-bridge (Swift) opens a paired device's RFCOMM channel and relays it over
+//   stdin/stdout, since the /dev/cu.* nodes no longer bring the link up.
+// - ble-bridge is core:transport's macOS executable: the CoreBluetooth link iOS uses too,
+//   relayed over stdin/stdout, since a JVM cannot reach CoreBluetooth.
+// Compose signs the app but not files in its resources, and notarization rejects an unsigned
+// helper, so a signed build (-Pcompose.desktop.mac.sign=true) signs them here.
+val helpersDir = layout.buildDirectory.dir("appResources/macos")
+val rfcommBridge = helpersDir.map { it.file("rfcomm-bridge") }
+val bleBridge = helpersDir.map { it.file("ble-bridge") }
 val macSigningIdentity = providers.gradleProperty("compose.desktop.mac.sign")
     .filter { it.toBoolean() }
     .flatMap { providers.gradleProperty("compose.desktop.mac.signing.identity") }
     .orElse("")
+
+/** Run [command] to produce [output], then sign it when this is a signed build. */
+fun Exec.helper(output: File, command: String) {
+    val identity = macSigningIdentity.get()
+    val mac = System.getProperty("os.name").startsWith("Mac")
+    onlyIf { mac }
+    inputs.property("signingIdentity", identity)
+    outputs.file(output)
+    doFirst { output.parentFile.mkdirs() }
+    val sign = "codesign --force --options runtime --timestamp --sign 'Developer ID Application: $identity' '${output.absolutePath}'"
+    commandLine("sh", "-c", if (identity.isEmpty()) command else "$command && $sign")
+}
+
 val buildRfcommBridge by tasks.registering(Exec::class) {
     description = "Compile the macOS Bluetooth serial bridge"
     val source = file("native/rfcomm-bridge.swift")
     val output = rfcommBridge.get().asFile
-    val identity = macSigningIdentity.get()
-    onlyIf { System.getProperty("os.name").startsWith("Mac") }
     inputs.file(source)
-    inputs.property("signingIdentity", identity)
-    outputs.file(output)
-    doFirst { output.parentFile.mkdirs() }
-    val compile = "swiftc -O -framework IOBluetooth '${source.absolutePath}' -o '${output.absolutePath}'"
-    val sign = "codesign --force --options runtime --timestamp --sign 'Developer ID Application: $identity' '${output.absolutePath}'"
-    commandLine("sh", "-c", if (identity.isEmpty()) compile else "$compile && $sign")
+    helper(output, "swiftc -O -framework IOBluetooth '${source.absolutePath}' -o '${output.absolutePath}'")
 }
-tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(buildRfcommBridge) }
+val buildBleBridge by tasks.registering(Exec::class) {
+    description = "Bundle the macOS Bluetooth LE bridge"
+    if (System.getProperty("os.name").startsWith("Mac")) dependsOn(":core:transport:linkReleaseExecutableMacosArm64")
+    val linked = rootProject.file("core/transport/build/bin/macosArm64/releaseExecutable/ble-bridge.kexe")
+    val output = bleBridge.get().asFile
+    inputs.file(linked).optional()
+    helper(output, "cp '${linked.absolutePath}' '${output.absolutePath}'")
+}
+tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(buildRfcommBridge, buildBleBridge) }
 tasks.withType<JavaExec>().configureEach {
-    dependsOn(buildRfcommBridge)
+    dependsOn(buildRfcommBridge, buildBleBridge)
     systemProperty("synth.rfcommBridge", rfcommBridge.get().asFile.absolutePath)
+    systemProperty("synth.bleBridge", bleBridge.get().asFile.absolutePath)
 }
 
 // Command-line Suunto capture tool, for bringing up the USB dongle before there is
@@ -124,7 +144,7 @@ tasks.register<JavaExec>("suuntoCapture") {
 }
 
 // Command-line Shearwater download over Bluetooth, to test the link without the app.
-// Run: ./gradlew :app:desktop:shearwaterCapture --args="[PETREL|PREDATOR] [name or address] [dive count]"
+// Run: ./gradlew :app:desktop:shearwaterCapture --args="[PETREL|PREDATOR|PEREGRINE] [name or id] [dive count]"
 tasks.register<JavaExec>("shearwaterCapture") {
     group = "application"
     description = "Download the latest Shearwater dives over Bluetooth and print them"
