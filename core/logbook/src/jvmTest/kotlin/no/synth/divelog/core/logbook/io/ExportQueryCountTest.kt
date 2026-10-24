@@ -33,9 +33,11 @@ class ExportQueryCountTest {
         }
     }
 
-    private fun queriesToExport(dives: Int): Int {
+    /** Queries to export a log of [dives] dives; with [selective], only every other dive. */
+    private fun queriesToExport(dives: Int, selective: Boolean = false): Int {
         val driver = CountingDriver(JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { DiveDatabase.Schema.create(it) })
-        val io = LogbookIo(AppContainer(DiveDatabase(driver)))
+        val container = AppContainer(DiveDatabase(driver))
+        val io = LogbookIo(container)
         val log = DiveLog(
             (0 until dives).map { i ->
                 DiveEntry(
@@ -53,8 +55,9 @@ class ExportQueryCountTest {
             },
         )
         io.importMessage(SubsurfaceXml().write(log))
+        val picked = if (selective) container.dives.allDives().map { it.id }.filterIndexed { i, _ -> i % 2 == 0 }.toSet() else null
         driver.queries = 0
-        io.exportAll(SubsurfaceXml())
+        io.export(SubsurfaceXml().id, picked)
         return driver.queries
     }
 
@@ -64,5 +67,11 @@ class ExportQueryCountTest {
         // buddies, tags, sites, places and countries: one query each.
         assertEquals(13, queriesToExport(1))
         assertEquals(13, queriesToExport(50))
+    }
+
+    @Test
+    fun selectiveExportQueriesDoNotGrowWithTheLog() {
+        assertEquals(13, queriesToExport(1, selective = true))
+        assertEquals(13, queriesToExport(50, selective = true))
     }
 }
