@@ -48,6 +48,3 @@ internal object ShearwaterBle {
 
     private const val SIG_BASE_SUFFIX = "-0000-1000-8000-00805f9b34fb"
 }
-
-/** A Bluetooth LE dive computer a scan found: the [id] to connect to it by, and its advertised [name]. */
-data class ScannedDevice(val id: String, val name: String?)

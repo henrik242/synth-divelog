@@ -80,24 +80,19 @@ class MacBleTransport(
     }
 }
 
-/**
- * Finds Peregrines through the `ble-bridge` helper's `scan` (which runs the shared
- * CoreBluetoothScanner once): [scan] starts one unless one is running, and [found] lists
- * what scans have seen.
- */
-class MacBleScanner(private val bridge: File) {
+/** The desktop [BleScanner] on macOS: each scan is the `ble-bridge` helper's `scan`, CoreBluetoothScanner's. */
+class MacBleScanner(private val bridge: File) : BleScanner {
     private val seen = ConcurrentHashMap<String, ScannedDevice>()
     @Volatile private var process: Process? = null
     @Volatile private var problem: String? = null
 
-    fun found(): List<ScannedDevice> = seen.values.sortedBy { it.name ?: it.id }
+    override fun found(): List<ScannedDevice> = byName(seen.values)
 
-    /** Why a scan cannot find anything right now, worded for the picker, or null. */
-    fun problem(): String? = problem
+    override fun problem(): String? = problem
 
     val scanning: Boolean get() = process?.isAlive == true
 
-    fun scan() {
+    override fun scan() {
         if (scanning) return
         problem = null // the new scan reports it again if it still holds
         val p = runCatching { ProcessBuilder(bridge.absolutePath, "scan").start() }.getOrNull() ?: return
@@ -126,8 +121,7 @@ class MacBleScanner(private val bridge: File) {
         }
     }
 
-    /** End a scan in progress; a scan slows down a connect. */
-    fun stop() {
+    override fun stop() {
         process?.destroy()
         process = null
     }

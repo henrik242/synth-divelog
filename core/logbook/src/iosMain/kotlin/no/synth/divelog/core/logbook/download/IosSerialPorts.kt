@@ -15,7 +15,7 @@ class IosSerialPorts : SerialPorts {
     override val downloadSupported = true
     override val linkKinds: Set<SerialPortKind> = setOf(SerialPortKind.BLUETOOTH_LE)
 
-    override fun list(): List<SerialPortInfo> = ble.found().map { blePort(it.id, it.name) }
+    override fun list(): List<SerialPortInfo> = blePorts(ble)
 
     override fun discover() = ble.scan()
 
