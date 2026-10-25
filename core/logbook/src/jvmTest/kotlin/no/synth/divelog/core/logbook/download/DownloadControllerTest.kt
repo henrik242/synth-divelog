@@ -17,6 +17,8 @@ import no.synth.divelog.core.divecomputer.transport.TransportException
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.IncomingDive
+import no.synth.divelog.core.transport.BleScanner
+import no.synth.divelog.core.transport.ScannedDevice
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -236,5 +238,20 @@ class DownloadControllerTest {
         assertEquals("bt:shearwater-petrel2:87654321", device.bluetoothAddress)
         assertTrue(DiveComputerType.SHEARWATER_PETREL_2.owns(device))
         assertFalse(DiveComputerType.SHEARWATER_PETREL.owns(device))
+    }
+
+    @Test
+    fun aScannedComputerWithABlankNameIsOfferedToEveryModel() {
+        // CoreBluetooth can report an empty name; the scan keeps such a computer, so the picker must too.
+        val scanner = object : BleScanner {
+            override fun scan() {}
+            override fun stop() {}
+            override fun found() = listOf(ScannedDevice("0F3C2A1B", ""))
+            override fun problem(): String? = null
+        }
+        val port = blePorts(scanner).single()
+        assertEquals("0F3C2A1B (Bluetooth LE)", port.label)
+        assertTrue(DiveComputerType.SHEARWATER_PEREGRINE.canUse(port))
+        assertTrue(DiveComputerType.SHEARWATER_PETREL_2.canUse(port))
     }
 }

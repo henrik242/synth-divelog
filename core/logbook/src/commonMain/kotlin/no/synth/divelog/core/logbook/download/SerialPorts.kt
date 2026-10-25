@@ -79,11 +79,12 @@ class NoSerialPorts : SerialPorts {
 
 /** The picker's ports for the Bluetooth LE computers [scanner] found, by id (an address or CoreBluetooth UUID). */
 internal fun blePorts(scanner: BleScanner): List<SerialPortInfo> = scanner.found().map {
+    val name = it.name?.takeIf(String::isNotBlank) // a blank name is none, as for the scan
     SerialPortInfo(
         id = BLE_PREFIX + it.id,
-        label = "${it.name ?: it.id} (Bluetooth LE)",
+        label = "${name ?: it.id} (Bluetooth LE)",
         kind = SerialPortKind.BLUETOOTH_LE,
-        deviceName = it.name,
+        deviceName = name,
     )
 }
 

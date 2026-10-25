@@ -34,7 +34,7 @@ fun main(args: Array<String>) {
     val overLe = kind == DiveComputerKind.SHEARWATER_PEREGRINE || "LE" in words
     // Paired and advertised names carry the model's first word ("Petrel" for a Petrel 2).
     val name = target ?: model.substringBefore(' ')
-    val transport = (if (overLe) bleTransport(name) else sppTransport(name)) ?: return
+    val transport = (if (overLe) bleTransport(name, explicit = target != null) else sppTransport(name)) ?: return
 
     val start = System.currentTimeMillis()
     fun elapsed() = "%.1fs".format((System.currentTimeMillis() - start) / 1000.0)
@@ -77,8 +77,11 @@ private fun sppTransport(target: String): Transport? {
     return MacRfcommTransport(bridge, device.address)
 }
 
-/** The computer a Bluetooth LE scan finds with id [target], or a name containing it (or none), through ble-bridge. */
-private fun bleTransport(target: String): Transport? {
+/**
+ * The computer a Bluetooth LE scan finds with id [target] or a name containing it, through
+ * ble-bridge. Unless the target is [explicit] (only the model), a nameless one counts too.
+ */
+private fun bleTransport(target: String, explicit: Boolean): Transport? {
     val bridge = MacBleScanner.locateBridge()
         ?: return null.also { println("No ble-bridge found (macOS only; run through Gradle so it gets built).") }
     val scanner = MacBleScanner(bridge)
@@ -86,7 +89,7 @@ private fun bleTransport(target: String): Transport? {
     scanner.scan()
     do {
         val device = scanner.found().firstOrNull {
-            it.id.equals(target, ignoreCase = true) || it.name?.contains(target, ignoreCase = true) ?: true
+            it.id.equals(target, ignoreCase = true) || it.name?.contains(target, ignoreCase = true) ?: !explicit
         }
         if (device != null) {
             scanner.stop()
