@@ -411,6 +411,9 @@ class DiveRepository(private val db: DiveDatabase) {
         db.transaction {
             val source = dives.selectDiveById(sourceDiveId).executeAsOne().toDomain()
             val target = dives.selectDiveById(targetDiveId).executeAsOne().toDomain()
+            // Tanks first: their indices on the target decide where the pressure samples go.
+            val tankIndices = gases.mergeTanks(targetDiveId, gases.tanksForDive(sourceDiveId))
+            records.selectRecordSummariesForDive(sourceDiveId).executeAsList().forEach { renumberTanks(it.id, tankIndices) }
             records.moveRecordsToDive(
                 targetDiveId = targetDiveId,
                 shiftSeconds = (source.utcOffsetSeconds - target.utcOffsetSeconds).toLong(),
@@ -418,7 +421,6 @@ class DiveRepository(private val db: DiveDatabase) {
             )
             db.peopleQueries.copyDiveBuddies(targetDiveId = targetDiveId, sourceDiveId = sourceDiveId)
             db.tagsQueries.copyDiveTags(targetDiveId = targetDiveId, sourceDiveId = sourceDiveId)
-            gases.mergeTanks(targetDiveId, gases.tanksForDive(sourceDiveId))
             val filled = target.copy(
                 number = target.number ?: source.number,
                 maxDepthMm = target.maxDepthMm ?: source.maxDepthMm,
@@ -434,6 +436,17 @@ class DiveRepository(private val db: DiveDatabase) {
             if (filled != target) updateDive(filled)
             dives.deleteDive(sourceDiveId)
         }
+    }
+
+    /** Move [recordId]'s tank pressure samples to the tank indices in [indices] (old to new). */
+    private fun renumberTanks(recordId: Long, indices: Map<Int, Int>) {
+        if (indices.all { (from, to) -> from == to }) return
+        val rows = samples.selectTankPressuresForRecord(recordId).executeAsList()
+        if (rows.none { indices[it.tankIndex.toInt()]?.let { to -> to.toLong() != it.tankIndex } == true }) return
+        samples.deleteTankPressuresForRecord(recordId)
+        rows.map { it.copy(tankIndex = indices[it.tankIndex.toInt()]?.toLong() ?: it.tankIndex) }
+            .distinctBy { it.timeOffsetSeconds to it.tankIndex }
+            .forEach { samples.insertSampleTankPressure(recordId, it.timeOffsetSeconds, it.tankIndex, it.pressureMbar) }
     }
 
     /**
@@ -478,23 +491,22 @@ class DiveRepository(private val db: DiveDatabase) {
             .filter { it.size > 1 }
             .mapNotNull { group -> concatenateRecords(group)?.let { kept -> group to kept } }
         val merged = requireNotNull(getDive(target.id)) { "Merged dive is gone" }
-        val primaryGroup = joined.firstOrNull { (group, _) -> group.any { it.id == merged.primaryComputerRecordId } }
-        if (primaryGroup != null) {
-            // The dive's summary follows its primary record, which now spans the joined dives.
-            val kept = requireNotNull(record(primaryGroup.second)) { "Joined record is gone" }
-            // Mean depth over the dives' own times, weighted by duration.
-            val weighted = ordered.mapNotNull { d -> d.meanDepthMm?.takeIf { d.durationSeconds > 0 }?.let { it to d.durationSeconds } }
-            val meanDepth = if (weighted.isEmpty()) merged.meanDepthMm
-            else (weighted.sumOf { (mean, s) -> mean.toLong() * s } / weighted.sumOf { (_, s) -> s.toLong() }).toInt()
-            updateDive(
-                merged.copy(
-                    durationSeconds = maxOf(merged.durationSeconds.toLong(), kept.endEpochSeconds - merged.startEpochSeconds).toInt(),
-                    maxDepthMm = ordered.mapNotNull { it.maxDepthMm }.maxOrNull(),
-                    meanDepthMm = meanDepth,
-                    primaryComputerRecordId = kept.id,
-                ),
-            )
-        }
+        // A joined primary record gives way to the record it was joined into.
+        val primary = joined.firstOrNull { (group, _) -> group.any { it.id == merged.primaryComputerRecordId } }
+            ?.second ?: merged.primaryComputerRecordId
+        // The summary spans every merged dive, in the kept dive's time frame. Mean depth
+        // is over the dives' own times, weighted by duration.
+        val end = ordered.maxOf { it.startEpochSeconds + it.utcOffsetSeconds - target.utcOffsetSeconds + it.durationSeconds }
+        val weighted = ordered.mapNotNull { d -> d.meanDepthMm?.takeIf { d.durationSeconds > 0 }?.let { it to d.durationSeconds } }
+        val meanDepth = if (weighted.isEmpty()) merged.meanDepthMm
+        else (weighted.sumOf { (mean, s) -> mean.toLong() * s } / weighted.sumOf { (_, s) -> s.toLong() }).toInt()
+        val summarised = merged.copy(
+            durationSeconds = maxOf(merged.durationSeconds.toLong(), end - merged.startEpochSeconds).toInt(),
+            maxDepthMm = ordered.mapNotNull { it.maxDepthMm }.maxOrNull(),
+            meanDepthMm = meanDepth,
+            primaryComputerRecordId = primary,
+        )
+        if (summarised != merged) updateDive(summarised)
         target.id
     }
 
@@ -516,10 +528,14 @@ class DiveRepository(private val db: DiveDatabase) {
             val shift = part.startEpochSeconds - first.startEpochSeconds
             val times = samples.selectSamplesForRecord(first.id).executeAsList().mapTo(HashSet()) { it.timeOffsetSeconds }
             if (times.isNotEmpty() && samples.countSamplesForRecord(part.id).executeAsOne() > 0) {
+                // At the surface from the end of one part (or a second later, when the part
+                // logged its end) until a second before the next. No stop and no TTS are 0,
+                // not null, or the last values carry over the interval after an export.
                 val surfaceFrom = end - first.startEpochSeconds
-                for (t in listOf(surfaceFrom, shift - 1).distinct()) {
+                val surface = listOf(if (surfaceFrom in times) surfaceFrom + 1 else surfaceFrom, shift - 1).distinct()
+                for (t in surface) {
                     if (t in surfaceFrom until shift && t !in times) {
-                        samples.insertSample(first.id, t, 0, null, null, null, null, null, null, null, null, null)
+                        samples.insertSample(first.id, t, 0, null, null, null, 0, 0, 0, null, null, 0)
                     }
                 }
             }
