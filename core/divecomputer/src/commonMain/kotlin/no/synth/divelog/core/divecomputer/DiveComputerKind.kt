@@ -81,8 +81,19 @@ enum class DiveComputerKind(
         formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
         protocolFactory = { ShearwaterPetrelFamilyProtocol.petrel2(it) },
         parserFactory = { PredatorParser() },
-        // Unconfirmed; a Petrel 3 would match too (likely the same protocol, not yet a type of its own).
+        // It advertises plain "Petrel" (libdivecomputer's dc_filter_shearwater). "Petrel 3"
+        // contains it too; the more specific name wins (forAdvertisedName).
         bleName = "Petrel",
+    ),
+
+    /** Bluetooth LE only, like the Peregrine; the same protocol. */
+    SHEARWATER_PETREL_3(
+        displayName = "Shearwater Petrel 3",
+        serialParams = ShearwaterLink.SERIAL_PARAMS,
+        formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
+        protocolFactory = { ShearwaterPetrelFamilyProtocol.petrel3(it) },
+        parserFactory = { PredatorParser() },
+        bleName = "Petrel 3", // as libdivecomputer's dc_filter_shearwater lists it
     ),
     ;
 
@@ -95,6 +106,14 @@ enum class DiveComputerKind(
     fun parser(): DiveLogParser = parserFactory()
 
     companion object {
+        /**
+         * The kind a computer advertising [name] over Bluetooth LE is: the one whose [bleName]
+         * it contains, the longest such name when several do ("Petrel 3" over "Petrel").
+         */
+        fun forAdvertisedName(name: String): DiveComputerKind? =
+            entries.filter { k -> k.bleName?.let { name.contains(it, ignoreCase = true) } == true }
+                .maxByOrNull { it.bleName?.length ?: 0 }
+
         /**
          * The parser for a stored raw dive's format, or null for one kept without a parser.
          * Newer models' logs ([PredatorParser.PNF_FORMAT_ID]), from a Peregrine, a Petrel 2

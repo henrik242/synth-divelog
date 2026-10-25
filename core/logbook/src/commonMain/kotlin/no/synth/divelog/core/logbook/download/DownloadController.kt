@@ -35,7 +35,7 @@ import no.synth.divelog.core.model.units.UnitSystem
  *
  * [identityKey] is a stable dedupe key standing in for the device identity, stored as
  * the device's address (dive dedupe keys on device plus fingerprint). A Suunto on the
- * cable, the Peregrine and the Petrel 2 are told apart by the serial they report (a
+ * cable, the Peregrine and the Petrels 2 and 3 are told apart by the serial they report (a
  * Bluetooth LE address differs per platform, as CoreBluetooth makes up a UUID of its own,
  * and the Petrel 2 is reached over Classic or LE). The Petrel and Predator report no
  * serial, so with [byAddress] their key carries the Bluetooth address they were reached on.
@@ -55,6 +55,7 @@ enum class DiveComputerType(
     SHEARWATER_PREDATOR(DiveComputerKind.SHEARWATER_PREDATOR, "serial-spp:shearwater-predator", byAddress = true),
     SHEARWATER_PEREGRINE(DiveComputerKind.SHEARWATER_PEREGRINE, "ble:shearwater-peregrine", links = BLE),
     SHEARWATER_PETREL_2(DiveComputerKind.SHEARWATER_PETREL_2, "shearwater:petrel2", links = SERIAL_LINKS + BLE),
+    SHEARWATER_PETREL_3(DiveComputerKind.SHEARWATER_PETREL_3, "shearwater:petrel3", links = BLE),
     ;
 
     val displayName: String get() = kind.displayName
@@ -65,10 +66,14 @@ enum class DiveComputerType(
 
     fun parser(): DiveLogParser = kind.parser()
 
-    /** Whether this computer can be read through [port]; a nameless scanned port could be any. */
+    /**
+     * Whether this computer can be read through [port]: a scanned port goes to the model its
+     * name says (DiveComputerKind.forAdvertisedName), and a nameless one could be any.
+     */
     fun canUse(port: SerialPortInfo): Boolean {
-        val bleName = kind.bleName
-        return port.kind in links && (bleName == null || port.advertisedName?.contains(bleName, ignoreCase = true) ?: true)
+        if (port.kind !in links) return false
+        val name = port.advertisedName ?: return true
+        return kind.bleName == null || DiveComputerKind.forAdvertisedName(name) == kind
     }
 
     /** Whether a platform offering [kinds] of port finds this computer by a Bluetooth LE scan. */
@@ -82,8 +87,8 @@ enum class DiveComputerType(
      */
     fun likelyPort(ports: List<SerialPortInfo>): SerialPortInfo? {
         val usable = ports.filter(::canUse)
-        val bleName = kind.bleName ?: return preferredPort(usable)
-        return usable.firstOrNull { (it.advertisedName ?: it.label).contains(bleName, ignoreCase = true) }
+        if (kind.bleName == null) return preferredPort(usable)
+        return usable.firstOrNull { DiveComputerKind.forAdvertisedName(it.advertisedName ?: it.label) == kind }
             ?: usable.firstOrNull { it.kind == SerialPortKind.BLUETOOTH_LE }
             ?: preferredPort(usable)
     }

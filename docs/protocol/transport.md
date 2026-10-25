@@ -3,7 +3,7 @@
 The link, framing, packet header and upload command set shared by the Shearwater
 Predator and Petrel 1. The device-specific docs build on this. The Peregrine uses the
 same framing and commands over Bluetooth LE, with a packet layer under SLIP; see
-[shearwater-peregrine.md](shearwater-peregrine.md). The Petrel 2 uses them over either link
+[shearwater-peregrine.md](shearwater-peregrine.md). The Petrel 2 uses them over either link, the Petrel 3 over LE
 ([shearwater-petrel2.md](shearwater-petrel2.md)).
 
 ## Physical link

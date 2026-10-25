@@ -200,13 +200,16 @@ class DownloadControllerTest {
         fun scanned(id: String, name: String?) = SerialPortInfo("ble:$id", "$name", SerialPortKind.BLUETOOTH_LE, advertisedName = name)
         val ble = scanned("AA:BB:CC:DD:EE:02", "Peregrine TX")
         val petrel2 = scanned("AA:BB:CC:DD:EE:03", "Petrel 2")
+        val petrel3 = scanned("AA:BB:CC:DD:EE:08", "Petrel 3 1234")
         val nameless = scanned("AA:BB:CC:DD:EE:04", null)
-        fun ports(type: DiveComputerType) = listOf(usb, spp, ble, petrel2, nameless).filter { type.canUse(it) }
+        fun ports(type: DiveComputerType) = listOf(usb, spp, ble, petrel2, petrel3, nameless).filter { type.canUse(it) }
         assertEquals(listOf(usb), ports(DiveComputerType.SUUNTO_VYPER2))
         assertEquals(listOf(usb, spp), ports(DiveComputerType.SHEARWATER_PETREL))
         // A scan lists every Shearwater it knows; each model gets its own, and a nameless one could be either.
         assertEquals(listOf(ble, nameless), ports(DiveComputerType.SHEARWATER_PEREGRINE))
+        // "Petrel 3" contains "Petrel" too, but the more specific name wins.
         assertEquals(listOf(usb, spp, petrel2, nameless), ports(DiveComputerType.SHEARWATER_PETREL_2))
+        assertEquals(listOf(petrel3, nameless), ports(DiveComputerType.SHEARWATER_PETREL_3))
         // Without a Bluetooth LE link the Peregrine is not offered at all, and on iOS (LE only) the Petrel 1 is not.
         val serialOnly = setOf(SerialPortKind.USB_SERIAL, SerialPortKind.BLUETOOTH_SPP)
         assertFalse(DiveComputerType.SHEARWATER_PEREGRINE.reachableOver(serialOnly))

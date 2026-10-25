@@ -11,7 +11,7 @@ import no.synth.divelog.core.divecomputer.u32be
 
 /**
  * Downloads from the Petrel family as libdivecomputer's `shearwater_petrel.c` reads it: the
- * Petrel 2 and the Peregrine. It is the Petrel 1's manifest download ([ShearwaterPetrel1Protocol])
+ * Petrel 2, the Petrel 3 and the Peregrine. It is the Petrel 1's manifest download ([ShearwaterPetrel1Protocol])
  * with three additions: the serial and firmware are read by identifier, the log format
  * identifier says where the dives live and which layout they use, and the session ends with
  * a shutdown command so the device leaves its Bluetooth screen cleanly.
@@ -63,6 +63,9 @@ class ShearwaterPetrelFamilyProtocol private constructor(
 
         /** The Peregrine: Bluetooth LE only. */
         fun peregrine(transport: Transport) = ShearwaterPetrelFamilyProtocol(transport, "Peregrine", packets = true)
+
+        /** The Petrel 3: Bluetooth LE only. */
+        fun petrel3(transport: Transport) = ShearwaterPetrelFamilyProtocol(transport, "Petrel 3", packets = true)
 
         /**
          * The Petrel 2, over Bluetooth Classic or LE. A packet link is the one that knows its

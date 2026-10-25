@@ -11,7 +11,7 @@ served as references where a note says so.
 | [shearwater-predator.md](shearwater-predator.md) | Predator: one memory dump, ring-buffer extraction, dive-log field offsets. | Verified |
 | [shearwater-petrel1.md](shearwater-petrel1.md) | Petrel 1: dive manifest, compressed per-dive reads. Reuses the Predator log format. | Verified |
 | [shearwater-peregrine.md](shearwater-peregrine.md) | Peregrine: Bluetooth LE packets, identifiers, log format selection, shutdown; the newer log fields (sample interval, NDL/stop, ppO2, CNS, air integration, dive mode, deco model, time to surface). | Verified (Android); macOS and iOS untested |
-| [shearwater-petrel2.md](shearwater-petrel2.md) | Petrel 2: the Peregrine's protocol over Bluetooth Classic or LE. | Unverified (no device yet) |
+| [shearwater-petrel2.md](shearwater-petrel2.md) | Petrel 2 and Petrel 3: the Peregrine's protocol over Bluetooth Classic or LE (the Petrel 3 LE only). | Unverified (no device yet) |
 | [suunto-serial.md](suunto-serial.md) | Suunto USB cable, chipsets, the two protocol families, the serial transports. | Verified (HelO2) |
 | [suunto-helo2.md](suunto-helo2.md) | HelO2 / Vyper2 family: framing, timing, incremental download. | Verified |
 | [suunto-zoop.md](suunto-zoop.md) | Vyper / Zoop (old-Vyper family): TR-PC mode, memory and dive layout. | Verified (Vyper) |

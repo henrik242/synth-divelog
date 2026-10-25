@@ -4,7 +4,7 @@ import no.synth.divelog.core.divecomputer.DiveComputerKind
 
 /**
  * What every platform's Bluetooth LE code agrees on for a Shearwater: which scan results are
- * one we read (a Peregrine or a Petrel 2) and which GATT service carries its serial link.
+ * one we read (a Peregrine, Petrel 2 or Petrel 3) and which GATT service carries its serial link.
  */
 internal object ShearwaterBle {
     /**

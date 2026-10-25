@@ -163,7 +163,7 @@ tasks.register<JavaExec>("suuntoCapture") {
 }
 
 // Command-line Shearwater download over Bluetooth, to test the link without the app.
-// Run: ./gradlew :app:desktop:shearwaterCapture --args="[PETREL|PETREL2|PREDATOR|PEREGRINE] [LE] [name or id] [dive count]"
+// Run: ./gradlew :app:desktop:shearwaterCapture --args="[PETREL|PETREL2|PETREL3|PREDATOR|PEREGRINE] [LE] [name or id] [dive count]"
 tasks.register<JavaExec>("shearwaterCapture") {
     group = "application"
     description = "Download the latest Shearwater dives over Bluetooth and print them"
