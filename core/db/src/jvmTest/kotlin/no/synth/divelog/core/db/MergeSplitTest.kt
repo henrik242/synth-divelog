@@ -304,4 +304,37 @@ class MergeSplitTest {
             gases.tanksForDive(merged).map { it.startPressureMbar to it.endPressureMbar },
         )
     }
+
+    @Test
+    fun aThirdDiveCarriesOnTheTankItsPressureFollows() {
+        val air = gases.getOrCreateGasMix(210, 0)
+        val ids = listOf(200_000 to 60_000, 210_000 to 120_000, 120_000 to 80_000).mapIndexed { i, (start, end) ->
+            dives.insertDive(Dive(startEpochSeconds = 10_000L + i * 1_000, utcOffsetSeconds = 0, durationSeconds = 600)).also {
+                gases.addTank(Tank(diveId = it, index = 0, startPressureMbar = start, endPressureMbar = end, gasMixId = air))
+            }
+        }
+
+        val merged = dives.mergeDives(ids)
+
+        assertEquals(
+            listOf(200_000 to 60_000, 210_000 to 80_000),
+            gases.tanksForDive(merged).map { it.startPressureMbar to it.endPressureMbar },
+        )
+    }
+
+    @Test
+    fun aSecondComputersCopyOfALaterDiveIsNotARefill() {
+        val air = gases.getOrCreateGasMix(210, 0)
+        fun dive(start: Long, from: Int, to: Int) =
+            dives.insertDive(Dive(startEpochSeconds = start, utcOffsetSeconds = 0, durationSeconds = 600)).also {
+                gases.addTank(Tank(diveId = it, index = 0, startPressureMbar = from, endPressureMbar = to, gasMixId = air))
+            }
+        val first = dive(10_000, 200_000, 150_000)
+        val later = dive(11_000, 150_000, 90_000)
+        val laterOnAnotherComputer = dive(11_010, 150_000, 90_000)
+
+        val merged = dives.mergeDives(listOf(first, later, laterOnAnotherComputer))
+
+        assertEquals(listOf(200_000 to 90_000), gases.tanksForDive(merged).map { it.startPressureMbar to it.endPressureMbar })
+    }
 }

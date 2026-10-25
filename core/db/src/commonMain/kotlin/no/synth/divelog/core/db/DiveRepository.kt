@@ -463,12 +463,18 @@ class DiveRepository(private val db: DiveDatabase) {
      * fields take the source's values. The target keeps its primary record and start.
      */
     fun mergeDives(sourceDiveId: Long, targetDiveId: Long) {
+        val target = dives.selectDiveById(targetDiveId).executeAsOne().toDomain()
+        mergeDives(sourceDiveId, targetDiveId, targetEnd = target.wallStart + target.durationSeconds)
+    }
+
+    /** [mergeDives] into a target whose dives so far end at [targetEnd] (wall clock). */
+    private fun mergeDives(sourceDiveId: Long, targetDiveId: Long, targetEnd: Long) {
         require(sourceDiveId != targetDiveId) { "Cannot merge a dive into itself" }
         db.transaction {
             val source = dives.selectDiveById(sourceDiveId).executeAsOne().toDomain()
             val target = dives.selectDiveById(targetDiveId).executeAsOne().toDomain()
             // Tanks first: their indices on the target decide where the pressure samples go.
-            val follows = source.wallStart >= target.wallStart + target.durationSeconds
+            val follows = source.wallStart >= targetEnd
             val tankIndices = gases.mergeTanks(targetDiveId, gases.tanksForDive(sourceDiveId), follows)
             records.selectRecordSummariesForDive(sourceDiveId).executeAsList().forEach { renumberTanks(it.id, tankIndices) }
             records.moveRecordsToDive(
@@ -550,7 +556,13 @@ class DiveRepository(private val db: DiveDatabase) {
             .map { dives.selectDiveById(it).executeAsOne().toDomain() }
             .sortedBy { it.wallStart }
         val target = ordered.first()
-        ordered.drop(1).forEach { mergeDives(sourceDiveId = it.id, targetDiveId = target.id) }
+        // The target's own duration stays as it was until the end, so track where the dives
+        // folded in so far end: a second computer's copy of a later dive does not follow it.
+        var foldedEnd = target.wallStart + target.durationSeconds
+        for (source in ordered.drop(1)) {
+            mergeDives(sourceDiveId = source.id, targetDiveId = target.id, targetEnd = foldedEnd)
+            foldedEnd = maxOf(foldedEnd, source.wallStart + source.durationSeconds)
+        }
 
         val joined = recordsForDive(target.id)
             .filter { it.deviceId != null }

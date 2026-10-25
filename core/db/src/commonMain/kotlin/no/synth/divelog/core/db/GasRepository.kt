@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.Tank
+import kotlin.math.abs
 
 /** Breathing gases and the cylinders on a dive. */
 class GasRepository(private val db: DiveDatabase) {
@@ -72,10 +73,12 @@ class GasRepository(private val db: DiveDatabase) {
                 gas?.let { g -> onDive.firstOrNull { gasOf(it) == g } }?.let { indices[t.index] = it.index }
                 continue
             }
-            val match = (
-                gas?.let { g -> existing.firstOrNull { gasOf(it) == g } }
-                    ?: existing.firstOrNull { pairsBySize(it, gasOf(it), t, gas) }
-                )?.takeUnless { follows && isRefill(it, t) }
+            // After a surface interval a tank carries on from the one of its gas whose end
+            // pressure it starts nearest to; one it starts well above was refilled.
+            fun carriesOn(e: Tank) = !follows || !isRefill(e, t)
+            val sameGas = gas?.let { g -> existing.filter { gasOf(it) == g && carriesOn(it) } }.orEmpty()
+            val match = (if (follows) sameGas.minByOrNull { pressureGap(it, t) } else sameGas.firstOrNull())
+                ?: existing.firstOrNull { pairsBySize(it, gasOf(it), t, gas) && carriesOn(it) }
             if (match != null) {
                 existing.remove(match)
                 val filled = match.copy(
@@ -94,6 +97,13 @@ class GasRepository(private val db: DiveDatabase) {
             }
         }
         indices
+    }
+
+    /** How far [later]'s start pressure is from [earlier]'s end pressure; unknown counts as far. */
+    private fun pressureGap(earlier: Tank, later: Tank): Int {
+        val ended = earlier.endPressureMbar ?: return Int.MAX_VALUE
+        val starts = later.startPressureMbar ?: return Int.MAX_VALUE
+        return abs(starts - ended)
     }
 
     /** Whether [later] starts well above where [earlier] ended: a fresh tank, not the same one. */
