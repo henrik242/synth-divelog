@@ -103,6 +103,11 @@ data class DecoModel(
             DecoAlgorithm.VPM -> if (conservatism != null) "VPM +$conservatism" else "VPM"
             DecoAlgorithm.DCIEM -> "DCIEM"
         }
+
+    companion object {
+        /** The gradient factors a log can hold, percent; anything else is not read. */
+        val GF_PERCENT_RANGE = 1..150
+    }
 }
 
 /** One profile point relative to the start of a computer record. */

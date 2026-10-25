@@ -31,6 +31,12 @@ class PredatorRecordFieldsTest {
         PredatorParser().parse(RawDive("a", data, formatId))
 
     @Test
+    fun aSampleIntervalOfNoWholeSecondsKeepsItsTime() {
+        val dive = parse(log(9, record(0x15, *be16(23, 2_500)), sample(100), sample(100), sample(100), sample(100)))
+        assertEquals(listOf(0, 2, 5, 7), dive.samples.map { it.timeOffsetSeconds })
+    }
+
+    @Test
     fun cnsIsAPercentByte() {
         val dive = parse(log(9, sample(100, 22 to 12), sample(100, 22 to 13)))
         assertEquals(listOf(120, 130), dive.samples.map { it.cnsPermille })

@@ -156,6 +156,18 @@ class PredatorParserTest {
     }
 
     @Test
+    fun aBailoutOnARebreatherDiveKeepsTheOpenCircuitPpO2() {
+        val dive = PredatorParser().parse(
+            twoSamples { sample, set ->
+                set(11, if (sample == 0) 0x00 else 0x10) // on the loop, then open circuit
+                set(6, if (sample == 0) 130 else 45)
+            },
+        )
+        assertEquals(DiveMode.CLOSED_CIRCUIT, dive.diveMode)
+        assertEquals(listOf(1_300, 450), dive.samples.map { it.ppO2Mbar })
+    }
+
+    @Test
     fun aBlockLogsHeaderGivesItsDiveModeAndDecoModel() {
         // Petrel 1 / Predator blocks: GF at +4/+5, deco model at +67, dive mode at +112 from
         // log version 8 (+127). Samples are open circuit, so only the header says SC.

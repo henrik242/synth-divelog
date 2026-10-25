@@ -19,9 +19,9 @@ import no.synth.divelog.core.divecomputer.transport.Transport
  * The dive computers a download can read: the line settings to open the [Transport]
  * with, the protocol to drive over it, and the parser for the raw dives it yields
  * ([formatIds] are the formats those dives carry). The Suunto families are wired serial;
- * the Petrel and Predator speak Bluetooth Classic SPP, a full-duplex serial stream, and the
- * newer Shearwaters Bluetooth LE, whose transport carries GATT packets (its line settings
- * are unused), the Petrel 2, Perdix and NERD Classic too.
+ * the Petrel and Predator speak Bluetooth Classic SPP, a full-duplex serial stream. The
+ * newer Shearwaters speak Bluetooth LE, whose transport carries GATT packets (its line
+ * settings are unused); the Petrel 2, Perdix and NERD speak Classic too.
  */
 enum class DiveComputerKind(
     val displayName: String,

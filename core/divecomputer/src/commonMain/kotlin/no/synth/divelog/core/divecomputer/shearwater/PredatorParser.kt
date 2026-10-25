@@ -15,7 +15,9 @@ import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.GasSwitch
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
+import no.synth.divelog.core.model.units.ATM_BAR
 import no.synth.divelog.core.model.units.BAR_PER_PSI
+import no.synth.divelog.core.model.units.MM_PER_FOOT
 import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 import no.synth.divelog.core.model.units.feetToMm
 import kotlin.math.roundToInt
@@ -28,7 +30,8 @@ import kotlin.math.roundToInt
  * 128-byte closing block. The Predator stores 16-byte samples; the Petrel 1 stores
  * 32-byte records whose first 16 bytes hold the same fields, plus CNS and (from log
  * version 7) air-integration pressures. Depths are tenths of a metre or foot per the
- * opening block's units flag; temperature is a signed whole degree Celsius. Field
+ * opening block's units flag; temperature is a signed whole degree, Fahrenheit on an
+ * imperial dive and Celsius on a metric one. Field
  * offsets were confirmed against real captures; the CNS, pressure and freedive fields
  * follow libdivecomputer's `shearwater_predator_parser.c`.
  *
@@ -55,7 +58,9 @@ class PredatorParser(
         val number = u16be(header, NUMBER_OFFSET)
         val startEpoch = u32be(header, START_TIME_OFFSET)
         val durationSeconds = layout.durationSeconds
-        val interval = layout.intervalSeconds ?: sampleIntervalSeconds
+        val intervalMs = layout.intervalMs ?: (sampleIntervalSeconds * 1_000)
+        // The whole second each sample falls in, so an interval of no whole seconds keeps its real time.
+        fun timeOf(index: Int) = (index.toLong() * intervalMs / 1_000).toInt()
 
         val samples = ArrayList<Sample>()
         val events = ArrayList<Event>()
@@ -66,7 +71,7 @@ class PredatorParser(
         var sampleMode: DiveMode? = null
 
         for ((index, offset) in layout.sampleOffsets.withIndex()) {
-            val time = index * interval
+            val time = timeOf(index)
             val depthMm = toMillimetres(u16be(d, offset + S_DEPTH), imperial)
             // The sample temperature follows the dive's unit flag: Fahrenheit for
             // an imperial dive, Celsius for a metric one.
@@ -84,7 +89,7 @@ class PredatorParser(
             val ndlSeconds = if (stopDepth == 0) decoSeconds else 0
             val o2 = d[offset + S_O2].toInt() and 0xFF
             val he = d[offset + S_HE].toInt() and 0xFF
-            val ppO2Mbar = averagePpO2Mbar(d, offset)
+            val ppO2Mbar = loopPpO2Mbar(d, offset)
             val status = d[offset + S_STATUS].toInt() and 0xFF
             if (status and STATUS_OC == 0) {
                 sampleMode = if (status and STATUS_SC != 0) DiveMode.SEMI_CLOSED else DiveMode.CLOSED_CIRCUIT
@@ -110,7 +115,13 @@ class PredatorParser(
             }
         }
         withDenseTankIndexes(samples, pressures)
-        layout.freediveOffsets.forEachIndexed { index, offset -> samples += freediveSample(d, offset, index * interval, layout) }
+        layout.freediveOffsets.forEachIndexed { index, offset -> samples += freediveSample(d, offset, timeOf(index), layout) }
+        val diveMode = layout.diveMode
+            ?: if (layout.freediveOffsets.isNotEmpty()) DiveMode.FREEDIVE else sampleMode ?: DiveMode.OPEN_CIRCUIT
+        // An open-circuit dive has no loop: its ppO2 is only the gas fraction times depth.
+        if (diveMode != DiveMode.CLOSED_CIRCUIT && diveMode != DiveMode.SEMI_CLOSED) {
+            samples.replaceAll { it.copy(ppO2Mbar = null) }
+        }
 
         // Drop the surface tail the computer keeps recording after surfacing, so the
         // profile span and mean depth reflect the actual dive (to final ascent). The
@@ -140,7 +151,7 @@ class PredatorParser(
             number = number,
             startEpochSeconds = startEpoch,
             utcOffsetSeconds = 0, // device stores local time; offset refined later
-            durationSeconds = if (durationSeconds > 0) durationSeconds else samples.size * interval,
+            durationSeconds = if (durationSeconds > 0) durationSeconds else timeOf(samples.size),
             maxDepthMm = if (samples.isNotEmpty()) maxDepthMm else null,
             meanDepthMm = meanDepthMm,
             waterTempMk = minTempMk,
@@ -152,15 +163,14 @@ class PredatorParser(
             // Every mix the samples report is announced by a switch, the first one included.
             gases = events.filter { it.type == EventType.GAS_SWITCH }.mapNotNull { it.value }.distinct()
                 .map { GasMix(o2Permille = GasSwitch.o2Percent(it) * 10, hePermille = GasSwitch.hePercent(it) * 10) },
-            diveMode = layout.diveMode
-                ?: if (layout.freediveOffsets.isNotEmpty()) DiveMode.FREEDIVE else sampleMode ?: DiveMode.OPEN_CIRCUIT,
+            diveMode = diveMode,
             decoModel = layout.decoModel,
         )
     }
 
     /**
      * Where a layout keeps the opening fields, its samples (each at the sample-field base)
-     * and duration, and the sample interval when the log records one. [wide] samples (32
+     * and duration, and the sample interval (milliseconds) when the log records one. [wide] samples (32
      * bytes: Petrel 1 blocks and records) also hold CNS and air-integration pressures;
      * [extended] maps a sample's index to the fields of the extended record (0xE1) after
      * it. A freedive log has [freediveOffsets] (8-byte samples) instead of samples.
@@ -171,7 +181,7 @@ class PredatorParser(
         val durationSeconds: Int,
         val wide: Boolean,
         val logVersion: Int,
-        val intervalSeconds: Int? = null,
+        val intervalMs: Int? = null,
         val aiMode: Int = 0,
         val extended: Map<Int, Int> = emptyMap(),
         val freediveOffsets: List<Int> = emptyList(),
@@ -242,7 +252,7 @@ class PredatorParser(
             duration,
             wide = true,
             logVersion = version,
-            intervalSeconds = recordInterval(d, version, first(REC_OPENING_5)),
+            intervalMs = recordIntervalMs(d, version, first(REC_OPENING_5)),
             aiMode = if (version >= MIN_AI_LOG_VERSION) opening4?.let { d[it + REC_AI_MODE].toInt() and 0xFF } ?: 0 else 0,
             extended = extended,
             freediveOffsets = freedive,
@@ -254,15 +264,13 @@ class PredatorParser(
     }
 
     /**
-     * The sample interval in whole seconds from opening record 5 ([opening5]), which holds
-     * it in milliseconds from log version 9 on. Null for an older log or an interval that
-     * is not whole seconds, so the default applies. Follows libdivecomputer's
-     * `shearwater_predator_parser.c`.
+     * The sample interval in milliseconds from opening record 5 ([opening5]), which holds
+     * it from log version 9 on. Null for an older log, so the default applies. Follows
+     * libdivecomputer's `shearwater_predator_parser.c`.
      */
-    private fun recordInterval(d: ByteArray, version: Int, opening5: Int?): Int? {
+    private fun recordIntervalMs(d: ByteArray, version: Int, opening5: Int?): Int? {
         if (version < MIN_INTERVAL_LOG_VERSION || opening5 == null) return null
-        val ms = u16be(d, opening5 + REC_INTERVAL_MS)
-        return if (ms > 0 && ms % 1_000 == 0) ms / 1_000 else null
+        return u16be(d, opening5 + REC_INTERVAL_MS).takeIf { it > 0 }
     }
 
     /**
@@ -271,7 +279,7 @@ class PredatorParser(
      * libdivecomputer reads them. Null for an unknown model.
      */
     private fun decoModel(d: ByteArray, modelAt: Int, gfAt: Int): DecoModel? {
-        fun percent(at: Int) = (d[at].toInt() and 0xFF).takeIf { it in 1..MAX_GF }
+        fun percent(at: Int) = (d[at].toInt() and 0xFF).takeIf { it in DecoModel.GF_PERCENT_RANGE }
         return when (d[modelAt].toInt() and 0xFF) {
             DECO_GF -> DecoModel(DecoAlgorithm.BUHLMANN, gfLowPercent = percent(gfAt), gfHighPercent = percent(gfAt + 1))
             DECO_VPMB, DECO_VPMB_GFS -> DecoModel(DecoAlgorithm.VPM, conservatism = d[modelAt + 1].toInt() and 0xFF)
@@ -351,21 +359,21 @@ class PredatorParser(
     }
 
     private fun toMillimetres(tenths: Int, imperial: Boolean): Int =
-        if (imperial) (tenths * MM_PER_TENTH_FOOT).toInt() else tenths * MM_PER_TENTH_METRE
+        if (imperial) (tenths * MM_PER_FOOT / 10).roundToInt() else tenths * MM_PER_TENTH_METRE
 
     private fun stopDepthToMillimetres(whole: Int, imperial: Boolean): Int =
         if (imperial) feetToMm(whole) else whole * 1_000
 
     /**
-     * The ppO2 the computer used (hundredths of a bar) on a rebreather sample; null on open
-     * circuit, where it is only the gas fraction times depth. On internal sensors it is
-     * their average (libdivecomputer's SENSOR_AVERAGE); without them (external ppO2 flag,
-     * as on a fixed-setpoint Petrel with no sensors calibrated) it is the setpoint, which
-     * libdivecomputer leaves out. The raw per-sensor bytes need calibration, so never them.
+     * The ppO2 the computer used (hundredths of a bar). On the loop it is the internal
+     * sensors' average (libdivecomputer's SENSOR_AVERAGE); without them (external ppO2
+     * flag, as on a fixed-setpoint Petrel with no sensors calibrated) it is the setpoint,
+     * which libdivecomputer leaves out. On open circuit it is the gas fraction times depth:
+     * kept for a bailout on a rebreather dive, so the loop's last ppO2 does not carry over
+     * it after an export, and dropped on an open-circuit dive. The raw per-sensor bytes
+     * need calibration, so never them.
      */
-    private fun averagePpO2Mbar(d: ByteArray, sampleOffset: Int): Int? {
-        val status = d[sampleOffset + S_STATUS].toInt() and 0xFF
-        if (status and STATUS_OC != 0) return null
+    private fun loopPpO2Mbar(d: ByteArray, sampleOffset: Int): Int? {
         val hundredths = d[sampleOffset + S_PPO2_AVERAGE].toInt() and 0xFF
         return if (hundredths == 0) null else hundredths * 10
     }
@@ -406,37 +414,38 @@ class PredatorParser(
         private const val S_CNS = 22
         private const val S_TANK_1 = 27
 
-        // Typed records
+        // Typed records, and the fields of each (offsets from the record's start)
         private const val RECORD = 32
         private const val REC_SAMPLE = 0x01.toByte()
         private const val REC_FREEDIVE = 0x02.toByte()
+        private const val FREEDIVE_SAMPLE = 8
         private const val REC_SAMPLE_EXT = 0xE1.toByte()
-        private const val REC_OPENING_1 = 0x11.toByte()
-        private const val REC_OPENING_2 = 0x12.toByte()
-        private const val REC_OPENING_3 = 0x13.toByte()
         private const val REC_OPENING = 0x10.toByte()
+        private const val REC_GF = 4
+        private const val REC_OPENING_1 = 0x11.toByte()
+        private const val REC_SURFACE_MBAR = 16
+        private const val REC_OPENING_2 = 0x12.toByte()
+        private const val REC_DECO_MODEL = 18
+        private const val REC_OPENING_3 = 0x13.toByte()
+        private const val REC_DENSITY = 3
+        private const val REC_OPENING_4 = 0x14.toByte()
+        private const val REC_DIVE_MODE = 1
+        private const val REC_LOG_VERSION = 16
+        private const val REC_AI_MODE = 28
+        private const val REC_OPENING_5 = 0x15.toByte()
+        private const val REC_INTERVAL_MS = 23
         private const val REC_CLOSING = 0x20.toByte()
         private const val REC_CLOSE_DURATION_SECONDS = 6
-        private const val REC_OPENING_4 = 0x14.toByte()
-        private const val REC_OPENING_5 = 0x15.toByte()
-        private const val REC_LOG_VERSION = 16
-        private const val REC_INTERVAL_MS = 23
-        private const val MIN_INTERVAL_LOG_VERSION = 9
-        private const val REC_AI_MODE = 28
-        private const val REC_DIVE_MODE = 1
-        private const val REC_GF = 4
-        private const val REC_DECO_MODEL = 18
+
+        // Log versions that add a field
         private const val MIN_MODE_LOG_VERSION = 8
-        private const val REC_SURFACE_MBAR = 16
-        private const val REC_DENSITY = 3
-        private const val FREEDIVE_SAMPLE = 8
+        private const val MIN_INTERVAL_LOG_VERSION = 9
 
         // Deco models as the logs number them
         private const val DECO_GF = 0
         private const val DECO_VPMB = 1
         private const val DECO_VPMB_GFS = 2
         private const val DECO_DCIEM = 3
-        private const val MAX_GF = 150
 
         // Air integration
         private const val MIN_AI_LOG_VERSION = 7
@@ -445,7 +454,7 @@ class PredatorParser(
         private const val AI_HPCCR = 4
         private const val AI_SPECIAL = 0xFFF0
 
-        private const val DEFAULT_SURFACE_MBAR = 1013
+        private val DEFAULT_SURFACE_MBAR = (ATM_BAR * 1_000).roundToInt()
         private const val DEFAULT_WATER_DENSITY = 1025
         private const val PA_PER_MBAR = 100.0
         private const val GRAVITY = 9.80665
@@ -456,7 +465,6 @@ class PredatorParser(
         private const val CLOSE_MARKER_LO = 0xFE.toByte()
 
         private const val MM_PER_TENTH_METRE = 100
-        private const val MM_PER_TENTH_FOOT = 30.48
 
         // Sample status flags
         private const val STATUS_SC = 0x08
