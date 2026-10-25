@@ -94,6 +94,11 @@ dropped and the SLIP bytes run on across notifications.
    - `8010` serial: eight ASCII hex digits (NUL or space padding dropped), stored upper
      case, the form the Shearwater Cloud import uses.
    - `8011` firmware: ASCII, e.g. `V92`.
+   - `8060` model: one byte, libdivecomputer's model number (`ID_MODEL` in
+     `shearwater_common.h`): 3 Petrel 2, 9 Peregrine, 10 Petrel 3, 13 Peregrine TX, and the
+     other Shearwaters it knows. It names the computer reported (a Peregrine TX as such); a
+     model the picked computer type does not cover stops the download with a message naming
+     the computer. The Peregrine capture predates this read; its exchange was added by hand.
    - `8021` log upload: 9 bytes, BE32 dive base address at `+1`. It picks the format:
 
      | Base | Format | Read from | Format id |
@@ -114,8 +119,8 @@ dropped and the SLIP bytes run on across notifications.
    showed one.
 
 Each reply's length byte is checked against the frame (as libdivecomputer does), the
-only guard against a lost or merged notification. The model reported is always
-"Peregrine"; the hardware identifier (`8050`) is not read.
+only guard against a lost or merged notification. The hardware identifier (`8050`) is not
+read.
 
 ## Parsing
 

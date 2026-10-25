@@ -27,13 +27,19 @@ class ShearwaterPetrelFamilyProtocolTest {
         FakeDive("0000000b", 0x200L, ByteArray(20) { 11 }), // oldest
     )
 
-    private fun device(logBase: Long, dives: List<FakeDive> = this.dives, dropAfterDives: Int = Int.MAX_VALUE) =
+    private fun device(
+        logBase: Long,
+        dives: List<FakeDive> = this.dives,
+        dropAfterDives: Int = Int.MAX_VALUE,
+        model: Int = PEREGRINE,
+    ) =
         FakeShearwaterDevice(
             dives,
             identifiers = mapOf(
                 0x8010 to "1a2b3c4d".encodeToByteArray(),
                 0x8011 to "V92".encodeToByteArray(),
                 0x8021 to byteArrayOf(0) + be32(logBase) + byteArrayOf(0, 0, 0, 0),
+                0x8060 to byteArrayOf(model.toByte()),
             ),
             dropAfterDives = dropAfterDives,
         )
@@ -60,7 +66,7 @@ class ShearwaterPetrelFamilyProtocolTest {
     @Test
     fun aPetrel2SpeaksThePlainStreamOverBluetoothClassicAndPacketsOverLe() {
         for (overLe in listOf(false, true)) {
-            val device = device(logBase = 0xC0000000L)
+            val device = device(logBase = 0xC0000000L, model = PETREL_2)
             val link = if (overLe) BlePackets(device, maxWriteSize = 20) else SlipStream(device)
             val protocol = ShearwaterPetrelFamilyProtocol.petrel2(link)
             assertEquals(DeviceInfo(vendor = "Shearwater", model = "Petrel 2", serial = "1A2B3C4D", firmware = "V92"), protocol.readDeviceInfo())
@@ -69,6 +75,31 @@ class ShearwaterPetrelFamilyProtocolTest {
             assertEquals(listOf(PredatorParser.PETREL_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID), result.map { it.formatId })
             assertContentEquals(SHUTDOWN, device.commands.last())
         }
+    }
+
+    @Test
+    fun aPeregrineTxIsNamedAsSuch() {
+        val info = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device(logBase = 0x80000000L, model = 13))).readDeviceInfo()
+        assertEquals("Peregrine TX", info.model)
+    }
+
+    @Test
+    fun anotherModelIsRefusedAndStillShutsDown() {
+        val device = device(logBase = 0x80000000L, model = PETREL_2)
+        val e = assertFailsWith<ProtocolException> {
+            ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = null)
+        }
+        assertEquals("This computer is a Petrel 2, not a Peregrine. Choose Petrel 2 and download again.", e.message)
+        assertEquals(emptyList(), device.diveReads)
+        assertContentEquals(SHUTDOWN, device.commands.last())
+    }
+
+    @Test
+    fun theMismatchMessages() {
+        assertEquals("This computer is a Perdix 2, which is not supported yet.", ShearwaterPetrelFamilyProtocol.mismatch(11, "Peregrine"))
+        assertEquals("This Shearwater (model 99) is not supported yet.", ShearwaterPetrelFamilyProtocol.mismatch(99, "Peregrine"))
+        assertFailsWith<ProtocolException> { ShearwaterPetrelFamilyProtocol.modelNumber(ByteArray(0)) }
+        assertEquals(200, ShearwaterPetrelFamilyProtocol.modelNumber(byteArrayOf(200.toByte(), 0)))
     }
 
     @Test
@@ -103,8 +134,8 @@ class ShearwaterPetrelFamilyProtocolTest {
         val protocol = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device))
         protocol.readDeviceInfo()
         protocol.download(knownFingerprint = "0000000a")
-        for (id in listOf(0x10, 0x11)) {
-            assertEquals(1, device.commands.count { it[0] == 0x22.toByte() && it[2] == id.toByte() }, "identifier 80$id")
+        for (id in listOf(0x10, 0x11, 0x60)) {
+            assertEquals(1, device.commands.count { it[0] == 0x22.toByte() && it[2] == id.toByte() }, "identifier 80${id.toString(16)}")
         }
     }
 
@@ -177,6 +208,8 @@ class ShearwaterPetrelFamilyProtocolTest {
     }
 
     private companion object {
+        const val PETREL_2 = 3
+        const val PEREGRINE = 9
         val SHUTDOWN = byteArrayOf(0x2E, 0x90.toByte(), 0x20, 0x00)
 
         fun be32(v: Long) = ByteArray(4) { (v ushr (8 * (3 - it))).toByte() }

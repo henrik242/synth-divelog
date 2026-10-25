@@ -3,10 +3,10 @@
 Status (2026-10-25): **untested on a device**. libdivecomputer lists the Petrel 2 with
 Bluetooth Classic (SPP) and Bluetooth LE, and reads it the way it reads the Peregrine
 (`shearwater_petrel.c`), so the download is the one in
-[shearwater-peregrine.md](shearwater-peregrine.md): identifiers `8010`, `8011` and `8021`,
+[shearwater-peregrine.md](shearwater-peregrine.md): identifiers `8010`, `8011`, `8060` and `8021`,
 the manifest and compressed per-dive reads, the shutdown. `ShearwaterPetrelFamilyProtocol.petrel2`
-does it; a replay of the Peregrine capture through `DiveComputerKind.SHEARWATER_PETREL_2`
-checks the LE path (`PeregrineCaptureRegressionTest`).
+does it. The model number (`8060`) must be 3; a Peregrine picked as a Petrel 2 is refused
+(`PeregrineCaptureRegressionTest`).
 
 - **Link:** over Bluetooth LE the SLIP frames go through `ShearwaterBlePackets`, as on the
   Peregrine; over Bluetooth Classic they are the plain byte stream the Petrel 1 uses
@@ -38,21 +38,18 @@ Unconfirmed until a device is tried:
   iOS.
 - Whether a Petrel 2 paired over Classic is also reachable over LE on Android (it may be
   listed over both links, and LE may ask to pair again).
-- The model is taken from the picker, not the device. libdivecomputer reads a one-byte model
-  number by identifier `8060` (`ID_MODEL` in `shearwater_common.h`: 3 Petrel and Petrel 2,
-  9 Peregrine, 10 Petrel 3, 13 Peregrine TX); reading it would let a download check or name
-  the model, but the Peregrine capture does not have that exchange yet.
 
 ## Petrel 3
 
 libdivecomputer lists the Petrel 3 with Bluetooth LE only and reads it like the Peregrine,
 so it is the Peregrine's setup with another name: `ShearwaterPetrelFamilyProtocol.petrel3`,
 always over `ShearwaterBlePackets`, keyed by its serial (`shearwater:petrel3:<serial>`), and
-offered wherever there is Bluetooth LE (Android, macOS through `ble-bridge`, iOS). A scanned
+offered wherever there is Bluetooth LE (Android, macOS through `ble-bridge`, iOS), and its
+model number (`8060`) must be 10. A scanned
 port goes to the Petrel 3 when its advertised name contains "Petrel 3": the most specific
 model name wins (`DiveComputerKind.forAdvertisedName`), so "Petrel" alone stays the Petrel 2's.
-`PeregrineCaptureRegressionTest` replays the Peregrine
-capture through its kind. Test on a device: `shearwaterCapture --args="PETREL3"`.
+`PeregrineCaptureRegressionTest` checks that a Peregrine picked
+as a Petrel 3 is refused. Test on a device: `shearwaterCapture --args="PETREL3"`.
 
 Test on a device: `./gradlew :app:desktop:shearwaterCapture --args="PETREL2"` (Bluetooth
 Classic) or `--args="PETREL2 LE"`, or a download in the app with capture recording on

@@ -3,6 +3,7 @@ package no.synth.divelog.core.divecomputer.shearwater
 import no.synth.divelog.core.divecomputer.DeviceInfo
 import no.synth.divelog.core.divecomputer.DiveComputerKind
 import no.synth.divelog.core.divecomputer.DownloadListener
+import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.transport.ReplayTransport
 import no.synth.divelog.core.divecomputer.transport.Transcript
 import no.synth.divelog.core.model.DecoAlgorithm
@@ -11,13 +12,13 @@ import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
  * Replays a real Peregrine download over Bluetooth LE (trimmed to the session setup and the
  * newest dive) and checks the dive against what the owner's logbook showed for it. This
- * locks in the BLE packet layer, the identifiers, the record-format log and the shutdown.
+ * locks in the BLE packet layer, the identifiers (the model one added by hand), the record-format log and the shutdown.
  */
 class PeregrineCaptureRegressionTest {
     private val transcript = Transcript.fromText(
@@ -65,40 +66,20 @@ class PeregrineCaptureRegressionTest {
     }
 
     @Test
-    fun thePetrel2ReadsTheSameExchangeOverBluetoothLe() {
-        // Same protocol as the Peregrine: the kind's protocol replays the capture strictly once
-        // the link is a packet link (the capture predates recording the write size).
-        val replay = ReplayTransport(transcript, maxWriteSize = 77)
-        var model: String? = null
-        DiveComputerKind.SHEARWATER_PETREL_2.protocol(replay).download(
-            knownFingerprint = null,
-            listener = object : DownloadListener {
-                override fun onDeviceInfo(info: DeviceInfo) { model = info.model }
-            },
-            limit = 1,
-        )
-        assertTrue(replay.finished, "the protocol stopped before the end of the capture")
-        assertEquals("Petrel 2", model)
-        // Without a write size it is a byte stream (Bluetooth Classic), which this capture is not.
-        val asStream = ReplayTransport(transcript)
-        runCatching { DiveComputerKind.SHEARWATER_PETREL_2.protocol(asStream).download(knownFingerprint = null, limit = 1) }
-        assertFalse(asStream.finished)
+    fun aPeregrinePickedAsAPetrel2IsRefused() {
+        // Same protocol over Bluetooth LE, but the model number says Peregrine.
+        val e = assertFailsWith<ProtocolException> {
+            DiveComputerKind.SHEARWATER_PETREL_2.protocol(ReplayTransport(transcript, maxWriteSize = 77))
+                .download(knownFingerprint = null, limit = 1)
+        }
+        assertEquals("This computer is a Peregrine, not a Petrel 2. Choose Peregrine and download again.", e.message)
     }
 
     @Test
-    fun thePetrel3ReadsTheSameExchange() {
-        // Bluetooth LE only and the same protocol, so its kind replays the capture as it is.
-        val replay = ReplayTransport(transcript)
-        var model: String? = null
-        DiveComputerKind.SHEARWATER_PETREL_3.protocol(replay).download(
-            knownFingerprint = null,
-            listener = object : DownloadListener {
-                override fun onDeviceInfo(info: DeviceInfo) { model = info.model }
-            },
-            limit = 1,
-        )
-        assertTrue(replay.finished, "the protocol stopped before the end of the capture")
-        assertEquals("Petrel 3", model)
+    fun aPeregrinePickedAsAPetrel3IsRefused() {
+        val e = assertFailsWith<ProtocolException> {
+            DiveComputerKind.SHEARWATER_PETREL_3.protocol(ReplayTransport(transcript)).download(knownFingerprint = null, limit = 1)
+        }
+        assertEquals("This computer is a Peregrine, not a Petrel 3. Choose Peregrine and download again.", e.message)
     }
 }
-
