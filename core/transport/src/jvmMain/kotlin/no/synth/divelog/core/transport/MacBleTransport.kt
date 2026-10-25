@@ -25,7 +25,7 @@ class MacBleTransport(
         val l = HelperLink(bridge, "connect", id)
         link = l
         writeSize = try {
-            // A packet link always has a write size (the Petrel 2 picks its framing by it).
+            // A packet link always has a write size (a Shearwater picks its framing by it).
             l.awaitConnected("the dive computer", CONNECT_TIMEOUT_MS).toIntOrNull() ?: DEFAULT_WRITE_SIZE
         } catch (e: TransportException) {
             link = null

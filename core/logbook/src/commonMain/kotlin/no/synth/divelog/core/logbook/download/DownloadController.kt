@@ -35,13 +35,12 @@ import no.synth.divelog.core.model.units.UnitSystem
  *
  * [identityKey] is a stable dedupe key standing in for the device identity, stored as
  * the device's address (dive dedupe keys on device plus fingerprint). A Suunto on the
- * cable, the Peregrine and the Petrels 2 and 3 are told apart by the serial they report (a
- * Bluetooth LE address differs per platform, as CoreBluetooth makes up a UUID of its own,
- * and the Petrel 2 is reached over Classic or LE). The Petrel and Predator report no
- * serial, so with [byAddress] their key carries the Bluetooth address they were reached on.
- * [links] are the port kinds it can be read through: a cable, Bluetooth Classic serial,
- * or Bluetooth LE. A scan lists every Shearwater it knows, so the kind's `bleName` (what
- * the model's advertised name contains) keeps each one to its own type.
+ * cable and the newer Shearwaters are told apart by the serial they report (a Bluetooth LE
+ * address differs per platform, as CoreBluetooth makes up a UUID of its own, and a Petrel 2
+ * is reached over Classic or LE). The Petrel and Predator report no serial, so with
+ * [byAddress] their key carries the Bluetooth address they were reached on. [links] are
+ * the port kinds it can be read through: a cable, Bluetooth Classic serial, or Bluetooth
+ * LE. A scanned port goes to the type whose kind its advertised name says (`bleNames`).
  */
 enum class DiveComputerType(
     val kind: DiveComputerKind,
@@ -53,9 +52,7 @@ enum class DiveComputerType(
     SUUNTO_VYPER2(DiveComputerKind.SUUNTO_VYPER2, "usb-serial:suunto-vyper2", links = WIRED),
     SHEARWATER_PETREL(DiveComputerKind.SHEARWATER_PETREL, "serial-spp:shearwater-petrel", byAddress = true),
     SHEARWATER_PREDATOR(DiveComputerKind.SHEARWATER_PREDATOR, "serial-spp:shearwater-predator", byAddress = true),
-    SHEARWATER_PEREGRINE(DiveComputerKind.SHEARWATER_PEREGRINE, "ble:shearwater-peregrine", links = BLE),
-    SHEARWATER_PETREL_2(DiveComputerKind.SHEARWATER_PETREL_2, "shearwater:petrel2", links = SERIAL_LINKS + BLE),
-    SHEARWATER_PETREL_3(DiveComputerKind.SHEARWATER_PETREL_3, "shearwater:petrel3", links = BLE),
+    SHEARWATER(DiveComputerKind.SHEARWATER, "shearwater", links = SERIAL_LINKS + BLE),
     ;
 
     val displayName: String get() = kind.displayName
@@ -67,13 +64,13 @@ enum class DiveComputerType(
     fun parser(): DiveLogParser = kind.parser()
 
     /**
-     * Whether this computer can be read through [port]: a scanned port goes to the model its
-     * name says (DiveComputerKind.forAdvertisedName), and a nameless one could be any.
+     * Whether this computer can be read through [port]: a scanned port goes to the kind its
+     * name says (DiveComputerKind.advertises), and a nameless one could be any.
      */
     fun canUse(port: SerialPortInfo): Boolean {
         if (port.kind !in links) return false
         val name = port.advertisedName ?: return true
-        return kind.bleName == null || DiveComputerKind.forAdvertisedName(name) == kind
+        return kind.bleNames.isEmpty() || kind.advertises(name)
     }
 
     /** Whether a platform offering [kinds] of port finds this computer by a Bluetooth LE scan. */
@@ -82,13 +79,13 @@ enum class DiveComputerType(
 
     /**
      * The port to preselect among [ports] when none is remembered: one named like the model
-     * (a scanned or paired Petrel 2), else a scanned one, else the usual guess
+     * (a scanned or paired Perdix), else a scanned one, else the usual guess
      * ([preferredPort]); not just the first paired device, which may be a headset.
      */
     fun likelyPort(ports: List<SerialPortInfo>): SerialPortInfo? {
         val usable = ports.filter(::canUse)
-        if (kind.bleName == null) return preferredPort(usable)
-        return usable.firstOrNull { DiveComputerKind.forAdvertisedName(it.advertisedName ?: it.label) == kind }
+        if (kind.bleNames.isEmpty()) return preferredPort(usable)
+        return usable.firstOrNull { kind.advertises(it.advertisedName ?: it.label) }
             ?: usable.firstOrNull { it.kind == SerialPortKind.BLUETOOTH_LE }
             ?: preferredPort(usable)
     }

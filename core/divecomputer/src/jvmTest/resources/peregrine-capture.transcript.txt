@@ -1,6 +1,9 @@
 # Shearwater Peregrine (firmware V89 Classic) over Bluetooth LE on Android, 2026-10-24.
 # Trimmed to the session setup and the newest dive: identifiers, the manifest, one
 # compressed dive read, then the shutdown. Each R line is one GATT notification.
+# The write size was added by hand: the capture predates recording it, and any size
+# of 32 or more gives the same packets.
+P 244
 W 0100ff010400228010c0
 R 010001ff0c006280103132333435363738c0
 W 0100ff010400228011c0

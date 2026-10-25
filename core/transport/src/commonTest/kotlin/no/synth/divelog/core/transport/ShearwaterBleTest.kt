@@ -12,7 +12,9 @@ class ShearwaterBleTest {
         assertTrue(ShearwaterBle.isKnown("Petrel 2", advertisesService = false))
         assertTrue(ShearwaterBle.isKnown(null, advertisesService = true))
         assertTrue(ShearwaterBle.isKnown("", advertisesService = true)) // CoreBluetooth may report an empty name
-        assertFalse(ShearwaterBle.isKnown("Perdix 2", advertisesService = true))
+        assertTrue(ShearwaterBle.isKnown("Perdix 2", advertisesService = false))
+        // Another Shearwater-like service with a name we do not know is left out.
+        assertFalse(ShearwaterBle.isKnown("Predator", advertisesService = true))
         assertFalse(ShearwaterBle.isKnown(null, advertisesService = false))
     }
 

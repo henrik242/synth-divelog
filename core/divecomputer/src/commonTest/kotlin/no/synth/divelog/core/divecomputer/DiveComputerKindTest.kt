@@ -89,11 +89,13 @@ class DiveComputerKindTest {
     }
 
     @Test
-    fun anAdvertisedNameGoesToTheMostSpecificModel() {
-        assertEquals(DiveComputerKind.SHEARWATER_PEREGRINE, DiveComputerKind.forAdvertisedName("Peregrine TX"))
-        assertEquals(DiveComputerKind.SHEARWATER_PETREL_2, DiveComputerKind.forAdvertisedName("Petrel 2"))
-        assertEquals(DiveComputerKind.SHEARWATER_PETREL_3, DiveComputerKind.forAdvertisedName("petrel 3 1234"))
-        assertNull(DiveComputerKind.forAdvertisedName("Perdix 2"))
+    fun everyNewerShearwaterIsKnownByItsAdvertisedName() {
+        // libdivecomputer's names (dc_filter_shearwater), as advertised or with a suffix.
+        for (name in listOf("Petrel", "Petrel 3", "Perdix", "Perdix AI", "perdix 2 1234", "NERD 2", "Teric", "Peregrine TX", "Tern TX")) {
+            assertEquals(DiveComputerKind.SHEARWATER, DiveComputerKind.forAdvertisedName(name), name)
+        }
+        // Whole words only: no lantern is a Tern.
+        assertNull(DiveComputerKind.forAdvertisedName("Lantern"))
+        assertNull(DiveComputerKind.forAdvertisedName("Predator"))
     }
 }
-
