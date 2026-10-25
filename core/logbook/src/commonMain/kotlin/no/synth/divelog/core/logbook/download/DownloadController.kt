@@ -40,22 +40,21 @@ import no.synth.divelog.core.model.units.UnitSystem
  * and the Petrel 2 is reached over Classic or LE). The Petrel and Predator report no
  * serial, so with [byAddress] their key carries the Bluetooth address they were reached on.
  * [links] are the port kinds it can be read through: a cable, Bluetooth Classic serial,
- * or Bluetooth LE. A scan lists every Shearwater it knows, so [bleName] (what the model's
- * advertised name contains) keeps each one to its own type.
+ * or Bluetooth LE. A scan lists every Shearwater it knows, so the kind's `bleName` (what
+ * the model's advertised name contains) keeps each one to its own type.
  */
 enum class DiveComputerType(
     val kind: DiveComputerKind,
     private val identityKey: String,
     private val byAddress: Boolean = false,
     private val links: Set<SerialPortKind> = SERIAL_LINKS,
-    private val bleName: String? = null,
 ) {
     SUUNTO_VYPER(DiveComputerKind.SUUNTO_VYPER, "usb-serial:suunto-vyper", links = WIRED),
     SUUNTO_VYPER2(DiveComputerKind.SUUNTO_VYPER2, "usb-serial:suunto-vyper2", links = WIRED),
     SHEARWATER_PETREL(DiveComputerKind.SHEARWATER_PETREL, "serial-spp:shearwater-petrel", byAddress = true),
     SHEARWATER_PREDATOR(DiveComputerKind.SHEARWATER_PREDATOR, "serial-spp:shearwater-predator", byAddress = true),
-    SHEARWATER_PEREGRINE(DiveComputerKind.SHEARWATER_PEREGRINE, "ble:shearwater-peregrine", links = BLE, bleName = "Peregrine"),
-    SHEARWATER_PETREL_2(DiveComputerKind.SHEARWATER_PETREL_2, "bt:shearwater-petrel2", links = SERIAL_LINKS + BLE, bleName = "Petrel"),
+    SHEARWATER_PEREGRINE(DiveComputerKind.SHEARWATER_PEREGRINE, "ble:shearwater-peregrine", links = BLE),
+    SHEARWATER_PETREL_2(DiveComputerKind.SHEARWATER_PETREL_2, "shearwater:petrel2", links = SERIAL_LINKS + BLE),
     ;
 
     val displayName: String get() = kind.displayName
@@ -68,13 +67,26 @@ enum class DiveComputerType(
 
     /** Whether this computer can be read through [port]; a nameless scanned port could be any. */
     fun canUse(port: SerialPortInfo): Boolean {
-        if (port.kind !in links) return false
-        val name = port.deviceName
-        return port.kind != SerialPortKind.BLUETOOTH_LE || bleName == null || name == null || name.contains(bleName, ignoreCase = true)
+        val bleName = kind.bleName
+        return port.kind in links && (bleName == null || port.advertisedName?.contains(bleName, ignoreCase = true) ?: true)
     }
 
-    /** Whether this computer is found by a Bluetooth LE scan rather than listed as a port. */
-    val foundByScan: Boolean get() = SerialPortKind.BLUETOOTH_LE in links
+    /** Whether a platform offering [kinds] of port finds this computer by a Bluetooth LE scan. */
+    fun foundByScan(kinds: Set<SerialPortKind>): Boolean =
+        SerialPortKind.BLUETOOTH_LE in links && SerialPortKind.BLUETOOTH_LE in kinds
+
+    /**
+     * The port to preselect among [ports] when none is remembered: one named like the model
+     * (a scanned or paired Petrel 2), else a scanned one, else the usual guess
+     * ([preferredPort]); not just the first paired device, which may be a headset.
+     */
+    fun likelyPort(ports: List<SerialPortInfo>): SerialPortInfo? {
+        val usable = ports.filter(::canUse)
+        val bleName = kind.bleName ?: return preferredPort(usable)
+        return usable.firstOrNull { (it.advertisedName ?: it.label).contains(bleName, ignoreCase = true) }
+            ?: usable.firstOrNull { it.kind == SerialPortKind.BLUETOOTH_LE }
+            ?: preferredPort(usable)
+    }
 
     /** Whether a platform offering [kinds] of port can reach this computer at all. */
     fun reachableOver(kinds: Set<SerialPortKind>): Boolean = links.any { it in kinds }

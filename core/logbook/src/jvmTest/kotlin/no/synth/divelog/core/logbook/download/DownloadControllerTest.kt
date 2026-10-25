@@ -197,7 +197,7 @@ class DownloadControllerTest {
     fun eachComputerIsOfferedOnlyThePortsItsLinkCanUse() {
         val usb = SerialPortInfo("usb:0", "cable", SerialPortKind.USB_SERIAL)
         val spp = SerialPortInfo("bt:AA:BB:CC:DD:EE:01", "Petrel", SerialPortKind.BLUETOOTH_SPP)
-        fun scanned(id: String, name: String?) = SerialPortInfo("ble:$id", "$name", SerialPortKind.BLUETOOTH_LE, deviceName = name)
+        fun scanned(id: String, name: String?) = SerialPortInfo("ble:$id", "$name", SerialPortKind.BLUETOOTH_LE, advertisedName = name)
         val ble = scanned("AA:BB:CC:DD:EE:02", "Peregrine TX")
         val petrel2 = scanned("AA:BB:CC:DD:EE:03", "Petrel 2")
         val nameless = scanned("AA:BB:CC:DD:EE:04", null)
@@ -213,6 +213,20 @@ class DownloadControllerTest {
         assertTrue(DiveComputerType.SHEARWATER_PETREL.reachableOver(serialOnly))
         assertTrue(DiveComputerType.SHEARWATER_PETREL_2.reachableOver(setOf(SerialPortKind.BLUETOOTH_LE)))
         assertFalse(DiveComputerType.SHEARWATER_PETREL.reachableOver(setOf(SerialPortKind.BLUETOOTH_LE)))
+        // The Petrel 2 is scanned for only where there is Bluetooth LE (not on Linux or Windows).
+        assertTrue(DiveComputerType.SHEARWATER_PETREL_2.foundByScan(setOf(SerialPortKind.BLUETOOTH_SPP, SerialPortKind.BLUETOOTH_LE)))
+        assertFalse(DiveComputerType.SHEARWATER_PETREL_2.foundByScan(serialOnly))
+    }
+
+    @Test
+    fun aPetrel2IsPreselectedOverAnyOtherPairedDevice() {
+        val headset = SerialPortInfo("bt:AA:BB:CC:DD:EE:06", "Headset (Bluetooth)", SerialPortKind.BLUETOOTH_SPP)
+        val pairedPetrel = SerialPortInfo("bt:AA:BB:CC:DD:EE:07", "Petrel 2 (Bluetooth)", SerialPortKind.BLUETOOTH_SPP)
+        val scanned = SerialPortInfo("ble:0F3C", "0F3C (Bluetooth LE)", SerialPortKind.BLUETOOTH_LE)
+        val type = DiveComputerType.SHEARWATER_PETREL_2
+        assertEquals(pairedPetrel, type.likelyPort(listOf(headset, scanned, pairedPetrel)))
+        assertEquals(scanned, type.likelyPort(listOf(headset, scanned)))
+        assertEquals(headset, type.likelyPort(listOf(headset)))
     }
 
     @Test
@@ -235,7 +249,7 @@ class DownloadControllerTest {
         download(controller, port = "bt:AA:BB:CC:DD:EE:05", type = DiveComputerType.SHEARWATER_PETREL_2)
         download(controller, port = "ble:0F3C2A1B-7D44-4E2A-9C61-5B8E2D9A1F00", type = DiveComputerType.SHEARWATER_PETREL_2)
         val device = container.devices.all().single()
-        assertEquals("bt:shearwater-petrel2:87654321", device.bluetoothAddress)
+        assertEquals("shearwater:petrel2:87654321", device.bluetoothAddress)
         assertTrue(DiveComputerType.SHEARWATER_PETREL_2.owns(device))
         assertFalse(DiveComputerType.SHEARWATER_PETREL.owns(device))
     }

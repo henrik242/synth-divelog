@@ -27,7 +27,7 @@ class PetrelCaptureRegressionTest {
     fun replaysTheDownloadAndParsesTheDives() {
         var reported: DeviceInfo? = null
         val replay = ReplayTransport(transcript)
-        val raws = ShearwaterPetrelProtocol(replay).download(
+        val raws = ShearwaterPetrel1Protocol(replay).download(
             knownFingerprint = "6a4ff81f", // dive 879: only the three after it are read
             listener = object : DownloadListener {
                 override fun onDeviceInfo(info: DeviceInfo) { reported = info }

@@ -8,13 +8,14 @@ import no.synth.divelog.core.divecomputer.toHex
  * throws [TransportTimeoutException]. Writes are checked against recorded WRITE
  * bytes when [strictWrites] is set, which catches protocol regressions; [sameWrite]
  * decides a match (exact bytes by default). A Bluetooth LE capture also needs the write
- * size its link had ([maxWriteSize]), so the protocol cuts its packets the same way.
+ * size its link had ([maxWriteSize], recorded in the transcript), so the protocol cuts its
+ * packets the same way and knows it is on a packet link.
  */
 class ReplayTransport(
     transcript: Transcript,
     private val strictWrites: Boolean = true,
     private val sameWrite: (expected: ByteArray, actual: ByteArray) -> Boolean = { e, a -> e.contentEquals(a) },
-    override val maxWriteSize: Int? = null,
+    override val maxWriteSize: Int? = transcript.maxWriteSize,
 ) : Transport {
     private val events = transcript.events
     private var index = 0

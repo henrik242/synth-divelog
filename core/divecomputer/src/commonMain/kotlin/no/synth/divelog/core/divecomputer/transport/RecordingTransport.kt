@@ -13,7 +13,7 @@ class RecordingTransport(
     private val events = mutableListOf<TransportEvent>()
     private val startMillis by lazy { clock() }
 
-    fun transcript(): Transcript = Transcript(events.toList())
+    fun transcript(): Transcript = Transcript(events.toList(), delegate.maxWriteSize)
 
     override fun open() = delegate.open()
 

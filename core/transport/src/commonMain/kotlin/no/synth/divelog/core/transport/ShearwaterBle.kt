@@ -1,5 +1,7 @@
 package no.synth.divelog.core.transport
 
+import no.synth.divelog.core.divecomputer.DiveComputerKind
+
 /**
  * What every platform's Bluetooth LE code agrees on for a Shearwater: which scan results are
  * one we read (a Peregrine or a Petrel 2) and which GATT service carries its serial link.
@@ -15,7 +17,7 @@ internal object ShearwaterBle {
     const val SCAN_MS = 20_000L
 
     /** What the names of the models we read contain ("Peregrine TX", "Petrel 2", ...). */
-    private val MODELS = listOf("Peregrine", "Petrel")
+    private val MODELS = DiveComputerKind.entries.mapNotNull { it.bleName }
 
     /** Whether [name] is one a model we read advertises. */
     fun isKnownName(name: String?): Boolean = name != null && MODELS.any { name.contains(it, ignoreCase = true) }

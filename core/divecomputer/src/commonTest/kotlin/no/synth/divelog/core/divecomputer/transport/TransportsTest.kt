@@ -101,4 +101,15 @@ class TransportsTest {
         assertContentEquals(byteArrayOf(0x61, 0x62), events[1].data)
         assertTrue(events[1].atMillis >= 0)
     }
+
+    @Test
+    fun aPacketLinksWriteSizeIsRecordedAndReplayed() {
+        // A Bluetooth LE capture replays as a packet link (the Petrel 2 picks its framing by it).
+        val recorder = RecordingTransport(ReplayTransport(Transcript(emptyList()), maxWriteSize = 20))
+        val text = recorder.transcript().toText()
+        assertEquals("P 20\n", text)
+        assertEquals(20, ReplayTransport(Transcript.fromText(text)).maxWriteSize)
+        assertEquals(null, ReplayTransport(Transcript.fromText("W 01")).maxWriteSize)
+    }
 }
+

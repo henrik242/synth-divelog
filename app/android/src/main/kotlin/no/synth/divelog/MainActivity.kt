@@ -236,7 +236,7 @@ private fun downloadHint(type: DiveComputerType): String? = when (type) {
     DiveComputerType.SHEARWATER_PEREGRINE ->
         "On the Peregrine, start Bluetooth from its menu and keep it near the phone. Android may ask to pair."
     DiveComputerType.SHEARWATER_PETREL_2 ->
-        "On the Petrel 2, start Bluetooth from its menu. A Petrel 2 paired in Android settings is listed over Bluetooth Classic too; either works."
+        "On the Petrel 2, start Bluetooth from its menu. It is found over Bluetooth LE, or pair it in Android settings to use Bluetooth Classic."
 }
 
 /**

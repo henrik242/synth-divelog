@@ -38,14 +38,16 @@ data class TransportEvent(
  * A full captured exchange. Serialises to a plain-text, hex-per-line form so
  * fixtures stay reviewable:
  *
+ *     P 20            a packet link (Bluetooth LE) carrying 20 bytes a write ([maxWriteSize])
  *     W 0102ab        a write of three bytes
  *     R c0...c0       a read
  *     T               a read that timed out
  *
  * An optional `@<millis>` suffix records the time offset.
  */
-data class Transcript(val events: List<TransportEvent>) {
+data class Transcript(val events: List<TransportEvent>, val maxWriteSize: Int? = null) {
     fun toText(): String = buildString {
+        maxWriteSize?.let { append("P ").append(it).append('\n') }
         for (e in events) {
             when {
                 e.timeout -> append("T")
@@ -59,12 +61,12 @@ data class Transcript(val events: List<TransportEvent>) {
 
     companion object {
         fun fromText(text: String): Transcript {
-            val events = text.lineSequence()
+            val lines = text.lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotEmpty() && !it.startsWith("#") }
-                .map { parseLine(it) }
                 .toList()
-            return Transcript(events)
+            val (sizes, steps) = lines.partition { it.startsWith("P ") }
+            return Transcript(steps.map { parseLine(it) }, sizes.lastOrNull()?.removePrefix("P ")?.trim()?.toInt())
         }
 
         private fun parseLine(line: String): TransportEvent {

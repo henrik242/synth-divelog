@@ -153,8 +153,9 @@ internal class AddDivesFlow(
                 onRefresh = { hooks.serialPorts.list() },
                 onStart = { type, port, amount -> startDownload(type, port, amount) },
                 onCancel = { downloadUi = DownloadUiState.Hidden },
-                preselectPortId = { type -> controller.preselectedPortId(type, pickerPorts) },
+                preselectPortId = { type, ports -> controller.preselectedPortId(type, ports) },
                 hint = hooks.downloadHint,
+                linkKinds = hooks.serialPorts.linkKinds,
                 onDiscover = { hooks.serialPorts.discover() },
                 scanProblem = { hooks.serialPorts.scanProblem() },
             )

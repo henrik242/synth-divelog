@@ -22,19 +22,17 @@ import java.time.Instant
  */
 fun main(args: Array<String>) {
     val words = args.map { it.uppercase() }
-    val kind = when {
-        "PREDATOR" in words -> DiveComputerKind.SHEARWATER_PREDATOR
-        "PEREGRINE" in words -> DiveComputerKind.SHEARWATER_PEREGRINE
-        "PETREL2" in words -> DiveComputerKind.SHEARWATER_PETREL_2
-        else -> DiveComputerKind.SHEARWATER_PETREL
-    }
+    val kind = KINDS.entries.firstOrNull { it.key in words }?.value ?: DiveComputerKind.SHEARWATER_PETREL
     val model = kind.displayName.removePrefix("Shearwater ")
     val count = args.firstNotNullOfOrNull { it.toIntOrNull() } ?: 3
-    val target = args.firstOrNull { it.uppercase() !in KEYWORDS && it.toIntOrNull() == null }
-    val overLe = kind == DiveComputerKind.SHEARWATER_PEREGRINE || "LE" in words
-    // Paired and advertised names carry the model's first word ("Petrel" for a Petrel 2).
-    val name = target ?: model.substringBefore(' ')
-    val transport = (if (overLe) bleTransport(name, explicit = target != null) else sppTransport(name)) ?: return
+    val target = args.zip(words).firstOrNull { (_, w) -> w !in KINDS && w != "LE" && w.toIntOrNull() == null }?.first
+    val bleName = kind.bleName
+    val overLe = bleName != null && (kind == DiveComputerKind.SHEARWATER_PEREGRINE || "LE" in words)
+    if ("LE" in words && !overLe) return println("$model has no Bluetooth LE.")
+    val transport = when {
+        overLe && bleName != null -> bleTransport(target ?: bleName, acceptNameless = target == null)
+        else -> sppTransport(target ?: model)
+    } ?: return
 
     val start = System.currentTimeMillis()
     fun elapsed() = "%.1fs".format((System.currentTimeMillis() - start) / 1000.0)
@@ -63,15 +61,21 @@ fun main(args: Array<String>) {
     }
 }
 
-private val KEYWORDS = setOf("PETREL", "PETREL2", "PREDATOR", "PEREGRINE", "LE")
+private val KINDS = mapOf(
+    "PREDATOR" to DiveComputerKind.SHEARWATER_PREDATOR,
+    "PEREGRINE" to DiveComputerKind.SHEARWATER_PEREGRINE,
+    "PETREL2" to DiveComputerKind.SHEARWATER_PETREL_2,
+    "PETREL" to DiveComputerKind.SHEARWATER_PETREL,
+)
 
-/** The paired serial-port device addressed [target], or whose name contains it, through rfcomm-bridge. */
+/** The paired serial-port device addressed or named [target], else whose name contains it, through rfcomm-bridge. */
 private fun sppTransport(target: String): Transport? {
     val bridge = MacRfcommTransport.locateBridge()
         ?: return null.also { println("No rfcomm-bridge found (macOS only; run through Gradle so it gets built).") }
     val paired = MacRfcommTransport.pairedDevices(bridge)
     println("Paired serial-port devices: ${if (paired.isEmpty()) "(none)" else paired.joinToString { "${it.name} ${it.address}" }}")
-    val device = paired.firstOrNull { it.address.equals(target, ignoreCase = true) || it.name.contains(target, ignoreCase = true) }
+    val device = paired.firstOrNull { it.address.equals(target, ignoreCase = true) || it.name.equals(target, ignoreCase = true) }
+        ?: paired.firstOrNull { it.name.contains(target, ignoreCase = true) }
         ?: return null.also { println("No paired device matches \"$target\".") }
     println("Using ${device.name} (${device.address})")
     return MacRfcommTransport(bridge, device.address)
@@ -79,9 +83,9 @@ private fun sppTransport(target: String): Transport? {
 
 /**
  * The computer a Bluetooth LE scan finds with id [target] or a name containing it, through
- * ble-bridge. Unless the target is [explicit] (only the model), a nameless one counts too.
+ * ble-bridge; with [acceptNameless] (no target given, only the model) a nameless one too.
  */
-private fun bleTransport(target: String, explicit: Boolean): Transport? {
+private fun bleTransport(target: String, acceptNameless: Boolean): Transport? {
     val bridge = MacBleScanner.locateBridge()
         ?: return null.also { println("No ble-bridge found (macOS only; run through Gradle so it gets built).") }
     val scanner = MacBleScanner(bridge)
@@ -89,7 +93,7 @@ private fun bleTransport(target: String, explicit: Boolean): Transport? {
     scanner.scan()
     do {
         val device = scanner.found().firstOrNull {
-            it.id.equals(target, ignoreCase = true) || it.name?.contains(target, ignoreCase = true) ?: !explicit
+            it.id.equals(target, ignoreCase = true) || it.name?.contains(target, ignoreCase = true) ?: acceptNameless
         }
         if (device != null) {
             scanner.stop()

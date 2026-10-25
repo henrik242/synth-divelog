@@ -11,7 +11,7 @@ import no.synth.divelog.core.divecomputer.u32be
 
 /**
  * Downloads from the Petrel family as libdivecomputer's `shearwater_petrel.c` reads it: the
- * Petrel 2 and the Peregrine. It is the Petrel 1's manifest download ([ShearwaterPetrelProtocol])
+ * Petrel 2 and the Peregrine. It is the Petrel 1's manifest download ([ShearwaterPetrel1Protocol])
  * with three additions: the serial and firmware are read by identifier, the log format
  * identifier says where the dives live and which layout they use, and the session ends with
  * a shutdown command so the device leaves its Bluetooth screen cleanly.
@@ -20,7 +20,7 @@ import no.synth.divelog.core.divecomputer.u32be
  * turns into the SLIP stream the command layer speaks; without, it is that stream already
  * (Bluetooth Classic). [model] is what the device is reported as.
  */
-class ShearwaterPetrelFamilyProtocol(
+class ShearwaterPetrelFamilyProtocol private constructor(
     transport: Transport,
     private val model: String,
     packets: Boolean,
@@ -66,7 +66,8 @@ class ShearwaterPetrelFamilyProtocol(
 
         /**
          * The Petrel 2, over Bluetooth Classic or LE. A packet link is the one that knows its
-         * write size ([Transport.maxWriteSize] is null for a byte stream).
+         * write size ([Transport.maxWriteSize] is null for a byte stream), so [transport] must
+         * be open; a replayed LE capture carries its size in the transcript.
          */
         fun petrel2(transport: Transport) =
             ShearwaterPetrelFamilyProtocol(transport, "Petrel 2", packets = transport.maxWriteSize != null)

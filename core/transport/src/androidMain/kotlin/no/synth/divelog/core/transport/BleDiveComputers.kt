@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
 private class BleDevice(val name: String?, val address: String, val raw: BluetoothDevice)
 
 /**
- * Android's [BleScanner]: [found] is what scans have seen plus bonded ones, each by
+ * Android's [BleScanner]: [found] is what scans have seen plus bonded Shearwaters, each by
  * its Bluetooth address, and [device] the Android device to connect to.
  *
  * Scanning needs BLUETOOTH_SCAN (declared neverForLocation) and listing bonded devices

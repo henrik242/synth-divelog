@@ -12,10 +12,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /**
- * Drives [ShearwaterPetrelProtocol] against an in-memory Petrel ([FakeShearwaterDevice]
+ * Drives [ShearwaterPetrel1Protocol] against an in-memory Petrel ([FakeShearwaterDevice]
  * over a SLIP byte stream) that serves a manifest and run-length compressed dives.
  */
-class ShearwaterPetrelProtocolTest {
+class ShearwaterPetrel1ProtocolTest {
     private val dives = listOf(
         FakeDive("0000000a", 0x100L, ByteArray(20) { 10 }), // newest
         FakeDive("0000000b", 0x200L, ByteArray(20) { 11 }),
@@ -26,7 +26,7 @@ class ShearwaterPetrelProtocolTest {
     fun readsOldestFirstAndReturnsNewestFirst() {
         val device = FakeShearwaterDevice(dives)
         val delivered = mutableListOf<Int>()
-        val result = ShearwaterPetrelProtocol(SlipStream(device)).download(
+        val result = ShearwaterPetrel1Protocol(SlipStream(device)).download(
             knownFingerprint = null,
             listener = object : DownloadListener {
                 override fun onDiveDownloaded(index: Int, dive: RawDive) { delivered += index }
@@ -43,7 +43,7 @@ class ShearwaterPetrelProtocolTest {
     @Test
     fun stopsAtTheKnownDive() {
         val device = FakeShearwaterDevice(dives)
-        val result = ShearwaterPetrelProtocol(SlipStream(device)).download(knownFingerprint = "0000000b")
+        val result = ShearwaterPetrel1Protocol(SlipStream(device)).download(knownFingerprint = "0000000b")
         assertEquals(listOf("0000000a"), result.map { it.fingerprint })
         assertEquals(listOf(0xC0000100L), device.diveReads)
     }
@@ -51,7 +51,7 @@ class ShearwaterPetrelProtocolTest {
     @Test
     fun aLimitReadsOnlyTheNewest() {
         val device = FakeShearwaterDevice(dives)
-        val result = ShearwaterPetrelProtocol(SlipStream(device)).download(knownFingerprint = null, limit = 1)
+        val result = ShearwaterPetrel1Protocol(SlipStream(device)).download(knownFingerprint = null, limit = 1)
         assertEquals(listOf("0000000a"), result.map { it.fingerprint })
         assertEquals(listOf(0xC0000100L), device.diveReads)
     }
@@ -61,7 +61,7 @@ class ShearwaterPetrelProtocolTest {
         // A full first page of deleted records, then the dives on the next page.
         val pages = listOf(FakeShearwaterDevice.manifestPage(emptyList(), deleted = 48), FakeShearwaterDevice.manifestPage(dives))
         val device = FakeShearwaterDevice(dives, manifestPages = pages)
-        val result = ShearwaterPetrelProtocol(SlipStream(device)).download(knownFingerprint = null)
+        val result = ShearwaterPetrel1Protocol(SlipStream(device)).download(knownFingerprint = null)
         assertEquals(listOf("0000000a", "0000000b", "0000000c"), result.map { it.fingerprint })
     }
 
@@ -70,7 +70,7 @@ class ShearwaterPetrelProtocolTest {
         val device = FakeShearwaterDevice(dives, dropAfterDives = 1)
         val delivered = mutableListOf<String>()
         assertFailsWith<TransportException> {
-            ShearwaterPetrelProtocol(SlipStream(device)).download(
+            ShearwaterPetrel1Protocol(SlipStream(device)).download(
                 knownFingerprint = null,
                 listener = object : DownloadListener {
                     override fun onDiveDownloaded(index: Int, dive: RawDive) { delivered += dive.fingerprint }

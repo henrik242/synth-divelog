@@ -25,7 +25,8 @@ class MacBleTransport(
         val l = HelperLink(bridge, "connect", id)
         link = l
         writeSize = try {
-            l.awaitConnected("the dive computer", CONNECT_TIMEOUT_MS).toIntOrNull()
+            // A packet link always has a write size (the Petrel 2 picks its framing by it).
+            l.awaitConnected("the dive computer", CONNECT_TIMEOUT_MS).toIntOrNull() ?: DEFAULT_WRITE_SIZE
         } catch (e: TransportException) {
             link = null
             throw e
@@ -77,6 +78,9 @@ class MacBleTransport(
     private companion object {
         /** A scan for an uncached device, the connect, and time to confirm a pairing dialog. */
         const val CONNECT_TIMEOUT_MS = 90_000L
+
+        /** The default 23-byte ATT MTU carries 20. */
+        const val DEFAULT_WRITE_SIZE = 20
     }
 }
 

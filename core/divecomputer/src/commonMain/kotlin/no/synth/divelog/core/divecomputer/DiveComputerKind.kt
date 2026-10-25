@@ -4,7 +4,7 @@ import no.synth.divelog.core.divecomputer.shearwater.PredatorDump
 import no.synth.divelog.core.divecomputer.shearwater.PredatorParser
 import no.synth.divelog.core.divecomputer.shearwater.ShearwaterLink
 import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPetrelFamilyProtocol
-import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPetrelProtocol
+import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPetrel1Protocol
 import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPredatorProtocol
 import no.synth.divelog.core.divecomputer.suunto.SuuntoVyper2Dump
 import no.synth.divelog.core.divecomputer.suunto.SuuntoVyper2Parser
@@ -29,6 +29,8 @@ enum class DiveComputerKind(
     val formatIds: Set<String>,
     private val protocolFactory: (Transport) -> DiveComputerProtocol,
     private val parserFactory: () -> DiveLogParser,
+    /** What the name it advertises over Bluetooth LE contains, for a model found by a scan. */
+    val bleName: String? = null,
 ) {
     /** Old 2400 8O1 family: Zoop, Vyper, Vytec, Cobra, Gekko, Stinger, Mosquito. */
     SUUNTO_VYPER(
@@ -51,7 +53,7 @@ enum class DiveComputerKind(
         displayName = "Shearwater Petrel",
         serialParams = ShearwaterLink.SERIAL_PARAMS,
         formatIds = setOf(PredatorParser.PETREL_FORMAT_ID),
-        protocolFactory = { ShearwaterPetrelProtocol(it) },
+        protocolFactory = { ShearwaterPetrel1Protocol(it) },
         parserFactory = { PredatorParser() },
     ),
     SHEARWATER_PREDATOR(
@@ -69,6 +71,7 @@ enum class DiveComputerKind(
         formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
         protocolFactory = { ShearwaterPetrelFamilyProtocol.peregrine(it) },
         parserFactory = { PredatorParser() },
+        bleName = "Peregrine",
     ),
 
     /** Bluetooth Classic or LE; the Peregrine's protocol over either. */
@@ -78,10 +81,15 @@ enum class DiveComputerKind(
         formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
         protocolFactory = { ShearwaterPetrelFamilyProtocol.petrel2(it) },
         parserFactory = { PredatorParser() },
+        // Unconfirmed; a Petrel 3 would match too (likely the same protocol, not yet a type of its own).
+        bleName = "Petrel",
     ),
     ;
 
-    /** The download protocol over an already-opened [transport]. */
+    /**
+     * The download protocol over an already-opened [transport]; open matters, as only an
+     * open Bluetooth LE link knows its [Transport.maxWriteSize] (Petrel 2).
+     */
     fun protocol(transport: Transport): DiveComputerProtocol = protocolFactory(transport)
 
     fun parser(): DiveLogParser = parserFactory()
@@ -89,8 +97,8 @@ enum class DiveComputerKind(
     companion object {
         /**
          * The parser for a stored raw dive's format, or null for one kept without a parser.
-         * Newer models' logs ([PredatorParser.PNF_FORMAT_ID]), from a Peregrine or a
-         * Shearwater Cloud file, go to the same parser.
+         * Newer models' logs ([PredatorParser.PNF_FORMAT_ID]), from a Peregrine, a Petrel 2
+         * or a Shearwater Cloud file, go to the same parser.
          */
         fun parserFor(formatId: String): DiveLogParser? =
             entries.firstOrNull { formatId in it.formatIds }?.parser()
