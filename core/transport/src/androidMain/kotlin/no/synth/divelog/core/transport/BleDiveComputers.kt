@@ -23,7 +23,7 @@ data class BleDevice(
 
 /**
  * Finds a Shearwater Peregrine over Bluetooth LE. A scan cannot block the picker, so
- * [scan] runs one in the background for [SCAN_MS] (the picker calls it again while it
+ * [scan] runs one in the background for [ShearwaterBle.SCAN_MS] (the picker calls it again while it
  * waits) and [found] returns what it has seen so far plus bonded Peregrines, by name.
  * Which devices count is [ShearwaterBle.isPeregrine].
  *
@@ -90,7 +90,7 @@ class BleDiveComputers(context: Context) {
         }.isSuccess
         if (!started) return
         scanning = true
-        main.postDelayed({ stop() }, STOP_TOKEN, SCAN_MS)
+        main.postDelayed({ stop() }, STOP_TOKEN, ShearwaterBle.SCAN_MS)
     }
 
     /** End a scan in progress, and its pending timeout, so a later [scan] runs its full time. */
@@ -113,7 +113,6 @@ class BleDiveComputers(context: Context) {
     private fun adapter() = appContext.getSystemService(BluetoothManager::class.java)?.adapter
 
     companion object {
-        private const val SCAN_MS = 20_000L
         private val STOP_TOKEN = Any()
         private val SERVICE = ParcelUuid.fromString(ShearwaterBle.SERVICE_UUID)
     }

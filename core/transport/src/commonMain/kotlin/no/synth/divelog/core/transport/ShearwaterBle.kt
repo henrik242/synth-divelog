@@ -4,23 +4,27 @@ package no.synth.divelog.core.transport
  * What every platform's Bluetooth LE code agrees on for a Shearwater: which scan results are
  * a Peregrine and which GATT service carries its serial link.
  */
-object ShearwaterBle {
+internal object ShearwaterBle {
     /**
      * Shearwater's serial service, as Subsurface lists it; not yet confirmed on a device, so
      * [serialServices] also falls back to any vendor service.
      */
     const val SERVICE_UUID = "fe25c237-0ece-443c-b0aa-e02033e7029d"
 
+    /** How long one scan runs; the picker starts another while it waits. */
+    const val SCAN_MS = 20_000L
+
     /** Whether [name] is one a Peregrine advertises ("Peregrine", "Peregrine TX", ...). */
     fun isPeregrineName(name: String?): Boolean = name != null && name.contains("Peregrine", ignoreCase = true)
 
     /**
      * Whether a scan result is a Peregrine: by its name, or by Shearwater's service when it
-     * has none. Other Shearwaters may advertise the same service, so a named one must be a
-     * Peregrine; they are left out until their own computer type exists.
+     * has none (a blank name counts as none). Other Shearwaters may advertise the same
+     * service, so a named one must be a Peregrine; they are left out until their own
+     * computer type exists.
      */
     fun isPeregrine(name: String?, advertisesService: Boolean): Boolean =
-        isPeregrineName(name) || (advertisesService && name == null)
+        isPeregrineName(name) || (advertisesService && name.isNullOrBlank())
 
     /**
      * The services to search, in order, for the characteristic the serial link rides (one

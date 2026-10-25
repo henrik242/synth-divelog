@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
 /**
  * A Bluetooth LE dive computer reached through one GATT characteristic: writes go to it
  * and its notifications come back. Packet boundaries are kept: one [write] is one GATT
- * write and a read returns bytes of one notification only ([NotificationQueue]).
+ * write and a read returns bytes of one notification only ([PacketQueue]).
  *
  * [open] connects (retrying once on Android's common first-connect error 133), asks for
  * a larger MTU (keeping the default 23 if that is refused; [maxWriteSize] tells the
@@ -38,7 +38,7 @@ class BleGattTransport(
     private val context: Context,
     private val device: BluetoothDevice,
 ) : Transport {
-    private val notifications = NotificationQueue()
+    private val notifications = PacketQueue()
     private val results = LinkedBlockingQueue<Result>()
 
     @Volatile private var gatt: BluetoothGatt? = null

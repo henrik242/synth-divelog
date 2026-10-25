@@ -26,9 +26,9 @@ fun main(args: Array<String>) {
         args.any { it.equals("PEREGRINE", ignoreCase = true) } -> DiveComputerKind.SHEARWATER_PEREGRINE
         else -> DiveComputerKind.SHEARWATER_PETREL
     }
-    val model = kind.name.removePrefix("SHEARWATER_").lowercase().replaceFirstChar { it.uppercase() }
+    val model = kind.displayName.removePrefix("Shearwater ")
     val count = args.firstNotNullOfOrNull { it.toIntOrNull() } ?: 3
-    val target = args.firstOrNull { !it.equals(kind.name.removePrefix("SHEARWATER_"), ignoreCase = true) && it.toIntOrNull() == null }
+    val target = args.firstOrNull { !it.equals(model, ignoreCase = true) && it.toIntOrNull() == null }
     val transport = (if (kind == DiveComputerKind.SHEARWATER_PEREGRINE) bleTransport(target) else sppTransport(target ?: model)) ?: return
 
     val start = System.currentTimeMillis()
@@ -77,8 +77,7 @@ private fun bleTransport(target: String?): Transport? {
     val scanner = MacBleScanner(bridge)
     println("Scanning for a Peregrine; start Bluetooth on it")
     scanner.scan()
-    val deadline = System.currentTimeMillis() + 20_000
-    while (System.currentTimeMillis() < deadline) {
+    do {
         val device = scanner.found().firstOrNull { target == null || it.id.equals(target, ignoreCase = true) || it.name.equals(target, ignoreCase = true) }
         if (device != null) {
             scanner.stop()
@@ -86,7 +85,7 @@ private fun bleTransport(target: String?): Transport? {
             return MacBleTransport(bridge, device.id)
         }
         Thread.sleep(250)
-    }
+    } while (scanner.scanning)
     scanner.stop()
     println("No Peregrine found${scanner.problem()?.let { ": $it" } ?: ""}")
     return null

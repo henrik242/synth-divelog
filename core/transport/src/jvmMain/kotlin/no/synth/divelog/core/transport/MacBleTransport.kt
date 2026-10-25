@@ -17,14 +17,19 @@ class MacBleTransport(
     private val bridge: File,
     private val id: String,
 ) : Transport {
-    private val notifications = NotificationQueue()
+    private val notifications = PacketQueue()
     @Volatile private var link: HelperLink? = null
     @Volatile private var writeSize: Int? = null
 
     override fun open() {
         val l = HelperLink(bridge, "connect", id)
         link = l
-        writeSize = l.awaitConnected("the dive computer", CONNECT_TIMEOUT_MS).toIntOrNull()
+        writeSize = try {
+            l.awaitConnected("the dive computer", CONNECT_TIMEOUT_MS).toIntOrNull()
+        } catch (e: TransportException) {
+            link = null
+            throw e
+        }
         Thread({ pump(l) }, "ble-bridge-reader").apply {
             isDaemon = true
             start()
@@ -36,7 +41,7 @@ class MacBleTransport(
     override fun write(data: ByteArray) {
         val out = (link ?: throw TransportClosedException()).process.outputStream
         try {
-            out.write(byteArrayOf((data.size shr 8).toByte(), data.size.toByte()) + data)
+            out.write(BridgeProtocol.frame(data))
             out.flush()
         } catch (e: Exception) {
             throw TransportException("Write to the dive computer failed", e)
@@ -60,7 +65,7 @@ class MacBleTransport(
         val input = DataInputStream(l.process.inputStream)
         try {
             while (true) {
-                val frame = ByteArray(input.readUnsignedShort())
+                val frame = ByteArray(input.readUnsignedShort()) // BridgeProtocol.frame's BE16 length
                 input.readFully(frame)
                 notifications.offer(frame)
             }
@@ -77,8 +82,8 @@ class MacBleTransport(
 
 /**
  * Finds Peregrines through the `ble-bridge` helper's `scan` (which runs the shared
- * CoreBluetoothScanner for 20 s): [scan] starts one unless one is running, and [found]
- * lists what scans have seen.
+ * CoreBluetoothScanner once): [scan] starts one unless one is running, and [found] lists
+ * what scans have seen.
  */
 class MacBleScanner(private val bridge: File) {
     private val seen = ConcurrentHashMap<String, ScannedDevice>()
@@ -90,25 +95,34 @@ class MacBleScanner(private val bridge: File) {
     /** Why a scan cannot find anything right now, worded for the picker, or null. */
     fun problem(): String? = problem
 
+    val scanning: Boolean get() = process?.isAlive == true
+
     fun scan() {
-        if (process?.isAlive == true) return
+        if (scanning) return
         problem = null // the new scan reports it again if it still holds
         val p = runCatching { ProcessBuilder(bridge.absolutePath, "scan").start() }.getOrNull() ?: return
         process = p
         Thread({
-            p.inputStream.bufferedReader().forEachLine { line ->
-                when {
-                    line.startsWith("DEVICE ") -> {
-                        val parts = line.removePrefix("DEVICE ").split('\t', limit = 2)
-                        val name = parts.getOrNull(1)?.takeIf { it.isNotEmpty() }
-                        seen[parts[0]] = ScannedDevice(parts[0], name)
-                    }
-                    line.startsWith("PROBLEM") -> problem = line.removePrefix("PROBLEM").trim().takeIf { it.isNotEmpty() }
-                }
-            }
+            // runCatching: stop() kills the helper under the reader.
+            runCatching { read(p) }
         }, "ble-bridge-scan").apply {
             isDaemon = true
             start()
+        }
+    }
+
+    /** The scan's lines, until the helper exits. */
+    private fun read(p: Process) {
+        p.inputStream.bufferedReader().forEachLine { line ->
+            when {
+                line.startsWith(BridgeProtocol.DEVICE) -> {
+                    val parts = line.removePrefix(BridgeProtocol.DEVICE).split('\t', limit = 2)
+                    val name = parts.getOrNull(1)?.takeIf { it.isNotEmpty() }
+                    seen[parts[0]] = ScannedDevice(parts[0], name)
+                }
+                line.startsWith(BridgeProtocol.PROBLEM) ->
+                    problem = line.removePrefix(BridgeProtocol.PROBLEM).trim().takeIf { it.isNotEmpty() }
+            }
         }
     }
 

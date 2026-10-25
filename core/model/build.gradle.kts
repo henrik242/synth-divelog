@@ -5,6 +5,5 @@ plugins {
 kotlin {
     iosArm64()
     iosSimulatorArm64()
-    // The desktop app's Bluetooth LE helper (core:transport) is a macOS executable.
-    macosArm64()
+    macosArm64() // for core:transport's macOS Bluetooth LE helper
 }

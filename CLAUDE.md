@@ -13,7 +13,7 @@ per-target entry point.
 | `:core:model` | Domain types and fixed-unit values. No deps on other modules. |
 | `:core:db` | SQLDelight schema, queries, repositories (`Flow`-based). |
 | `:core:divecomputer` | `Transport` interface, `DiveComputerKind`, protocols and parsers (pure common). |
-| `:core:transport` | Platform transports. Common `SerialLineTransport` (half-duplex line discipline) over jSerialComm (jvm) or usb-serial-for-android; Bluetooth via `BluetoothRfcommTransport` (android) and `MacRfcommTransport` (macOS); Bluetooth LE via `BleGattTransport`/`BleDiveComputers` (android) and `CoreBluetoothTransport`/`CoreBluetoothScanner` (appleMain: iOS, and the macOS `ble-bridge` executable behind `MacBleTransport`), sharing `NotificationQueue` and `ShearwaterBle` (common). |
+| `:core:transport` | Platform transports. Common `SerialLineTransport` (half-duplex line discipline) over jSerialComm (jvm) or usb-serial-for-android; Bluetooth via `BluetoothRfcommTransport` (android) and `MacRfcommTransport` (macOS); Bluetooth LE via `BleGattTransport` (android) and `CoreBluetoothTransport` (appleMain, also the macOS `ble-bridge`). |
 | `:core:formats` | File formats (Subsurface XML, UDDF, MacDive XML, Subsurface git tree) over a neutral `DiveLog`. |
 | `:core:gas` | Calculators for the Tools tab: gas blender (real-gas Z), tank buoyancy, MOD/END, Buhlmann ZHL-16C/GF planner. |
 | `:core:logbook` | App services without Compose: `AppServices`, settings, `LogbookIo` import/export (incl. Shearwater Cloud SQLite), cloud sync (JGit, `CloudGit`), `DownloadController`. |

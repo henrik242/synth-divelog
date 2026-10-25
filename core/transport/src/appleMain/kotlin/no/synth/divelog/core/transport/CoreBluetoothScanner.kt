@@ -18,7 +18,7 @@ import kotlin.concurrent.Volatile
 
 /**
  * Finds Peregrines over CoreBluetooth, like Android's BleDiveComputers: [scan] runs a scan
- * for [SCAN_MS] (the picker calls it again while it waits) and [found] lists what it has
+ * for [ShearwaterBle.SCAN_MS] (the picker calls it again while it waits) and [found] lists what it has
  * seen ([ShearwaterBle.isPeregrine]). The scan runs on the main queue and the calls may come
  * from any thread. Bluetooth is first touched by [scan], which on iOS asks for permission.
  */
@@ -34,17 +34,20 @@ class CoreBluetoothScanner {
 
     fun found(): List<ScannedDevice> = snapshot
 
+    /** Whether a scan is wanted (running, or waiting for Bluetooth); main queue only. */
+    val scanning: Boolean get() = wanted
+
     /** Why a scan cannot find anything right now, worded for the picker, or null. */
     fun problem(): String? = problem
 
-    /** Scan for [SCAN_MS] unless a scan is running; starts once Bluetooth is on if it is not yet. */
+    /** Scan for [ShearwaterBle.SCAN_MS] unless a scan is running; starts once Bluetooth is on if it is not yet. */
     fun scan() = onMain {
         if (wanted) return@onMain
         wanted = true
         val run = ++generation
         val c = central ?: CBCentralManager(delegate, dispatch_get_main_queue()).also { central = it }
         start(c)
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, SCAN_MS * 1_000_000), dispatch_get_main_queue()) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, ShearwaterBle.SCAN_MS * 1_000_000), dispatch_get_main_queue()) {
             if (run == generation) stopScan()
         }
     }
@@ -88,9 +91,5 @@ class CoreBluetoothScanner {
             seen[device.id] = device
             snapshot = seen.values.sortedBy { it.name ?: it.id }
         }
-    }
-
-    private companion object {
-        const val SCAN_MS = 20_000L
     }
 }
