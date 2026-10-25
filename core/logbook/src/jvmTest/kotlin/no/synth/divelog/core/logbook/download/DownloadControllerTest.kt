@@ -108,6 +108,7 @@ class DownloadControllerTest {
         amount: DownloadAmount = DownloadAmount.NewOnly,
         cancel: () -> Boolean = { false },
         type: DiveComputerType = DiveComputerType.SHEARWATER_PETREL,
+        review: (suspend (List<DownloadedDive>) -> List<DiveAction>)? = null,
     ) = runBlocking {
         controller.download(
             type = type,
@@ -116,7 +117,73 @@ class DownloadControllerTest {
             onProgress = { _, _ -> },
             amount = amount,
             portDescriptor = port,
+            review = review ?: { dives -> dives.map { it.status.default } },
         )
+    }
+
+    @Test
+    fun allNewDivesAreImportedWithoutAReview() {
+        val message = download(controller(FakePorts()) { FakeProtocol(it, listOf(dive(2), dive(1))) }, amount = DownloadAmount.All) {
+            error("nothing to review")
+        }
+        assertEquals("Imported 2 new dives", message)
+    }
+
+    @Test
+    fun aStoredDiveIsRefreshedOnlyWhenChecked() {
+        val dives = listOf(dive(2), dive(1))
+        download(controller(FakePorts()) { FakeProtocol(it, dives) })
+        var reviewed: List<DownloadedDive> = emptyList()
+        val message = download(controller(FakePorts()) { FakeProtocol(it, dives) }, amount = DownloadAmount.All) { list ->
+            reviewed = list
+            listOf(DiveAction.REFRESH, DiveAction.SKIP)
+        }
+        assertEquals(listOf(DiveAction.SKIP, DiveAction.SKIP), reviewed.map { it.status.default })
+        assertTrue(reviewed.all { it.status is DiveStatus.Stored && !(it.status as DiveStatus.Stored).secondComputer })
+        assertEquals("Refreshed 1 from the computer, skipped 1 already in the logbook", message)
+        assertEquals(2, container.dives.allDives().size)
+    }
+
+    @Test
+    fun aJoinedDiveIsNotRefreshed() {
+        val dives = listOf(dive(2), dive(1))
+        download(controller(FakePorts()) { FakeProtocol(it, dives) })
+        container.dives.mergeDives(container.dives.allDives().map { it.id })
+        var statuses: List<DiveStatus> = emptyList()
+        val message = download(controller(FakePorts()) { FakeProtocol(it, dives) }, amount = DownloadAmount.All) { list ->
+            statuses = list.map { it.status }
+            list.map { DiveAction.REFRESH }
+        }
+        assertTrue(statuses.all { it is DiveStatus.Stored && it.joined && it.checkedAction == DiveAction.SKIP })
+        assertEquals("Skipped 2 already in the logbook", message)
+    }
+
+    @Test
+    fun aDeletedDiveStaysDeletedUnlessTheUserTakesItBack() {
+        val dives = listOf(dive(2), dive(1))
+        download(controller(FakePorts()) { FakeProtocol(it, dives) })
+        val newest = container.dives.allDives().maxBy { it.startEpochSeconds }
+        container.dives.deleteDive(newest.id)
+
+        // The incremental download stops at the deleted dive rather than bringing it back.
+        var incremental: FakeProtocol? = null
+        assertEquals("No new dives", download(controller(FakePorts()) { t -> FakeProtocol(t, dives).also { incremental = it } }))
+        assertEquals("fp2", incremental?.knownFingerprint)
+
+        var statuses: List<DiveStatus> = emptyList()
+        val left = download(controller(FakePorts()) { FakeProtocol(it, dives) }, amount = DownloadAmount.All) { list ->
+            statuses = list.map { it.status }
+            list.map { it.status.default }
+        }
+        assertEquals(DiveStatus.Deleted, statuses.first())
+        assertEquals("Skipped 1 already in the logbook, left out 1", left)
+        assertEquals(1, container.dives.allDives().size)
+
+        val back = download(controller(FakePorts()) { FakeProtocol(it, dives) }, amount = DownloadAmount.All) { list ->
+            list.map { it.status.checkedAction.takeIf { _ -> it.status == DiveStatus.Deleted } ?: DiveAction.SKIP }
+        }
+        assertEquals("Imported 1 new dive, skipped 1 already in the logbook", back)
+        assertEquals(2, container.dives.allDives().size)
     }
 
     @Test

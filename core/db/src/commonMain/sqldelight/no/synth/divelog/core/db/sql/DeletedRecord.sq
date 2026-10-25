@@ -1,0 +1,32 @@
+-- A downloaded dive the user deleted: its computer and fingerprint, so a later download
+-- leaves it out unless the user asks for it again, and its end, so an incremental download
+-- stops at it. Re-importing the dive clears it.
+CREATE TABLE deletedRecord (
+    deviceId INTEGER NOT NULL REFERENCES device(id) ON DELETE CASCADE,
+    fingerprint TEXT NOT NULL,
+    endEpochSeconds INTEGER NOT NULL,
+    PRIMARY KEY (deviceId, fingerprint)
+);
+
+-- Remembers every downloaded record of a dive about to be deleted.
+rememberRecordsOfDive:
+INSERT OR REPLACE INTO deletedRecord(deviceId, fingerprint, endEpochSeconds)
+SELECT deviceId, fingerprint, startEpochSeconds + durationSeconds FROM diveComputerRecord
+WHERE diveId = ? AND deviceId IS NOT NULL;
+
+-- Remembers a record about to be joined into another, whose own fingerprint goes with it,
+-- so its dive counts as deleted once the joined dive is.
+rememberRecord:
+INSERT OR REPLACE INTO deletedRecord(deviceId, fingerprint, endEpochSeconds)
+SELECT deviceId, fingerprint, startEpochSeconds + durationSeconds FROM diveComputerRecord
+WHERE id = ? AND deviceId IS NOT NULL;
+
+isDeleted:
+SELECT count(*) > 0 FROM deletedRecord WHERE deviceId = ? AND fingerprint = ?;
+
+forget:
+DELETE FROM deletedRecord WHERE deviceId = ? AND fingerprint = ?;
+
+-- A device merge: the target keeps its own entry where both have one; the source's go with it.
+reassignFromDevice:
+UPDATE OR IGNORE deletedRecord SET deviceId = :toId WHERE deviceId = :fromId;
