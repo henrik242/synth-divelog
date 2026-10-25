@@ -43,7 +43,7 @@ class CoreBluetoothScanner : BleScanner {
         if (wanted) return@onMain
         wanted = true
         val run = ++generation
-        val c = central ?: CBCentralManager(delegate, dispatch_get_main_queue()).also { central = it }
+        val c = central ?: centralManager(delegate, dispatch_get_main_queue()).also { central = it }
         start(c)
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, ShearwaterBle.SCAN_MS * 1_000_000), dispatch_get_main_queue()) {
             if (run == generation) stopScan()

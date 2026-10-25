@@ -37,6 +37,7 @@ import no.synth.divelog.ui.download.DownloadPickerDialog
 import no.synth.divelog.ui.download.DownloadProgressDialog
 import no.synth.divelog.ui.download.DownloadReviewDialog
 import no.synth.divelog.ui.download.DownloadUiState
+import no.synth.divelog.ui.download.connectHint
 
 /**
  * Everything behind the Add dives button: the chooser, the dive-computer download, file
@@ -150,15 +151,12 @@ internal class AddDivesFlow(
                 types = downloadTypes,
                 known = pickerKnown,
                 lastKey = controller.lastComputerKey(),
+                serialPorts = hooks.serialPorts,
                 ports = pickerPorts,
-                onRefresh = { hooks.serialPorts.list() },
                 onStart = { type, port, amount -> startDownload(type, port, amount) },
                 onCancel = { downloadUi = DownloadUiState.Hidden },
                 preselectPortId = { type, ports -> controller.preselectedPortId(type, ports) },
-                hint = hooks.downloadHint,
-                linkKinds = hooks.serialPorts.linkKinds,
-                onDiscover = { hooks.serialPorts.discover() },
-                scanProblem = { hooks.serialPorts.scanProblem() },
+                hint = { type -> listOfNotNull(connectHint(type), hooks.downloadHint(type)).joinToString(" ") },
             )
             is DownloadUiState.Running -> DownloadProgressDialog(state = ui, onCancel = { cancelDownload = true })
             is DownloadUiState.Reviewing -> DownloadReviewDialog(ui, services.settings.unitSystem)

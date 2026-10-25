@@ -17,19 +17,17 @@ class SimulatedSerialPorts(
 ) : SerialPorts {
     override val downloadSupported = true
 
+    override val bleScanner get() = real.bleScanner
+
     override val linkKinds: Set<SerialPortKind> get() = real.linkKinds + SerialPortKind.USB_SERIAL
 
     override fun list(): List<SerialPortInfo> = listOf(PORT) + real.list()
 
-    override fun discover() = real.discover()
-
-    override fun scanProblem(): String? = real.scanProblem()
-
-    override suspend fun open(id: String, params: SerialParams): Transport =
+    override suspend fun transport(id: String, params: SerialParams): Transport =
         if (id == PORT.id) {
             SlowTransport(SimulatedVyper2Device(SimulatedVyper2.demoMemory()), commandDelayMs)
         } else {
-            real.open(id, params)
+            real.transport(id, params)
         }
 
     private class SlowTransport(private val inner: Transport, private val delayMs: Long) : Transport by inner {

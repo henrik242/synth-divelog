@@ -2,6 +2,7 @@ package no.synth.divelog.core.transport
 
 import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.divecomputer.transport.TransportClosedException
+import no.synth.divelog.core.divecomputer.transport.TransportException
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -18,11 +19,16 @@ class MacRfcommTransport(
 ) : Transport {
     @Volatile private var link: HelperLink? = null
     @Volatile private var stream: QueuedStream? = null
+    @Volatile private var closed = false
 
     override fun open() {
-        val l = HelperLink(bridge, "connect", address)
-        link = l
-        l.awaitConnected(address, CONNECT_TIMEOUT_MS)
+        val l = startHelper(bridge, closed = { closed }, "connect", address).also { link = it }
+        try {
+            l.awaitConnected(address, CONNECT_TIMEOUT_MS)
+        } catch (e: TransportException) {
+            link = null
+            throw e
+        }
         stream = QueuedStream(l.process.inputStream, l.process.outputStream, address)
     }
 
@@ -34,6 +40,7 @@ class MacRfcommTransport(
         (stream ?: throw TransportClosedException()).read(buffer, offset, length, timeoutMs)
 
     override fun close() {
+        closed = true
         stream?.close()
         stream = null
         link?.stop() // EOF on stdin makes the bridge close the channel
@@ -47,7 +54,7 @@ class MacRfcommTransport(
         private const val CONNECT_TIMEOUT_MS = 20_000L
 
         /** The bundled bridge helper, or null where there is none. */
-        fun locateBridge(): File? = MacHelper.locate("rfcomm-bridge", "rfcommBridge")
+        fun locateBridge(): File? = locateHelper("rfcomm-bridge", "rfcommBridge")
 
         /** Paired devices with a serial-port service, as the bridge reports them. */
         fun pairedDevices(bridge: File): List<PairedDevice> = runCatching {

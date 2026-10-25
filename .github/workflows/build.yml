@@ -87,7 +87,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: android-debug-apk
           path: dist/*.apk
           if-no-files-found: error
           archive: false

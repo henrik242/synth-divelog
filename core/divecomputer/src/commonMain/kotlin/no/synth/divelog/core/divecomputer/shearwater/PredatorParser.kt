@@ -120,7 +120,7 @@ class PredatorParser(
             ?: if (layout.freediveOffsets.isNotEmpty()) DiveMode.FREEDIVE else sampleMode ?: DiveMode.OPEN_CIRCUIT
         // An open-circuit dive has no loop: its ppO2 is only the gas fraction times depth.
         if (diveMode != DiveMode.CLOSED_CIRCUIT && diveMode != DiveMode.SEMI_CLOSED) {
-            samples.replaceAll { it.copy(ppO2Mbar = null) }
+            for (i in samples.indices) samples[i] = samples[i].copy(ppO2Mbar = null)
         }
 
         // Drop the surface tail the computer keeps recording after surfacing, so the

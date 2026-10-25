@@ -11,18 +11,11 @@ import no.synth.divelog.core.transport.CoreBluetoothTransport
  * [CoreBluetoothScanner] and opened with [CoreBluetoothTransport].
  */
 class IosSerialPorts : SerialPorts {
-    private val ble = CoreBluetoothScanner()
+    override val bleScanner = CoreBluetoothScanner()
     override val downloadSupported = true
     override val linkKinds: Set<SerialPortKind> = setOf(SerialPortKind.BLUETOOTH_LE)
 
-    override fun list(): List<SerialPortInfo> = blePorts(ble)
+    override fun list(): List<SerialPortInfo> = blePorts(bleScanner.found())
 
-    override fun discover() = ble.scan()
-
-    override fun scanProblem(): String? = ble.problem()
-
-    override suspend fun open(id: String, params: SerialParams): Transport {
-        ble.stop()
-        return CoreBluetoothTransport(id.removePrefix(BLE_PREFIX)).also { closingOnCancel(it) { it.open() } }
-    }
+    override suspend fun transport(id: String, params: SerialParams): Transport = CoreBluetoothTransport(id.removePrefix(BLE_PREFIX))
 }

@@ -81,7 +81,7 @@ compose.desktop {
     }
 }
 
-// The macOS Bluetooth helpers, built into the app resources, where MacHelper.locate() finds
+// The macOS Bluetooth helpers, built into the app resources, where locateHelper() finds
 // them at runtime:
 // - rfcomm-bridge (Swift) opens a paired device's RFCOMM channel and relays it over
 //   stdin/stdout, since the /dev/cu.* nodes no longer bring the link up.

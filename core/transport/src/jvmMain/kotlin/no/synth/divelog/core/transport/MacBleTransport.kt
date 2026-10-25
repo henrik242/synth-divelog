@@ -20,14 +20,16 @@ class MacBleTransport(
     private val notifications = PacketQueue()
     @Volatile private var link: HelperLink? = null
     @Volatile private var writeSize: Int? = null
+    @Volatile private var closed = false
 
     override fun open() {
-        val l = HelperLink(bridge, "connect", id)
-        link = l
+        val l = startHelper(bridge, closed = { closed }, "connect", id).also { link = it }
         writeSize = try {
             // A packet link always has a write size (a Shearwater picks its framing by it).
-            l.awaitConnected("the dive computer", CONNECT_TIMEOUT_MS).toIntOrNull() ?: DEFAULT_WRITE_SIZE
+            l.awaitConnected("the dive computer", CONNECT_TIMEOUT_MS).toIntOrNull()
+                ?: throw TransportException("The Bluetooth helper reported no write size")
         } catch (e: TransportException) {
+            l.process.destroy()
             link = null
             throw e
         }
@@ -40,12 +42,12 @@ class MacBleTransport(
     override val maxWriteSize: Int? get() = writeSize
 
     override fun write(data: ByteArray) {
-        val out = (link ?: throw TransportClosedException()).process.outputStream
+        val l = link ?: throw TransportClosedException()
         try {
-            out.write(BridgeProtocol.frame(data))
-            out.flush()
+            l.process.outputStream.write(BridgeProtocol.frame(data))
+            l.process.outputStream.flush()
         } catch (e: Exception) {
-            throw TransportException("Write to the dive computer failed", e)
+            throw TransportException(l.exitError() ?: "Write to the dive computer failed", e)
         }
     }
 
@@ -53,6 +55,7 @@ class MacBleTransport(
         notifications.read(buffer, offset, length, timeoutMs)
 
     override fun close() {
+        closed = true
         notifications.close()
         link?.stop()
         link = null
@@ -76,11 +79,8 @@ class MacBleTransport(
     }
 
     private companion object {
-        /** A scan for an uncached device, the connect, and time to confirm a pairing dialog. */
-        const val CONNECT_TIMEOUT_MS = 90_000L
-
-        /** The default 23-byte ATT MTU carries 20. */
-        const val DEFAULT_WRITE_SIZE = 20
+        /** A backstop: the helper gives up on each connect step itself and says why. */
+        const val CONNECT_TIMEOUT_MS = 5 * 60_000L
     }
 }
 
@@ -132,6 +132,6 @@ class MacBleScanner(private val bridge: File) : BleScanner {
 
     companion object {
         /** The bundled helper, or null where there is none (not macOS, or not built). */
-        fun locateBridge(): File? = MacHelper.locate("ble-bridge", "bleBridge")
+        fun locateBridge(): File? = locateHelper("ble-bridge", "bleBridge")
     }
 }

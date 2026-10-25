@@ -24,6 +24,8 @@ import platform.Foundation.runUntilDate
 import platform.darwin.DISPATCH_QUEUE_PRIORITY_DEFAULT
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_global_queue
+import kotlin.concurrent.atomics.AtomicBoolean
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
@@ -65,7 +67,8 @@ private fun connect(id: String) {
     } catch (e: TransportException) {
         fail(e)
     }
-    status("${BridgeProtocol.CONNECTED}${link.maxWriteSize ?: DEFAULT_WRITE_SIZE}")
+    val writeSize = link.maxWriteSize ?: fail(TransportException("The link has no write size"), link)
+    status("${BridgeProtocol.CONNECTED}$writeSize")
     // device -> stdout on a background queue; stdin -> device here, then the orderly close.
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT.toLong(), 0u)) {
         val buffer = ByteArray(MAX_FRAME)
@@ -124,18 +127,26 @@ private fun writeAll(fd: Int, data: ByteArray) {
 
 private fun status(line: String) = writeAll(STDERR, "$line\n".encodeToByteArray())
 
-/** Report [e] and exit, dropping [link] first so the device does not stay in Bluetooth mode. */
+/**
+ * Report [e] and exit, dropping [link] first so the device does not stay in Bluetooth mode.
+ * Both threads can fail at once (the link drops during a write); the second one waits for
+ * the first to exit.
+ */
+@OptIn(ExperimentalAtomicApi::class, ExperimentalForeignApi::class)
 private fun fail(e: TransportException, link: CoreBluetoothTransport? = null): Nothing {
-    link?.close()
-    status("${BridgeProtocol.ERROR}${e.message}")
-    exitProcess(1)
+    if (failing.compareAndSet(expectedValue = false, newValue = true)) {
+        link?.close()
+        status("${BridgeProtocol.ERROR}${e.message}")
+        exitProcess(1)
+    }
+    while (true) platform.posix.sleep(1u)
 }
+
+@OptIn(ExperimentalAtomicApi::class)
+private val failing = AtomicBoolean(false)
 
 private const val STDIN = 0
 private const val STDOUT = 1
 private const val STDERR = 2
 private const val MAX_FRAME = 512
 private const val READ_WAIT_MS = 60_000L
-
-/** The default 23-byte ATT MTU carries 20. */
-private const val DEFAULT_WRITE_SIZE = 20

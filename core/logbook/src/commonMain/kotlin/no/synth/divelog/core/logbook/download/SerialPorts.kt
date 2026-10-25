@@ -8,6 +8,7 @@ import kotlinx.coroutines.coroutineScope
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.transport.BleScanner
+import no.synth.divelog.core.transport.ScannedDevice
 
 /**
  * Which physical link a port rides, so the caller knows which transport [open] will use.
@@ -18,7 +19,8 @@ enum class SerialPortKind { USB_SERIAL, BLUETOOTH_SPP, BLUETOOTH_LE }
 
 /**
  * A port offered to the download picker: an [id], a human [label] and the [kind] of link
- * it rides, and for a scanned Bluetooth LE computer the [advertisedName]. The [id] is opaque to the picker and encodes what the platform [SerialPorts]
+ * it rides, and for a scanned Bluetooth LE computer the [advertisedName]. The [id] is
+ * opaque to the picker and encodes what the platform [SerialPorts]
  * needs to reopen the port in this session (it may change between sessions, e.g. a USB
  * adapter index). [descriptor] is the session-stable identity of the physical port, used
  * to remember a device's connection across sessions; it defaults to [id] where that is
@@ -36,9 +38,9 @@ data class SerialPortInfo(
  * The platform serial layer the shared download runs over. Desktop lists jSerialComm
  * ports, Android lists USB-serial adapters, paired Bluetooth Classic SPP devices and
  * Bluetooth LE dive computers found by a scan (and requests the matching permission in
- * [open]). macOS adds paired Bluetooth Classic devices and Bluetooth LE ones; iOS has
- * Bluetooth LE only. [open] returns an already-opened [Transport] ready for a
- * protocol to drive; the caller closes it.
+ * [transport]). macOS adds paired Bluetooth Classic devices and Bluetooth LE ones; iOS has
+ * Bluetooth LE only. A platform gives its [bleScanner], its ports and a [transport] per
+ * port; [open] does the rest.
  *
  * Kept as an interface rather than an expect/actual class because the Android
  * implementation needs a Context at construction while the others take nothing;
@@ -48,24 +50,47 @@ interface SerialPorts {
     /** False where nothing can be downloaded from; the UI then shows it as unavailable. */
     val downloadSupported: Boolean
 
+    /** Finds the Bluetooth LE computers [list] includes ([blePorts]); null where none can be reached. */
+    val bleScanner: BleScanner? get() = null
+
     /** The kinds of port [list] can return; a computer needing another link is not offered. */
-    val linkKinds: Set<SerialPortKind> get() = setOf(SerialPortKind.USB_SERIAL, SerialPortKind.BLUETOOTH_SPP)
+    val linkKinds: Set<SerialPortKind>
+        get() = if (bleScanner != null) SERIAL_KINDS + SerialPortKind.BLUETOOTH_LE else SERIAL_KINDS
 
     fun list(): List<SerialPortInfo>
 
     /**
      * Start, or keep running, the background search for computers found by scanning
      * ([SerialPortKind.BLUETOOTH_LE]); later [list] calls include what it found. The
-     * picker calls it while such a computer is selected. No-op where nothing is scanned.
+     * picker calls it while such a computer is selected, and [stopDiscovery] when done.
      */
-    fun discover() {}
+    fun discover() {
+        bleScanner?.scan()
+    }
+
+    fun stopDiscovery() {
+        bleScanner?.stop()
+    }
 
     /** Why a scan cannot find anything right now (Bluetooth off, permission missing), else null. */
-    fun scanProblem(): String? = null
+    fun scanProblem(): String? = bleScanner?.problem()
 
-    /** Open [id] with [params] and return the live transport. Blocking; call off the main thread. */
-    suspend fun open(id: String, params: SerialParams): Transport
+    /** The transport for port [id] with [params], not yet opened. May suspend (a permission prompt). */
+    suspend fun transport(id: String, params: SerialParams): Transport
+
+    /**
+     * Open [id] with [params] and return the live transport; the caller closes it. A scan
+     * stops first, as it slows down any Bluetooth connect, and cancelling closes the
+     * transport, as a connect can block for a while.
+     */
+    suspend fun open(id: String, params: SerialParams): Transport {
+        stopDiscovery()
+        return transport(id, params).also { closingOnCancel(it) { it.open() } }
+    }
 }
+
+/** A byte stream: a cable or a Bluetooth Classic serial port. */
+private val SERIAL_KINDS = setOf(SerialPortKind.USB_SERIAL, SerialPortKind.BLUETOOTH_SPP)
 
 /** No download support, for a platform without any link to a dive computer. */
 class NoSerialPorts : SerialPorts {
@@ -73,12 +98,12 @@ class NoSerialPorts : SerialPorts {
 
     override fun list(): List<SerialPortInfo> = emptyList()
 
-    override suspend fun open(id: String, params: SerialParams): Transport =
+    override suspend fun transport(id: String, params: SerialParams): Transport =
         throw UnsupportedOperationException("Download is not available on this platform")
 }
 
-/** The picker's ports for the Bluetooth LE computers [scanner] found, by id (an address or CoreBluetooth UUID). */
-internal fun blePorts(scanner: BleScanner): List<SerialPortInfo> = scanner.found().map {
+/** The picker's ports for the Bluetooth LE computers a scan [found], by id (an address or CoreBluetooth UUID). */
+internal fun blePorts(found: List<ScannedDevice>): List<SerialPortInfo> = found.map {
     val name = it.name?.takeIf(String::isNotBlank) // a blank name is none, as for the scan
     SerialPortInfo(
         id = BLE_PREFIX + it.id,

@@ -8,6 +8,7 @@ import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -83,12 +84,29 @@ class MacBleTransportTest {
     }
 
     @Test
+    fun aTransportClosedBeforeOpenNeverStartsTheHelper() {
+        val started = Files.createTempFile("ble-bridge", ".started").toFile().apply { delete(); deleteOnExit() }
+        val link = MacBleTransport(helper("touch '${started.absolutePath}'\necho 'CONNECTED 20' >&2\ncat"), "ID")
+        link.close()
+        assertFailsWith<TransportClosedException> { link.open() }
+        assertFalse(started.exists())
+    }
+
+    @Test
+    fun aLinkWithoutAWriteSizeIsRefused() {
+        val link = MacBleTransport(helper("echo 'CONNECTED ?' >&2\ncat"), "ID")
+        assertEquals("The Bluetooth helper reported no write size", assertFailsWith<TransportException> { link.open() }.message)
+    }
+
+    @Test
     fun aScanListsDevicesAndClearsAProblem() {
+        // The helper reports a problem, then waits for the test to clear it.
+        val cleared = Files.createTempFile("ble-bridge", ".cleared").toFile().apply { delete(); deleteOnExit() }
         val scanner = MacBleScanner(
             helper(
                 """
                 printf 'PROBLEM Turn on Bluetooth\n'
-                sleep 0.3
+                while [ ! -e '${cleared.absolutePath}' ]; do sleep 0.05; done
                 printf 'PROBLEM \nDEVICE AAAA\tPeregrine TX\nDEVICE BBBB\t\n'
                 """.trimIndent(),
             ),
@@ -96,6 +114,7 @@ class MacBleTransportTest {
         scanner.scan()
         waitFor("the problem") { scanner.problem() != null }
         assertEquals("Turn on Bluetooth", scanner.problem())
+        cleared.createNewFile()
         waitFor("both devices") { scanner.found().size == 2 }
         assertNull(scanner.problem())
         assertEquals(listOf(ScannedDevice("BBBB", null), ScannedDevice("AAAA", "Peregrine TX")), scanner.found())

@@ -24,6 +24,7 @@ import no.synth.divelog.core.divecomputer.transport.RecordingTransport
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.logbook.AppContainer
+import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.IncomingDive
@@ -39,7 +40,7 @@ import no.synth.divelog.core.model.IncomingDive
  * is reached over Classic or LE). The Petrel and Predator report no serial, so with
  * [byAddress] their key carries the Bluetooth address they were reached on. [links] are
  * the port kinds it can be read through: a cable, Bluetooth Classic serial, or Bluetooth
- * LE. A scanned port goes to the type whose kind its advertised name says (`bleNames`).
+ * LE.
  */
 enum class DiveComputerType(
     val kind: DiveComputerKind,
@@ -63,14 +64,10 @@ enum class DiveComputerType(
     fun parser(): DiveLogParser = kind.parser()
 
     /**
-     * Whether this computer can be read through [port]: a scanned port goes to the kind its
-     * name says (DiveComputerKind.advertises), and a nameless one could be any.
+     * Whether this computer can be read through [port], by the link it rides. A scan only
+     * keeps the computers [DiveComputerKind.SHEARWATER] reads, the one type with [BLE].
      */
-    fun canUse(port: SerialPortInfo): Boolean {
-        if (port.kind !in links) return false
-        val name = port.advertisedName ?: return true
-        return kind.bleNames.isEmpty() || kind.advertises(name)
-    }
+    fun canUse(port: SerialPortInfo): Boolean = port.kind in links
 
     /** Whether a platform offering [kinds] of port finds this computer by a Bluetooth LE scan. */
     fun foundByScan(kinds: Set<SerialPortKind>): Boolean =
@@ -371,7 +368,7 @@ class DownloadController(
         )
         val stop = when {
             userCancelled -> CANCELLED
-            failure != null -> "Download stopped after ${session.received.size} dive${plural(session.received.size)}: " +
+            failure != null -> "Download stopped after ${Format.dives(session.received.size)}: " +
                 (failure.message ?: failure::class.simpleName)
             else -> null
         }
@@ -598,7 +595,7 @@ class DownloadController(
                 if (refreshed > 0) add("refreshed $refreshed from the computer")
                 if (skipped > 0) add("skipped $skipped already in the logbook")
                 if (leftOut > 0) add("left out $leftOut")
-                if (unreadable > 0) add("$unreadable dive${plural(unreadable)} could not be read")
+                if (unreadable > 0) add("${Format.dives(unreadable)} could not be read")
                 if (heldBack > 0) add("left $heldBack newer for the next download")
             }
         }

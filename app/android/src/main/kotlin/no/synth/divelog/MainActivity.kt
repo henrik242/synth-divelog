@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.util.Log
@@ -158,11 +157,6 @@ private fun rememberImportFilePick(context: Context): suspend () -> ByteArray? {
     }
 }
 
-/** An export waiting on the save dialog; kept outside the activity, so one recreated meanwhile still writes it. */
-private object PendingSave {
-    var export: ExportFile? = null
-}
-
 /**
  * Builds a suspend action that opens the system save dialog (Downloads, Drive, ...) with the
  * export's name and writes it to the chosen document. Returns false if the user cancelled
@@ -174,33 +168,19 @@ private fun rememberExportSave(context: Context): suspend (ExportFile) -> Boolea
     // A generic type keeps the suggested name as is; a specific one lets the provider append
     // its own extension (synth-divelog.uddf.xml).
     val pick = rememberActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        // The activity was recreated while the dialog was open, so the save's caller is gone:
-        // write its export, or drop the empty document the dialog made when nothing is left.
-        val export = PendingSave.export.also { PendingSave.export = null }
+        // The activity was recreated while the dialog was open and the export went with it:
+        // drop the empty document the dialog made, so the user just exports again.
         if (uri != null) {
             scope.launch {
-                runCatching {
-                    if (export != null) writeDocument(context, uri, export.bytes)
-                    else withContext(Dispatchers.IO) { DocumentsContract.deleteDocument(context.contentResolver, uri) }
-                }.onFailure { Log.w("SynthDivelog", "Finishing an interrupted export failed", it) }
+                runCatching { withContext(Dispatchers.IO) { DocumentsContract.deleteDocument(context.contentResolver, uri) } }
+                    .onFailure { Log.w("SynthDivelog", "Dropping an interrupted export failed", it) }
             }
         }
     }
     return { export ->
-        if (PendingSave.export != null) {
-            false
-        } else {
-            PendingSave.export = export
-            // Cancelled with the activity, this throws and the export stays pending for the result.
-            val uri = pick(export.name)
-            PendingSave.export = null
-            if (uri == null) {
-                false
-            } else {
-                writeDocument(context, uri, export.bytes)
-                true
-            }
-        }
+        val uri = pick(export.name)
+        if (uri != null) writeDocument(context, uri, export.bytes)
+        uri != null
     }
 }
 
@@ -228,21 +208,20 @@ private fun rememberDownloadPermissionRequest(context: Context): suspend () -> U
     }
 }
 
-/** The Suunto computers download over the wired cable, which a phone takes through a USB OTG adapter. */
+/** What a phone adds to the shared connection note: the cable goes through a USB OTG adapter, and pairing. */
 private fun downloadHint(type: DiveComputerType): String? = when (type) {
-    DiveComputerType.SUUNTO_VYPER, DiveComputerType.SUUNTO_VYPER2 ->
-        "Connect the Suunto USB cable to the phone through a USB OTG adapter."
+    DiveComputerType.SUUNTO_VYPER, DiveComputerType.SUUNTO_VYPER2 -> "A phone takes it through a USB OTG adapter."
     DiveComputerType.SHEARWATER_PETREL, DiveComputerType.SHEARWATER_PREDATOR -> null
     DiveComputerType.SHEARWATER ->
-        "Start Bluetooth from the computer's menu and keep it near the phone; Android may ask to pair. A Petrel 2, Perdix or NERD can also be paired in Android settings to use Bluetooth Classic."
+        "Android may ask to pair. A Petrel 2, Perdix or NERD can also be paired in Android settings to use Bluetooth Classic."
 }
 
 /**
  * Bluetooth connect is required to reach a paired computer and scan to find a Bluetooth LE
- * one; the notification permission (API 33+) backs the service.
+ * one; the notification permission backs the service.
  */
 private fun downloadPermissions(): Array<String> = buildList {
     add(Manifest.permission.BLUETOOTH_CONNECT)
     add(Manifest.permission.BLUETOOTH_SCAN)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+    add(Manifest.permission.POST_NOTIFICATIONS)
 }.toTypedArray()
