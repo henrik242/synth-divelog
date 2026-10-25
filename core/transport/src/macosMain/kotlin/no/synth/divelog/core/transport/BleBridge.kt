@@ -14,6 +14,7 @@ package no.synth.divelog.core.transport
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
+import no.synth.divelog.core.divecomputer.transport.TransportClosedException
 import no.synth.divelog.core.divecomputer.transport.TransportException
 import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 import platform.Foundation.NSDate
@@ -68,30 +69,32 @@ private fun connect(id: String) {
         fail(e)
     }
     status("CONNECTED ${link.maxWriteSize ?: DEFAULT_WRITE_SIZE}")
-    // stdin -> device on a background queue; device -> stdout here.
+    // device -> stdout on a background queue; stdin -> device here, then the orderly close.
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT.toLong(), 0u)) {
+        val buffer = ByteArray(MAX_FRAME)
         while (true) {
-            val frame = readFrame() ?: break
-            try {
-                link.write(frame)
+            val n = try {
+                link.read(buffer, 0, buffer.size, 60_000)
+            } catch (_: TransportTimeoutException) {
+                continue
+            } catch (_: TransportClosedException) {
+                return@dispatch_async // closed below
             } catch (e: TransportException) {
                 fail(e)
             }
+            writeAll(STDOUT, byteArrayOf((n shr 8).toByte(), n.toByte()) + buffer.copyOf(n))
         }
-        link.close()
-        exit(0)
     }
-    val buffer = ByteArray(MAX_FRAME)
     while (true) {
-        val n = try {
-            link.read(buffer, 0, buffer.size, 60_000)
-        } catch (_: TransportTimeoutException) {
-            continue
+        val frame = readFrame() ?: break
+        try {
+            link.write(frame)
         } catch (e: TransportException) {
             fail(e)
         }
-        writeAll(STDOUT, byteArrayOf((n shr 8).toByte(), n.toByte()) + buffer.copyOf(n))
     }
+    link.close() // waits for the device to drop the link
+    exit(0)
 }
 
 /** One frame from stdin, or null at its end. */

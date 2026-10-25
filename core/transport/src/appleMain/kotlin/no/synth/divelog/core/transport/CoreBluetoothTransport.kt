@@ -3,6 +3,7 @@ package no.synth.divelog.core.transport
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.ObjCSignatureOverride
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import no.synth.divelog.core.divecomputer.transport.Transport
@@ -49,6 +50,7 @@ import kotlin.time.TimeSource
 class CoreBluetoothTransport(private val identifier: String) : Transport {
     private val notifications = NotificationQueue()
     private val events = Channel<Event>(Channel.UNLIMITED)
+    private val disconnected = Channel<Unit>(Channel.CONFLATED)
     private val delegate = Delegate()
     private val central = CBCentralManager(delegate, dispatch_queue_create("ble-link", null))
 
@@ -147,14 +149,25 @@ class CoreBluetoothTransport(private val identifier: String) : Transport {
     override fun read(buffer: ByteArray, offset: Int, length: Int, timeoutMs: Long): Int =
         notifications.read(buffer, offset, length, timeoutMs)
 
+    /**
+     * Drops the link and waits briefly for it to go, so the device sees the session end even
+     * when the process exits right after (the macOS ble-bridge does). A write without response
+     * has no acknowledgement, so the last ones (the shutdown) get a moment to go out first.
+     */
     override fun close() {
+        val linked = characteristic != null && lost == null && !closed
         closed = true
         notifications.close()
         events.trySend(Event.Ended(TransportClosedException()))
         central.stopScan()
-        peripheral?.let { central.cancelPeripheralConnection(it) }
+        val p = peripheral ?: return
         peripheral = null
         characteristic = null
+        runBlocking {
+            if (linked && writeType == CBCharacteristicWriteWithoutResponse) delay(DRAIN_MS)
+            central.cancelPeripheralConnection(p)
+            if (linked) withTimeoutOrNull(DISCONNECT_TIMEOUT_MS) { disconnected.receive() }
+        }
     }
 
     /** Wait for the [T] that ends the step [what]; a failure, the link ending or [close] throws. */
@@ -211,8 +224,10 @@ class CoreBluetoothTransport(private val identifier: String) : Transport {
             post(Event.Failed(error))
 
         @ObjCSignatureOverride
-        override fun centralManager(central: CBCentralManager, didDisconnectPeripheral: CBPeripheral, error: NSError?) =
+        override fun centralManager(central: CBCentralManager, didDisconnectPeripheral: CBPeripheral, error: NSError?) {
+            disconnected.trySend(Unit)
             linkEnded(TransportException("Connection to $identifier lost: ${error?.localizedDescription ?: "disconnected"}"))
+        }
 
         override fun peripheral(peripheral: CBPeripheral, didDiscoverServices: NSError?) =
             stepDone(didDiscoverServices, Event.ServicesDiscovered)
@@ -248,5 +263,7 @@ class CoreBluetoothTransport(private val identifier: String) : Transport {
         const val SETUP_TIMEOUT_MS = 30_000L
         const val SCAN_TIMEOUT_MS = 20_000L
         const val WRITE_TIMEOUT_MS = 5_000L
+        const val DRAIN_MS = 300L
+        const val DISCONNECT_TIMEOUT_MS = 2_000L
     }
 }

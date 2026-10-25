@@ -65,11 +65,14 @@ internal class HelperLink(helper: File, vararg args: String) {
         status.offer(ABORTED)
     }
 
-    /** Close stdin, which makes the helper drop the link and exit, then wait for it briefly. */
+    /**
+     * Close stdin, which makes the helper drop the link and exit, then wait for it briefly;
+     * killing it sooner could leave the device connected.
+     */
     fun stop() {
         abort()
         runCatching { process.outputStream.close() }
-        if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroy()
+        if (!process.waitFor(5, TimeUnit.SECONDS)) process.destroy()
     }
 
     private companion object {
