@@ -43,7 +43,7 @@ class AndroidSerialPorts(context: Context) : SerialPorts {
     override val linkKinds: Set<SerialPortKind> =
         setOf(SerialPortKind.USB_SERIAL, SerialPortKind.BLUETOOTH_SPP, SerialPortKind.BLUETOOTH_LE)
 
-    override fun list(): List<SerialPortInfo> = usbPorts() + bluetoothPorts() + blePorts()
+    override fun list(): List<SerialPortInfo> = usbPorts() + bluetoothPorts() + blePorts(ble)
 
     override fun discover() = ble.scan()
 
@@ -76,8 +76,6 @@ class AndroidSerialPorts(context: Context) : SerialPorts {
                 )
             }
 
-    private fun blePorts(): List<SerialPortInfo> = ble.found().map { blePort(it.address, it.name) }
-
     override suspend fun open(id: String, params: SerialParams): Transport {
         ble.stop()
         return when {
@@ -102,7 +100,7 @@ class AndroidSerialPorts(context: Context) : SerialPorts {
     }
 
     private suspend fun openBle(address: String): Transport {
-        val found = ble.found().firstOrNull { it.address == address }
+        val found = ble.found().firstOrNull { it.id == address }
         val name = found?.name ?: "the dive computer"
         val device = ble.device(address) ?: throw TransportException("Could not find $name; start Bluetooth on it and try again")
         val transport = BleGattTransport(appContext, device)

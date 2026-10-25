@@ -17,12 +17,11 @@ import platform.darwin.dispatch_time
 import kotlin.concurrent.Volatile
 
 /**
- * Finds Peregrines over CoreBluetooth, like Android's BleDiveComputers: [scan] runs a scan
- * for [ShearwaterBle.SCAN_MS] (the picker calls it again while it waits) and [found] lists what it has
- * seen ([ShearwaterBle.isPeregrine]). The scan runs on the main queue and the calls may come
- * from any thread. Bluetooth is first touched by [scan], which on iOS asks for permission.
+ * The CoreBluetooth [BleScanner], for iOS and the macOS ble-bridge; a device's id is its
+ * CoreBluetooth UUID. The scan runs on the main queue and the calls may come from any
+ * thread. Bluetooth is first touched by [scan], which on iOS asks for permission.
  */
-class CoreBluetoothScanner {
+class CoreBluetoothScanner : BleScanner {
     private val delegate = Delegate()
     private var central: CBCentralManager? = null // main queue only, like the rest below
     private val seen = LinkedHashMap<String, ScannedDevice>()
@@ -32,16 +31,15 @@ class CoreBluetoothScanner {
     @Volatile private var snapshot: List<ScannedDevice> = emptyList()
     @Volatile private var problem: String? = null
 
-    fun found(): List<ScannedDevice> = snapshot
+    override fun found(): List<ScannedDevice> = snapshot
 
     /** Whether a scan is wanted (running, or waiting for Bluetooth); main queue only. */
     val scanning: Boolean get() = wanted
 
-    /** Why a scan cannot find anything right now, worded for the picker, or null. */
-    fun problem(): String? = problem
+    override fun problem(): String? = problem
 
-    /** Scan for [ShearwaterBle.SCAN_MS] unless a scan is running; starts once Bluetooth is on if it is not yet. */
-    fun scan() = onMain {
+    /** Starts once Bluetooth is on, if it is not yet. */
+    override fun scan() = onMain {
         if (wanted) return@onMain
         wanted = true
         val run = ++generation
@@ -52,8 +50,7 @@ class CoreBluetoothScanner {
         }
     }
 
-    /** End a scan in progress; a scan slows down a connect. */
-    fun stop() = onMain { stopScan() }
+    override fun stop() = onMain { stopScan() }
 
     private fun stopScan() {
         generation++
@@ -89,7 +86,7 @@ class CoreBluetoothScanner {
             val device = ScannedDevice(didDiscoverPeripheral.identifier.UUIDString, name)
             if (seen[device.id] == device) return
             seen[device.id] = device
-            snapshot = seen.values.sortedBy { it.name ?: it.id }
+            snapshot = byName(seen.values)
         }
     }
 }

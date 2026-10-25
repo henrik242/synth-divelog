@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType
+
 plugins {
     id("synth.kmp-library")
 }
@@ -18,7 +20,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core:divecomputer"))
-            // Blocking waits on GATT callbacks (NotificationQueue, CoreBluetoothTransport).
+            // Blocking waits on link callbacks (PacketQueue, CoreBluetoothTransport).
             implementation(libs.kotlinx.coroutines.core)
         }
         androidMain.dependencies {
@@ -30,4 +32,13 @@ kotlin {
             implementation(libs.jserialcomm)
         }
     }
+}
+
+// The linked ble-bridge, for the desktop app to bundle (bleBridgeRelease) or run with
+// `gradlew run` (bleBridgeDebug, which links faster).
+for (type in listOf(NativeBuildType.DEBUG, NativeBuildType.RELEASE)) {
+    val name = "bleBridge" + type.name.lowercase().replaceFirstChar { it.uppercase() }
+    val link = kotlin.macosArm64().binaries.getExecutable(type).linkTaskProvider
+    configurations.consumable(name)
+    artifacts.add(name, link.flatMap { it.outputFile }) { builtBy(link) }
 }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import no.synth.divelog.core.divecomputer.transport.SerialParams
 import no.synth.divelog.core.divecomputer.transport.Transport
+import no.synth.divelog.core.transport.BleScanner
 
 /**
  * Which physical link a port rides, so the caller knows which transport [open] will use.
@@ -75,11 +76,12 @@ class NoSerialPorts : SerialPorts {
         throw UnsupportedOperationException("Download is not available on this platform")
 }
 
-/** The picker's port for a Bluetooth LE computer a scan found by [id] (an address or CoreBluetooth UUID). */
-internal fun blePort(id: String, name: String?): SerialPortInfo =
-    SerialPortInfo(id = BLE_PREFIX + id, label = "${name ?: id} (Bluetooth LE)", kind = SerialPortKind.BLUETOOTH_LE)
+/** The picker's ports for the Bluetooth LE computers [scanner] found, by id (an address or CoreBluetooth UUID). */
+internal fun blePorts(scanner: BleScanner): List<SerialPortInfo> = scanner.found().map {
+    SerialPortInfo(id = BLE_PREFIX + it.id, label = "${it.name ?: it.id} (Bluetooth LE)", kind = SerialPortKind.BLUETOOTH_LE)
+}
 
-/** Where [blePort] put the computer's id. */
+/** Where [blePorts] put the computer's id. */
 internal const val BLE_PREFIX = "ble:"
 
 /**

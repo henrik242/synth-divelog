@@ -53,7 +53,7 @@ class DesktopSerialPorts(
                 descriptor = it.address,
             )
         }
-        val scanned = ble?.found().orEmpty().map { blePort(it.id, it.name) }
+        val scanned = ble?.let(::blePorts).orEmpty()
         return paired + scanned + wired
     }
 

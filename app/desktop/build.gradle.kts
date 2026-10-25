@@ -95,24 +95,34 @@ val helpersDir = layout.buildDirectory.dir("appResources/macos")
 val rfcommBridge = helpersDir.map { it.file("rfcomm-bridge") }
 val bleBridge = helpersDir.map { it.file("ble-bridge") }
 
-/** core:transport's linked ble-bridge for [buildType] ("debug" or "release"). */
-fun linkedBleBridge(buildType: String): File =
-    rootProject.file("core/transport/build/bin/macosArm64/${buildType}Executable/ble-bridge.kexe")
+/** core:transport's linked ble-bridge, [buildType] "Debug" or "Release". */
+fun linkedBleBridge(buildType: String): FileCollection {
+    val files = configurations.create("bleBridge$buildType") {
+        isCanBeConsumed = false
+        isTransitive = false
+    }
+    dependencies.add(files.name, dependencies.project(":core:transport", configuration = "bleBridge$buildType"))
+    return files
+}
+val bleBridgeDebug = linkedBleBridge("Debug")
+val bleBridgeRelease = linkedBleBridge("Release")
 val macSigningIdentity = providers.gradleProperty("compose.desktop.mac.sign")
     .filter { it.toBoolean() }
     .flatMap { providers.gradleProperty("compose.desktop.mac.signing.identity") }
     .orElse("")
 
-/** Run [command] to produce the helper [output], then sign it when this is a signed build. */
-fun Exec.macHelper(output: File, command: String) {
+/** Run [command] (built when the task runs) to produce the helper [output], then sign it in a signed build. */
+fun Exec.macHelper(output: File, command: () -> String) {
     val identity = macSigningIdentity.get()
     val mac = isMac
     onlyIf { mac }
     inputs.property("signingIdentity", identity)
     outputs.file(output)
-    doFirst { output.parentFile.mkdirs() }
     val sign = "codesign --force --options runtime --timestamp --sign 'Developer ID Application: $identity' '${output.absolutePath}'"
-    commandLine("sh", "-c", if (identity.isEmpty()) command else "$command && $sign")
+    doFirst {
+        output.parentFile.mkdirs()
+        commandLine("sh", "-c", if (identity.isEmpty()) command() else "${command()} && $sign")
+    }
 }
 
 val buildRfcommBridge by tasks.registering(Exec::class) {
@@ -120,22 +130,24 @@ val buildRfcommBridge by tasks.registering(Exec::class) {
     val source = file("native/rfcomm-bridge.swift")
     val output = rfcommBridge.get().asFile
     inputs.file(source)
-    macHelper(output, "swiftc -O -framework IOBluetooth '${source.absolutePath}' -o '${output.absolutePath}'")
+    macHelper(output) { "swiftc -O -framework IOBluetooth '${source.absolutePath}' -o '${output.absolutePath}'" }
 }
 val buildBleBridge by tasks.registering(Exec::class) {
     description = "Bundle the macOS Bluetooth LE bridge"
-    if (isMac) dependsOn(":core:transport:linkReleaseExecutableMacosArm64")
-    val linked = linkedBleBridge("release")
+    val linked = bleBridgeRelease
     val output = bleBridge.get().asFile
-    inputs.file(linked).optional()
-    macHelper(output, "cp '${linked.absolutePath}' '${output.absolutePath}'")
+    if (isMac) inputs.files(linked) // elsewhere there is nothing to link
+    macHelper(output) { "cp '${linked.singleFile.absolutePath}' '${output.absolutePath}'" }
 }
 tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(buildRfcommBridge, buildBleBridge) }
 tasks.withType<JavaExec>().configureEach {
     dependsOn(buildRfcommBridge)
-    if (isMac) dependsOn(":core:transport:linkDebugExecutableMacosArm64")
     systemProperty("synth.rfcommBridge", rfcommBridge.get().asFile.absolutePath)
-    systemProperty("synth.bleBridge", linkedBleBridge("debug").absolutePath)
+    if (isMac) {
+        val linked = bleBridgeDebug
+        inputs.files(linked)
+        jvmArgumentProviders.add { listOf("-Dsynth.bleBridge=${linked.singleFile.absolutePath}") }
+    }
 }
 
 // Command-line Suunto capture tool, for bringing up the USB dongle before there is

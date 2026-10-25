@@ -26,8 +26,10 @@ The parts every platform shares are in `core:transport` commonMain: which scan r
 count (`ShearwaterBle.isPeregrine`: a name containing "Peregrine", or the Shearwater service
 advertised without a name), the service order for finding the serial characteristic
 (`ShearwaterBle.serialServices`), and `PacketQueue`, which hands notifications to the
-blocking reads and keeps their boundaries. An unfiltered scan keeps running while the
-picker has the Peregrine selected, and the list updates by itself. The computer is known
+blocking reads and keeps their boundaries. Each platform's scanner is a `BleScanner`,
+which the download picker's ports come from (`blePorts`, `core:logbook`). An unfiltered
+scan keeps running while the picker has the Peregrine selected, and the list updates by
+itself. The computer is known
 by the serial it reports, not its address, since CoreBluetooth gives each device a UUID of
 its own instead of the Bluetooth address.
 
@@ -72,8 +74,9 @@ exited at once, and the Peregrine stayed on "sent dive" with a countdown after a
   `ble-bridge connect <uuid>` relays the link as frames of a BE16 length and the bytes,
   one per write or notification, so packet boundaries survive the pipe (`MacBleTransport`).
   The lines and frames are `BridgeProtocol`'s, and `MacBleTransportTest` runs the JVM end
-  against shell scripts. Apple Silicon only (`macosArm64`). `gradlew run` uses the debug
-  build of the helper, a packaged app the release build.
+  against shell scripts. Apple Silicon only (`macosArm64`). `core:transport` publishes the
+  linked helper as `bleBridgeDebug` (for `gradlew run`, which links faster) and
+  `bleBridgeRelease` (bundled in the app).
   `./gradlew :app:desktop:shearwaterCapture --args="PEREGRINE"` tests it without the app.
 
 ## Packet layer

@@ -15,23 +15,17 @@ import android.os.ParcelUuid
 import java.util.concurrent.ConcurrentHashMap
 
 /** A Bluetooth LE dive computer seen in a scan or bonded in system settings. */
-data class BleDevice(
-    val name: String?,
-    val address: String,
-    val raw: BluetoothDevice,
-)
+private class BleDevice(val name: String?, val address: String, val raw: BluetoothDevice)
 
 /**
- * Finds a Shearwater Peregrine over Bluetooth LE. A scan cannot block the picker, so
- * [scan] runs one in the background for [ShearwaterBle.SCAN_MS] (the picker calls it again while it
- * waits) and [found] returns what it has seen so far plus bonded Peregrines, by name.
- * Which devices count is [ShearwaterBle.isPeregrine].
+ * Android's [BleScanner]: [found] is what scans have seen plus bonded Peregrines, each by
+ * its Bluetooth address, and [device] the Android device to connect to.
  *
  * Scanning needs BLUETOOTH_SCAN (declared neverForLocation) and listing bonded devices
  * BLUETOOTH_CONNECT; without them, or with Bluetooth off, the list is empty and
  * [problem] says why.
  */
-class BleDiveComputers(context: Context) {
+class BleDiveComputers(context: Context) : BleScanner {
     private val appContext = context.applicationContext
     private val seen = ConcurrentHashMap<String, BleDevice>()
     private val main = Handler(Looper.getMainLooper())
@@ -51,20 +45,17 @@ class BleDiveComputers(context: Context) {
         }
     }
 
-    /** Devices seen so far plus bonded Peregrines, by name. */
-    fun found(): List<BleDevice> {
-        val all = LinkedHashMap<String, BleDevice>()
-        bonded().forEach { all[it.address] = it }
-        seen.values.forEach { all[it.address] = it }
-        return all.values.sortedBy { it.name ?: it.address }
+    override fun found(): List<ScannedDevice> {
+        val all = LinkedHashMap<String, ScannedDevice>()
+        (bonded() + seen.values).forEach { all[it.address] = ScannedDevice(it.address, it.name) }
+        return byName(all.values)
     }
 
     /** The device at [address] from a scan or bonding, with the address type Android saw. */
     fun device(address: String): BluetoothDevice? =
         seen[address]?.raw ?: bonded().firstOrNull { it.address == address }?.raw
 
-    /** Why a scan cannot find anything right now, worded for the picker, or null. */
-    fun problem(): String? {
+    override fun problem(): String? {
         val adapter = adapter() ?: return "This phone has no Bluetooth"
         val granted = listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
             .all { appContext.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
@@ -80,7 +71,7 @@ class BleDiveComputers(context: Context) {
      * off) is ignored, so the USB and Bluetooth Classic ports still list.
      */
     @SuppressLint("MissingPermission")
-    fun scan() {
+    override fun scan() {
         if (scanning) return
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         // Unfiltered: a filter on the service would miss a computer that only advertises its name.
@@ -93,9 +84,9 @@ class BleDiveComputers(context: Context) {
         main.postDelayed({ stop() }, STOP_TOKEN, ShearwaterBle.SCAN_MS)
     }
 
-    /** End a scan in progress, and its pending timeout, so a later [scan] runs its full time. */
+    /** Also drops the pending timeout, so a later [scan] runs its full time. */
     @SuppressLint("MissingPermission")
-    fun stop() {
+    override fun stop() {
         main.removeCallbacksAndMessages(STOP_TOKEN)
         if (!scanning) return
         scanning = false
