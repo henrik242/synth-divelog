@@ -1,6 +1,7 @@
 package no.synth.divelog.core.db
 
 import no.synth.divelog.core.model.Device
+import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Tank
 import kotlin.test.Test
@@ -176,10 +177,12 @@ class MergeSplitTest {
         assertEquals(DiveRepository.CONCATENATED_FORMAT_ID, record.rawFormatId)
         assertEquals("b", record.fingerprint)
         assertEquals(
-            listOf(0 to 0, 300 to 20_000, 600 to 1_000, 1_999 to 0, 2_000 to 1_000, 2_300 to 25_000, 2_600 to 0),
+            listOf(0 to 0, 300 to 20_000, 600 to 1_000, 601 to 0, 1_999 to 0, 2_000 to 1_000, 2_300 to 25_000, 2_600 to 0),
             dives.samplesForRecord(record.id).map { it.timeOffsetSeconds to it.depthMm },
         )
         assertEquals(listOf(2_100), dives.eventsForRecord(record.id).map { it.timeOffsetSeconds })
+        val surface = dives.samplesForRecord(record.id).single { it.timeOffsetSeconds == 601 }
+        assertEquals(listOf(0, 0, 0), listOf(surface.stopDepthMm, surface.stopTimeSeconds, surface.ttsSeconds))
         val dive = assertNotNull(dives.getDive(merged))
         assertEquals(2_600, dive.durationSeconds)
         assertEquals(25_000, dive.maxDepthMm)
@@ -212,5 +215,53 @@ class MergeSplitTest {
         assertFalse(dives.canMerge(listOf(a)))
         assertFailsWith<IllegalArgumentException> { dives.mergeDives(listOf(a, b)) }
         assertEquals(2, dives.allDives().size)
+    }
+
+    @Test
+    fun joinedDivesKeepTankPressuresOnTheirTanks() {
+        val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel", bluetoothAddress = "2"))
+        val a = assertIs<ImportResult.CreatedDive>(
+            dives.import(incoming(deviceId = petrel, start = 10_000, duration = 600, fingerprint = "a", samples = listOf(sampleAt(0, 0, mapOf(0 to 200_000))))) { false },
+        )
+        val b = assertIs<ImportResult.CreatedDive>(
+            dives.import(incoming(deviceId = petrel, start = 12_000, duration = 600, fingerprint = "b", samples = listOf(sampleAt(0, 0, mapOf(0 to 180_000))))) { false },
+        )
+        val air = gases.getOrCreateGasMix(210, 0)
+        val ean32 = gases.getOrCreateGasMix(320, 0)
+        gases.addTank(Tank(diveId = a.diveId, index = 0, volumeMl = 12_000, gasMixId = air))
+        gases.addTank(Tank(diveId = b.diveId, index = 0, volumeMl = 12_000, gasMixId = ean32))
+
+        val merged = dives.mergeDives(listOf(a.diveId, b.diveId))
+
+        val ean32Index = gases.tanksForDive(merged).single { it.gasMixId == ean32 }.index
+        assertEquals(1, ean32Index)
+        val pressures = dives.samplesForRecord(a.recordId).associate { it.timeOffsetSeconds to it.tankPressuresMbar }
+        assertEquals(mapOf(0 to 200_000), pressures[0])
+        assertEquals(mapOf(ean32Index to 180_000), pressures[2_000])
+    }
+
+    @Test
+    fun mergingDivesWithoutComputersSpansThemAll() {
+        val first = dives.insertDive(Dive(startEpochSeconds = 10_000, utcOffsetSeconds = 0, durationSeconds = 600, maxDepthMm = 10_000, meanDepthMm = 5_000))
+        val second = dives.insertDive(Dive(startEpochSeconds = 12_000, utcOffsetSeconds = 0, durationSeconds = 1_200, maxDepthMm = 20_000, meanDepthMm = 8_000))
+
+        val merged = assertNotNull(dives.getDive(dives.mergeDives(listOf(second, first))))
+
+        assertEquals(first, merged.id)
+        assertEquals(3_200, merged.durationSeconds)
+        assertEquals(20_000, merged.maxDepthMm)
+        assertEquals(7_000, merged.meanDepthMm)
+    }
+
+    @Test
+    fun aJoinedRecordGivesTheNewestFingerprintOfItsDives() {
+        val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel", bluetoothAddress = "2"))
+        val a = assertIs<ImportResult.CreatedDive>(dives.import(incoming(deviceId = petrel, start = 10_000, duration = 600, fingerprint = "a")) { false }).diveId
+        dives.import(incoming(deviceId = petrel, start = 12_000, duration = 600, fingerprint = "b")) { false }
+        val c = assertIs<ImportResult.CreatedDive>(dives.import(incoming(deviceId = petrel, start = 14_000, duration = 600, fingerprint = "c")) { false }).diveId
+
+        dives.mergeDives(listOf(a, c))
+
+        assertEquals("c", dives.newestFingerprint(petrel))
     }
 }

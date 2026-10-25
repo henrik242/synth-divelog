@@ -47,20 +47,27 @@ class GasRepository(private val db: DiveDatabase) {
      * Merge [incoming] tanks onto [diveId]: each fills in what an unclaimed matching tank
      * lacks (size, pressures, gas); the rest are added after the dive's tanks. A tank that
      * only names a gas the dive already has adds nothing. The incoming ids are ignored.
+     * Returns the dive's tank index for each incoming tank index that has one, so tank
+     * pressure samples can follow their tank.
      */
-    fun mergeTanks(diveId: Long, incoming: List<Tank>) = db.transaction {
-        if (incoming.isEmpty()) return@transaction
+    fun mergeTanks(diveId: Long, incoming: List<Tank>): Map<Int, Int> = db.transactionWithResult {
+        if (incoming.isEmpty()) return@transactionWithResult emptyMap()
+        val indices = HashMap<Int, Int>()
         val mixes = HashMap<Long, Pair<Int, Int>?>()
         fun gasOf(t: Tank): Pair<Int, Int>? = t.gasMixId?.let { id ->
             mixes.getOrPut(id) { gasMix(id)?.let { it.o2Permille to it.hePermille } }
         }
-        val existing = tanksForDive(diveId).toMutableList()
+        val onDive = tanksForDive(diveId)
+        val existing = onDive.toMutableList()
         val gasesOnDive = existing.mapNotNull { gasOf(it) }.toMutableSet()
         var nextIndex = (existing.maxOfOrNull { it.index } ?: -1) + 1
         for (t in incoming) {
             val gas = gasOf(t)
             val bare = t.volumeMl == null && t.startPressureMbar == null && t.endPressureMbar == null
-            if (bare && (gas == null || gas in gasesOnDive)) continue
+            if (bare && (gas == null || gas in gasesOnDive)) {
+                gas?.let { g -> onDive.firstOrNull { gasOf(it) == g } }?.let { indices[t.index] = it.index }
+                continue
+            }
             val match = gas?.let { g -> existing.firstOrNull { gasOf(it) == g } }
                 ?: existing.firstOrNull { pairsBySize(it, gasOf(it), t, gas) }
             if (match != null) {
@@ -73,11 +80,14 @@ class GasRepository(private val db: DiveDatabase) {
                     endPressureMbar = match.endPressureMbar ?: t.endPressureMbar,
                 )
                 if (filled != match) updateTank(filled)
+                indices[t.index] = match.index
             } else {
+                indices[t.index] = nextIndex
                 addTank(t.copy(diveId = diveId, index = nextIndex++))
                 gas?.let { gasesOnDive.add(it) }
             }
         }
+        indices
     }
 
     /**

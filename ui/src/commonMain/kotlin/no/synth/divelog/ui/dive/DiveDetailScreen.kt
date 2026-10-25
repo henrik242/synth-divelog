@@ -104,10 +104,11 @@ fun DiveDetailScreen(
     val selectedRecord = records.firstOrNull { it.id == selectedRecordId }
         ?: records.firstOrNull { it.id == dive.primaryComputerRecordId }
         ?: records.firstOrNull()
-    val samples = remember(selectedRecord?.id) {
+    // Keyed on the whole summary: a merge can append to a record without changing its id.
+    val samples = remember(selectedRecord) {
         selectedRecord?.let { container.dives.samplesForRecord(it.id) } ?: emptyList()
     }
-    val events = remember(selectedRecord?.id) {
+    val events = remember(selectedRecord) {
         selectedRecord?.let { container.dives.eventsForRecord(it.id) } ?: emptyList()
     }
 
