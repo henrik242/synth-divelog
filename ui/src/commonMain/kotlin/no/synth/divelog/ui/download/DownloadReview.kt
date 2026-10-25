@@ -68,6 +68,9 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSyste
     fun checkedAction(i: Int): DiveAction =
         if (dives[i].status is DiveStatus.Overlaps && i in keepSeparate) DiveAction.IMPORT else dives[i].status.checkedAction
 
+    // What starts checked, keeping a keep-separate choice made since.
+    fun newOnly(i: Int): DiveAction = if (dives[i].status.default == DiveAction.SKIP) DiveAction.SKIP else checkedAction(i)
+
     fun toggle(i: Int) {
         actions[i] = if (actions[i] == DiveAction.SKIP) checkedAction(i) else DiveAction.SKIP
     }
@@ -106,7 +109,7 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSyste
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     ) {
-                        TextButton(onClick = { setAll { dives[it].status.default } }) { Text("Select new") }
+                        TextButton(onClick = { setAll(::newOnly) }) { Text("Select new") }
                         TextButton(onClick = { setAll(::checkedAction) }) { Text("Select all") }
                         TextButton(onClick = { setAll { DiveAction.SKIP } }) { Text("Select none") }
                     }
@@ -170,7 +173,7 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSyste
             title = { Text("Discard ${dives.size} downloaded dive${if (dives.size == 1) "" else "s"}?") },
             text = { Text("To get them back you would have to download again.") },
             confirmButton = {
-                TextButton(onClick = { state.onResolve(dives.map { it.status.default }) }) { Text("Import new only") }
+                TextButton(onClick = { state.onResolve(dives.indices.map(::newOnly)) }) { Text("Import new only") }
             },
             dismissButton = {
                 Row {

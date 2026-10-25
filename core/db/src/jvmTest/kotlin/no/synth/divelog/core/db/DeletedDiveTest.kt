@@ -1,6 +1,7 @@
 package no.synth.divelog.core.db
 
 import no.synth.divelog.core.model.Device
+import no.synth.divelog.core.model.GasMix
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -65,6 +66,40 @@ class DeletedDiveTest {
         assertTrue(dives.isDeleted(petrel, "a"))
         assertTrue(dives.isDeleted(petrel, "b"))
         assertEquals("b", dives.newestFingerprint(petrel))
+    }
+
+    @Test
+    fun refreshKeepsPressuresOnTheTankAMergeMovedThemTo() {
+        val perdix = devices.add(Device(vendor = "Shearwater", model = "Perdix"))
+        val air = incoming(deviceId = petrel, fingerprint = "air", samples = listOf(sampleAt(0, 0, mapOf(0 to 200_000))))
+            .copy(gases = listOf(GasMix(o2Permille = 210, hePermille = 0)))
+        val nitrox = incoming(deviceId = perdix, fingerprint = "nx", samples = listOf(sampleAt(0, 0, mapOf(0 to 180_000))))
+            .copy(gases = listOf(GasMix(o2Permille = 320, hePermille = 0)))
+        val target = dives.importAsNewDive(air).diveId
+        val source = dives.importAsNewDive(nitrox)
+        dives.mergeDives(sourceDiveId = source.diveId, targetDiveId = target)
+        // The nitrox tank comes after the air tank, and its pressures go with it.
+        assertEquals(mapOf(1 to 180_000), dives.samplesForRecord(source.recordId).single().tankPressuresMbar)
+
+        dives.refreshRecord(source.recordId, nitrox)
+
+        assertEquals(mapOf(1 to 180_000), dives.samplesForRecord(source.recordId).single().tankPressuresMbar)
+    }
+
+    @Test
+    fun refreshingThePrimaryOfMergedDivesKeepsTheSpanAndDepth() {
+        val perdix = devices.add(Device(vendor = "Shearwater", model = "Perdix"))
+        val first = incoming(deviceId = petrel, start = 1_000_000, duration = 600, maxDepthMm = 30_000, fingerprint = "a")
+        val a = dives.importAsNewDive(first).diveId
+        val b = dives.importAsNewDive(incoming(deviceId = perdix, start = 1_000_900, duration = 600, maxDepthMm = 40_000, fingerprint = "b")).diveId
+        val merged = dives.mergeDives(listOf(a, b))
+        val primary = assertNotNull(assertNotNull(dives.getDive(merged)).primaryComputerRecordId)
+
+        dives.refreshRecord(primary, first.copy(maxDepthMm = 20_000))
+
+        val dive = assertNotNull(dives.getDive(merged))
+        assertEquals(1_500, dive.durationSeconds)
+        assertEquals(40_000, dive.maxDepthMm)
     }
 
     @Test

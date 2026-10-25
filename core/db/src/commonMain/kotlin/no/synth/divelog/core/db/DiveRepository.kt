@@ -347,6 +347,7 @@ class DiveRepository(private val db: DiveDatabase) {
         val rec = records.selectRecordSummaryById(recordId).executeAsOne()
         val dive = dives.selectDiveById(rec.diveId).executeAsOne().toDomain()
         val start = startInDiveFrame(incoming, dive.utcOffsetSeconds)
+        val tankIndices = storedTankIndices(recordId, incoming)
         samples.deleteSamplesForRecord(recordId)
         samples.deleteTankPressuresForRecord(recordId)
         events.deleteEventsForRecord(recordId)
@@ -362,19 +363,49 @@ class DiveRepository(private val db: DiveDatabase) {
             recordId,
         )
         insertSamplesAndEvents(recordId, incoming)
+        renumberTanks(recordId, tankIndices)
 
         addMissingGases(rec.diveId, incoming.gases)
         if (dive.primaryComputerRecordId == recordId) {
+            // Other records (more computers, or dives merged into this one) keep their share
+            // of the summary: it spans every record and takes the deepest.
+            val others = records.selectRecordSummariesForDive(rec.diveId).executeAsList().filter { it.id != recordId }
             updateDive(
                 dive.copy(
                     startEpochSeconds = start,
-                    durationSeconds = incoming.durationSeconds,
-                    maxDepthMm = incoming.maxDepthMm,
-                    meanDepthMm = incoming.meanDepthMm,
+                    durationSeconds = (others.maxOfOrNull { it.startEpochSeconds + it.durationSeconds } ?: 0L)
+                        .let { end -> maxOf(incoming.durationSeconds.toLong(), end - start).toInt() },
+                    maxDepthMm = (others.mapNotNull { it.maxDepthMm?.toInt() } + listOfNotNull(incoming.maxDepthMm)).maxOrNull(),
+                    meanDepthMm = if (others.isEmpty()) incoming.meanDepthMm else dive.meanDepthMm,
                     waterTempMk = incoming.waterTempMk,
                 ),
             )
         }
+    }
+
+    /**
+     * The tank index [recordId] stores for each tank index of [incoming], matched by equal
+     * pressures at the same times, so a re-parse keeps the tanks a merge moved its pressures
+     * to. A tank with no match keeps its index.
+     */
+    private fun storedTankIndices(recordId: Long, incoming: IncomingDive): Map<Int, Int> {
+        val stored = samples.selectTankPressuresForRecord(recordId).executeAsList()
+            .groupBy({ it.tankIndex.toInt() }) { it.timeOffsetSeconds to it.pressureMbar }
+            .mapValues { (_, points) -> points.toSet() }
+        if (stored.isEmpty()) return emptyMap()
+        val fresh = HashMap<Int, MutableSet<Pair<Long, Long>>>()
+        for (s in incoming.samples) {
+            for ((tank, mbar) in s.tankPressuresMbar) {
+                fresh.getOrPut(tank) { HashSet() }.add(s.timeOffsetSeconds.toLong() to mbar.toLong())
+            }
+        }
+        return fresh.mapNotNull { (tank, points) ->
+            stored.entries
+                .map { (index, old) -> index to old.count { it in points } }
+                .filter { (_, matches) -> matches > 0 }
+                .maxByOrNull { (_, matches) -> matches }
+                ?.let { (index, _) -> tank to index }
+        }.toMap()
     }
 
     /**
