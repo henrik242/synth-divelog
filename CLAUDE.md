@@ -33,6 +33,7 @@ per-target entry point.
 
 - **Never use the Kotlin `!!` operator.** Use `?.`/`?:`/`let`/local-val smart-casts, or `requireNotNull(x){...}`. Remove any `!!` you touch.
 - No emojis or em-dashes in commits or code comments; plain ASCII hyphens. Terse commit messages (subject line when possible).
+- **No AI attribution** in commit messages, commit authors or PR descriptions: no Claude author or committer, no Co-Authored-By trailers, no session links. Commit as the repository owner's git identity.
 - Do not commit personal dive data or memory-dump binaries.
 - **Licence:** GPL-2.0-or-later. Code derived from Subsurface is allowed; such a file starts with `// SPDX-License-Identifier: GPL-2.0-only` and a comment naming the Subsurface source it follows (see `core/gas` `Buhlmann.kt`).
 
