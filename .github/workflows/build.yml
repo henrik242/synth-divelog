@@ -78,11 +78,17 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew :app:android:assembleDebug --stacktrace
 
+      # With archive: false the artifact is named after the file, so put the commit in it.
+      - name: Name APK after the commit
+        run: |
+          mkdir -p dist
+          cp app/android/build/outputs/apk/debug/*.apk "dist/synth-divelog-debug-${BUILD_GIT_SHA::7}.apk"
+
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
           name: android-debug-apk
-          path: app/android/build/outputs/apk/debug/*.apk
+          path: dist/*.apk
           if-no-files-found: error
           archive: false
 
