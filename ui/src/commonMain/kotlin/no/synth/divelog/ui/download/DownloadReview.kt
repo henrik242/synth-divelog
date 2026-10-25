@@ -73,7 +73,7 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSyste
     val others = dives.indices.filter { dives[it].status !is DiveStatus.Stored }
 
     @Composable
-    fun Row(i: Int) = DiveRow(
+    fun DiveRowAt(i: Int) = DiveRow(
         dive = dives[i],
         choices = choices,
         index = i,
@@ -116,12 +116,12 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSyste
                     }
                     HorizontalDivider()
                     LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                        items(others, key = { it }) { i -> Row(i) }
+                        items(others, key = { it }) { i -> DiveRowAt(i) }
                         if (stored.isNotEmpty()) {
                             item(key = "stored") {
                                 StoredHeader(count = stored.size, open = storedOpen, onToggle = { storedOpen = !storedOpen })
                             }
-                            if (storedOpen) items(stored, key = { it }) { i -> Row(i) }
+                            if (storedOpen) items(stored, key = { it }) { i -> DiveRowAt(i) }
                         }
                     }
                     HorizontalDivider()
