@@ -48,7 +48,7 @@ class ShearwaterPetrelFamilyProtocolTest {
     fun readsTheDeviceAndItsRecordFormatDives() {
         val device = device(logBase = 0x80000000L)
         var reported: DeviceInfo? = null
-        val result = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(
+        val result = ShearwaterPetrelFamilyProtocol(BlePackets(device)).download(
             knownFingerprint = null,
             listener = object : DownloadListener {
                 override fun onDeviceInfo(info: DeviceInfo) { reported = info }
@@ -68,7 +68,7 @@ class ShearwaterPetrelFamilyProtocolTest {
         for (overLe in listOf(false, true)) {
             val device = device(logBase = 0xC0000000L, model = PETREL_2)
             val link = if (overLe) BlePackets(device, maxWriteSize = 20) else SlipStream(device)
-            val protocol = ShearwaterPetrelFamilyProtocol.petrel2(link)
+            val protocol = ShearwaterPetrelFamilyProtocol(link)
             assertEquals(DeviceInfo(vendor = "Shearwater", model = "Petrel 2", serial = "1A2B3C4D", firmware = "V92"), protocol.readDeviceInfo())
             val result = protocol.download(knownFingerprint = null)
             assertEquals(listOf(0xC0000200L, 0xC0000100L), device.diveReads)
@@ -78,26 +78,28 @@ class ShearwaterPetrelFamilyProtocolTest {
     }
 
     @Test
-    fun aPeregrineTxIsNamedAsSuch() {
-        val info = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device(logBase = 0x80000000L, model = 13))).readDeviceInfo()
-        assertEquals("Peregrine TX", info.model)
+    fun eachModelIsNamedFromItsNumber() {
+        fun model(number: Int) = ShearwaterPetrelFamilyProtocol(BlePackets(device(logBase = 0x80000000L, model = number))).readDeviceInfo().model
+        assertEquals("Perdix AI", model(6))
+        assertEquals("Teric", model(8))
+        assertEquals("Tern", model(12))
+        assertEquals("Peregrine TX", model(13))
+        assertEquals("Perdix 3", model(14))
     }
 
     @Test
-    fun anotherModelIsRefusedAndStillShutsDown() {
-        val device = device(logBase = 0x80000000L, model = PETREL_2)
+    fun anUnknownModelIsRefusedAndStillShutsDown() {
+        val device = device(logBase = 0x80000000L, model = 99)
         val e = assertFailsWith<ProtocolException> {
-            ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = null)
+            ShearwaterPetrelFamilyProtocol(BlePackets(device)).download(knownFingerprint = null)
         }
-        assertEquals("This computer is a Petrel 2, not a Peregrine. Choose Petrel 2 and download again.", e.message)
+        assertEquals("This Shearwater (model 99) is not supported yet.", e.message)
         assertEquals(emptyList(), device.diveReads)
         assertContentEquals(SHUTDOWN, device.commands.last())
     }
 
     @Test
-    fun theMismatchMessages() {
-        assertEquals("This computer is a Perdix 2, which is not supported yet.", ShearwaterPetrelFamilyProtocol.mismatch(11, "Peregrine"))
-        assertEquals("This Shearwater (model 99) is not supported yet.", ShearwaterPetrelFamilyProtocol.mismatch(99, "Peregrine"))
+    fun theModelNumberIsItsFirstByte() {
         assertFailsWith<ProtocolException> { ShearwaterPetrelFamilyProtocol.modelNumber(ByteArray(0)) }
         assertEquals(200, ShearwaterPetrelFamilyProtocol.modelNumber(byteArrayOf(200.toByte(), 0)))
     }
@@ -105,7 +107,7 @@ class ShearwaterPetrelFamilyProtocolTest {
     @Test
     fun olderFirmwareServesPetrelBlocks() {
         val device = device(logBase = 0x90000000L)
-        val result = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = "0000000b")
+        val result = ShearwaterPetrelFamilyProtocol(BlePackets(device)).download(knownFingerprint = "0000000b")
         assertEquals(listOf(0xC0000100L), device.diveReads)
         assertEquals(listOf(PredatorParser.PETREL_FORMAT_ID), result.map { it.formatId })
     }
@@ -115,7 +117,7 @@ class ShearwaterPetrelFamilyProtocolTest {
         // C0 DB C0 C0: four escaped address bytes make the init 19 bytes, more than 18 fit after the lead.
         val escaped = listOf(FakeDive("0000000a", 0xDBC0C0L, ByteArray(20) { 10 }))
         val link = BlePackets(device(logBase = 0xC0000000L, dives = escaped), maxWriteSize = 20, notificationSize = 20)
-        val result = ShearwaterPetrelFamilyProtocol.peregrine(link).download(knownFingerprint = null)
+        val result = ShearwaterPetrelFamilyProtocol(link).download(knownFingerprint = null)
         assertContentEquals(escaped[0].data, result.single().data)
         assertEquals(true, link.multiPacketFrames > 0, "no request was split")
     }
@@ -123,7 +125,7 @@ class ShearwaterPetrelFamilyProtocolTest {
     @Test
     fun largeNotificationsAndLeadOnlyPacketsAreRead() {
         val device = device(logBase = 0x80000000L)
-        val result = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device, notificationSize = 244, leadOnlyPackets = true))
+        val result = ShearwaterPetrelFamilyProtocol(BlePackets(device, notificationSize = 244, leadOnlyPackets = true))
             .download(knownFingerprint = null)
         assertEquals(listOf("0000000a", "0000000b"), result.map { it.fingerprint })
     }
@@ -131,7 +133,7 @@ class ShearwaterPetrelFamilyProtocolTest {
     @Test
     fun deviceInfoIsReadOnce() {
         val device = device(logBase = 0x80000000L)
-        val protocol = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device))
+        val protocol = ShearwaterPetrelFamilyProtocol(BlePackets(device))
         protocol.readDeviceInfo()
         protocol.download(knownFingerprint = "0000000a")
         for (id in listOf(0x10, 0x11, 0x60)) {
@@ -142,7 +144,7 @@ class ShearwaterPetrelFamilyProtocolTest {
     @Test
     fun aLimitReadsOnlyTheNewest() {
         val device = device(logBase = 0x80000000L)
-        val result = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = null, limit = 1)
+        val result = ShearwaterPetrelFamilyProtocol(BlePackets(device)).download(knownFingerprint = null, limit = 1)
         assertEquals(listOf("0000000a"), result.map { it.fingerprint })
         assertEquals(listOf(0x80000100L), device.diveReads)
     }
@@ -152,7 +154,7 @@ class ShearwaterPetrelFamilyProtocolTest {
         val device = device(logBase = 0x80000000L, dropAfterDives = 1)
         val delivered = mutableListOf<String>()
         val error = assertFailsWith<TransportException> {
-            ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(
+            ShearwaterPetrelFamilyProtocol(BlePackets(device)).download(
                 knownFingerprint = null,
                 listener = object : DownloadListener {
                     override fun onDiveDownloaded(index: Int, dive: RawDive) { delivered += dive.fingerprint }
@@ -168,7 +170,7 @@ class ShearwaterPetrelFamilyProtocolTest {
     fun cancellingStillShutsDown() {
         val device = device(logBase = 0x80000000L)
         assertFailsWith<DownloadCancelledException> {
-            ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = null, cancel = CancellationSignal { true })
+            ShearwaterPetrelFamilyProtocol(BlePackets(device)).download(knownFingerprint = null, cancel = CancellationSignal { true })
         }
         assertContentEquals(SHUTDOWN, device.commands.last())
     }
@@ -177,7 +179,7 @@ class ShearwaterPetrelFamilyProtocolTest {
     fun anUnknownLogFormatStopsAndStillShutsDown() {
         val device = device(logBase = 0x12000000L)
         assertFailsWith<ProtocolException> {
-            ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = null)
+            ShearwaterPetrelFamilyProtocol(BlePackets(device)).download(knownFingerprint = null)
         }
         assertContentEquals(SHUTDOWN, device.commands.last())
     }
@@ -218,13 +220,13 @@ class ShearwaterPetrelFamilyProtocolTest {
 
 /**
  * A [FakeShearwaterDevice] behind Shearwater's BLE packets. Each written packet must carry
- * a correct `[count] [index]` lead and fit [maxWriteSize] (or 32 without one). Replies go
+ * a correct `[count] [index]` lead and fit [maxWriteSize]. Replies go
  * back as notifications of at most [notificationSize] bytes with their own lead, and with
  * [leadOnlyPackets] a lead-only packet after each.
  */
 private class BlePackets(
     private val device: FakeShearwaterDevice,
-    override val maxWriteSize: Int? = null,
+    override val maxWriteSize: Int = ShearwaterBlePackets.PACKET_SIZE,
     private val notificationSize: Int = 20,
     private val leadOnlyPackets: Boolean = false,
 ) : Transport {
@@ -239,8 +241,7 @@ private class BlePackets(
     override fun close() {}
 
     override fun write(data: ByteArray) {
-        val limit = maxWriteSize ?: ShearwaterBlePackets.PACKET_SIZE
-        require(data.size <= limit) { "packet of ${data.size} bytes over $limit" }
+        require(data.size <= maxWriteSize) { "packet of ${data.size} bytes over $maxWriteSize" }
         val count = data[0].toInt() and 0xFF
         val index = data[1].toInt() and 0xFF
         if (nextIndex == 0) expectedCount = count

@@ -23,7 +23,7 @@ import kotlin.coroutines.resumeWithException
 /**
  * Android serial layer with three kinds of port: USB-serial adapters over USB host mode
  * (the wired Suunto cable), paired Bluetooth Classic SPP devices (the Petrel and
- * Predator) and Bluetooth LE Shearwaters (the Peregrine, Petrel 2, Petrel 3). [list] returns all of them, each
+ * Predator, and the newer ones) and Bluetooth LE Shearwaters. [list] returns all of them, each
  * [SerialPortInfo.id] prefixed so [open] opens the matching transport: a
  * [UsbSerialTransport] for USB, a [BluetoothRfcommTransport] for Bluetooth Classic, a
  * [BleGattTransport] for Bluetooth LE.

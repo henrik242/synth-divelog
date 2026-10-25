@@ -19,9 +19,9 @@ import no.synth.divelog.core.divecomputer.transport.Transport
  * The dive computers a download can read: the line settings to open the [Transport]
  * with, the protocol to drive over it, and the parser for the raw dives it yields
  * ([formatIds] are the formats those dives carry). The Suunto families are wired serial;
- * the Petrel and Predator speak Bluetooth Classic SPP, a full-duplex serial stream, the
- * Peregrine Bluetooth LE, whose transport carries GATT packets (its line settings are
- * unused), and the Petrel 2 either.
+ * the Petrel and Predator speak Bluetooth Classic SPP, a full-duplex serial stream, and the
+ * newer Shearwaters Bluetooth LE, whose transport carries GATT packets (its line settings
+ * are unused), the Petrel 2, Perdix and NERD Classic too.
  */
 enum class DiveComputerKind(
     val displayName: String,
@@ -29,8 +29,8 @@ enum class DiveComputerKind(
     val formatIds: Set<String>,
     private val protocolFactory: (Transport) -> DiveComputerProtocol,
     private val parserFactory: () -> DiveLogParser,
-    /** What the name it advertises over Bluetooth LE contains, for a model found by a scan. */
-    val bleName: String? = null,
+    /** The words a name it advertises over Bluetooth LE holds one of, for a model found by a scan. */
+    val bleNames: Set<String> = emptySet(),
 ) {
     /** Old 2400 8O1 family: Zoop, Vyper, Vytec, Cobra, Gekko, Stinger, Mosquito. */
     SUUNTO_VYPER(
@@ -64,60 +64,43 @@ enum class DiveComputerKind(
         parserFactory = { PredatorParser() },
     ),
 
-    /** Bluetooth LE only. Newer firmware logs in the typed-record form, older in Petrel blocks. */
-    SHEARWATER_PEREGRINE(
-        displayName = "Shearwater Peregrine",
+    /**
+     * Every Shearwater since the Petrel 2, over Bluetooth LE or (Petrel 2, Perdix, NERD)
+     * Classic; the device names its own model. Newer firmware logs in the typed-record form,
+     * older in Petrel blocks.
+     */
+    SHEARWATER(
+        displayName = "Shearwater Perdix / Teric / Peregrine / Petrel 2+",
         serialParams = ShearwaterLink.SERIAL_PARAMS,
         formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
-        protocolFactory = { ShearwaterPetrelFamilyProtocol.peregrine(it) },
+        protocolFactory = { ShearwaterPetrelFamilyProtocol(it) },
         parserFactory = { PredatorParser() },
-        bleName = "Peregrine",
-    ),
-
-    /** Bluetooth Classic or LE; the Peregrine's protocol over either. */
-    SHEARWATER_PETREL_2(
-        displayName = "Shearwater Petrel 2",
-        serialParams = ShearwaterLink.SERIAL_PARAMS,
-        formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
-        protocolFactory = { ShearwaterPetrelFamilyProtocol.petrel2(it) },
-        parserFactory = { PredatorParser() },
-        // It advertises plain "Petrel" (libdivecomputer's dc_filter_shearwater). "Petrel 3"
-        // contains it too; the more specific name wins (forAdvertisedName).
-        bleName = "Petrel",
-    ),
-
-    /** Bluetooth LE only, like the Peregrine; the same protocol. */
-    SHEARWATER_PETREL_3(
-        displayName = "Shearwater Petrel 3",
-        serialParams = ShearwaterLink.SERIAL_PARAMS,
-        formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
-        protocolFactory = { ShearwaterPetrelFamilyProtocol.petrel3(it) },
-        parserFactory = { PredatorParser() },
-        bleName = "Petrel 3", // as libdivecomputer's dc_filter_shearwater lists it
+        // libdivecomputer's names (dc_filter_shearwater, the Predator aside) are these words,
+        // some with a suffix: "Petrel 3", "Perdix AI", "NERD 2", "Tern TX", "Peregrine TX".
+        bleNames = setOf("Petrel", "Perdix", "NERD", "Teric", "Peregrine", "Tern"),
     ),
     ;
 
     /**
      * The download protocol over an already-opened [transport]; open matters, as only an
-     * open Bluetooth LE link knows its [Transport.maxWriteSize] (Petrel 2).
+     * open Bluetooth LE link knows its [Transport.maxWriteSize] (newer Shearwaters).
      */
     fun protocol(transport: Transport): DiveComputerProtocol = protocolFactory(transport)
 
     fun parser(): DiveLogParser = parserFactory()
 
+    /** Whether a computer advertising [name] over Bluetooth LE is this kind: a word of it is one of [bleNames]. */
+    fun advertises(name: String): Boolean =
+        name.split(' ', '-', '_').any { word -> bleNames.any { it.equals(word, ignoreCase = true) } }
+
     companion object {
-        /**
-         * The kind a computer advertising [name] over Bluetooth LE is: the one whose [bleName]
-         * it contains, the longest such name when several do ("Petrel 3" over "Petrel").
-         */
-        fun forAdvertisedName(name: String): DiveComputerKind? =
-            entries.filter { k -> k.bleName?.let { name.contains(it, ignoreCase = true) } == true }
-                .maxByOrNull { it.bleName?.length ?: 0 }
+        /** The kind a computer advertising [name] over Bluetooth LE is, if any ([advertises]). */
+        fun forAdvertisedName(name: String): DiveComputerKind? = entries.firstOrNull { it.advertises(name) }
 
         /**
          * The parser for a stored raw dive's format, or null for one kept without a parser.
-         * Newer models' logs ([PredatorParser.PNF_FORMAT_ID]), from a Peregrine, a Petrel 2
-         * or a Shearwater Cloud file, go to the same parser.
+         * Newer models' logs ([PredatorParser.PNF_FORMAT_ID]), from a download or a Shearwater
+         * Cloud file, go to the same parser.
          */
         fun parserFor(formatId: String): DiveLogParser? =
             entries.firstOrNull { formatId in it.formatIds }?.parser()

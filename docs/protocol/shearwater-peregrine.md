@@ -23,8 +23,8 @@ bonds remain unconfirmed; the download worked, so the UUID or the fallback match
 ## Bluetooth LE link
 
 The parts every platform shares are in `core:transport` commonMain: which scan results
-count (`ShearwaterBle.isKnown`: a name containing "Peregrine" or "Petrel", or the Shearwater
-service advertised without a name; the picker gives each model its own), the service order for finding the serial characteristic
+count (`ShearwaterBle.isKnown`: a name holding a Shearwater model word, or the Shearwater
+service advertised without a name; see [shearwater-family.md](shearwater-family.md)), the service order for finding the serial characteristic
 (`ShearwaterBle.serialServices`), and `PacketQueue`, which hands notifications to the
 blocking reads and keeps their boundaries. Each platform's scanner is a `BleScanner`,
 which the download picker's ports come from (`blePorts`, `core:logbook`). An unfiltered
@@ -77,7 +77,7 @@ exited at once, and the Peregrine stayed on "sent dive" with a countdown after a
   against shell scripts. Apple Silicon only (`macosArm64`). `core:transport` publishes the
   linked helper as `bleBridgeDebug` (for `gradlew run`, which links faster) and
   `bleBridgeRelease` (bundled in the app).
-  `./gradlew :app:desktop:shearwaterCapture --args="PEREGRINE"` tests it without the app.
+  `./gradlew :app:desktop:shearwaterCapture` tests it without the app.
 
 ## Packet layer
 
@@ -96,9 +96,10 @@ dropped and the SLIP bytes run on across notifications.
    - `8011` firmware: ASCII, e.g. `V92`.
    - `8060` model: one byte, libdivecomputer's model number (`ID_MODEL` in
      `shearwater_common.h`): 3 Petrel 2, 9 Peregrine, 10 Petrel 3, 13 Peregrine TX, and the
-     other Shearwaters it knows. It names the computer reported (a Peregrine TX as such); a
-     model the picked computer type does not cover stops the download with a message naming
-     the computer. The Peregrine capture predates this read; its exchange was added by hand.
+     other Shearwaters it knows ([shearwater-family.md](shearwater-family.md)). It names the
+     computer reported (a Peregrine TX as such); an unknown number stops the download. The
+     Peregrine capture predates this read; its exchange (and the `P` write size) was added
+     by hand.
    - `8021` log upload: 9 bytes, BE32 dive base address at `+1`. It picks the format:
 
      | Base | Format | Read from | Format id |

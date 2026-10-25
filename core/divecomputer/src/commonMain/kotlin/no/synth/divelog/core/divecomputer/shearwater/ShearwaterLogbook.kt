@@ -13,7 +13,7 @@ import no.synth.divelog.core.divecomputer.u32be
 internal const val SHEARWATER = "Shearwater"
 
 /**
- * The manifest walk and per-dive compressed reads the Petrel 1, Petrel 2 and Peregrine share: read
+ * The manifest walk and per-dive compressed reads the Petrel 1 and newer Shearwaters share: read
  * the manifest pages, then each dive newer than the known one from a dive base plus its
  * manifest address, tagged with the log's format id.
  */

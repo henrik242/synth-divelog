@@ -4,7 +4,7 @@ import no.synth.divelog.core.divecomputer.DiveComputerKind
 
 /**
  * What every platform's Bluetooth LE code agrees on for a Shearwater: which scan results are
- * one we read (a Peregrine, Petrel 2 or Petrel 3) and which GATT service carries its serial link.
+ * one we read (any Shearwater since the Petrel 2) and which GATT service carries its serial link.
  */
 internal object ShearwaterBle {
     /**
@@ -16,18 +16,14 @@ internal object ShearwaterBle {
     /** How long one scan runs; the picker starts another while it waits. */
     const val SCAN_MS = 20_000L
 
-    /** What the names of the models we read contain ("Peregrine TX", "Petrel 2", ...). */
-    private val MODELS = DiveComputerKind.entries.mapNotNull { it.bleName }
-
-    /** Whether [name] is one a model we read advertises. */
-    fun isKnownName(name: String?): Boolean = name != null && MODELS.any { name.contains(it, ignoreCase = true) }
+    /** Whether [name] is one a model we read advertises ("Perdix 2", "Peregrine TX", ...). */
+    fun isKnownName(name: String?): Boolean = name != null && DiveComputerKind.forAdvertisedName(name) != null
 
     /**
      * Whether a scan result is a Shearwater we read: by its name, or by Shearwater's service
      * when it has none (a blank name counts as none). Other Shearwaters may advertise the
-     * same service, so a named one must be a model we read; the rest are left out until
-     * their own computer type exists. The picker then offers each port to its model
-     * (DiveComputerType.canUse).
+     * same service, so a named one must be a model we read. The picker then offers each port
+     * to its computer type (DiveComputerType.canUse).
      */
     fun isKnown(name: String?, advertisesService: Boolean): Boolean =
         isKnownName(name) || (advertisesService && name.isNullOrBlank())

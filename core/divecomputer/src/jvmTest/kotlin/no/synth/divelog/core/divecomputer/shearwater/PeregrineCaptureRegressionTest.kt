@@ -3,7 +3,6 @@ package no.synth.divelog.core.divecomputer.shearwater
 import no.synth.divelog.core.divecomputer.DeviceInfo
 import no.synth.divelog.core.divecomputer.DiveComputerKind
 import no.synth.divelog.core.divecomputer.DownloadListener
-import no.synth.divelog.core.divecomputer.ProtocolException
 import no.synth.divelog.core.divecomputer.transport.ReplayTransport
 import no.synth.divelog.core.divecomputer.transport.Transcript
 import no.synth.divelog.core.model.DecoAlgorithm
@@ -12,7 +11,7 @@ import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -32,7 +31,7 @@ class PeregrineCaptureRegressionTest {
         // them must be written, the shutdown that ends the session included.
         var reported: DeviceInfo? = null
         val replay = ReplayTransport(transcript)
-        val raw = ShearwaterPetrelFamilyProtocol.peregrine(replay).download(
+        val raw = DiveComputerKind.SHEARWATER.protocol(replay).download(
             knownFingerprint = null,
             listener = object : DownloadListener {
                 override fun onDeviceInfo(info: DeviceInfo) { reported = info }
@@ -66,20 +65,10 @@ class PeregrineCaptureRegressionTest {
     }
 
     @Test
-    fun aPeregrinePickedAsAPetrel2IsRefused() {
-        // Same protocol over Bluetooth LE, but the model number says Peregrine.
-        val e = assertFailsWith<ProtocolException> {
-            DiveComputerKind.SHEARWATER_PETREL_2.protocol(ReplayTransport(transcript, maxWriteSize = 77))
-                .download(knownFingerprint = null, limit = 1)
-        }
-        assertEquals("This computer is a Peregrine, not a Petrel 2. Choose Peregrine and download again.", e.message)
-    }
-
-    @Test
-    fun aPeregrinePickedAsAPetrel3IsRefused() {
-        val e = assertFailsWith<ProtocolException> {
-            DiveComputerKind.SHEARWATER_PETREL_3.protocol(ReplayTransport(transcript)).download(knownFingerprint = null, limit = 1)
-        }
-        assertEquals("This computer is a Peregrine, not a Petrel 3. Choose Peregrine and download again.", e.message)
+    fun withoutAWriteSizeTheCaptureIsNotAByteStream() {
+        // A link without a write size is Bluetooth Classic, which this capture is not.
+        val asStream = ReplayTransport(transcript.copy(maxWriteSize = null))
+        runCatching { DiveComputerKind.SHEARWATER.protocol(asStream).download(knownFingerprint = null, limit = 1) }
+        assertFalse(asStream.finished)
     }
 }
