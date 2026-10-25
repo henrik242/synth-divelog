@@ -81,7 +81,8 @@ enum class DiveComputerKind(
         formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
         protocolFactory = { ShearwaterPetrelFamilyProtocol.petrel2(it) },
         parserFactory = { PredatorParser() },
-        // Unconfirmed. "Petrel 3" contains it too; the more specific name wins (forAdvertisedName).
+        // It advertises plain "Petrel" (libdivecomputer's dc_filter_shearwater). "Petrel 3"
+        // contains it too; the more specific name wins (forAdvertisedName).
         bleName = "Petrel",
     ),
 
@@ -92,7 +93,7 @@ enum class DiveComputerKind(
         formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
         protocolFactory = { ShearwaterPetrelFamilyProtocol.petrel3(it) },
         parserFactory = { PredatorParser() },
-        bleName = "Petrel 3", // unconfirmed
+        bleName = "Petrel 3", // as libdivecomputer's dc_filter_shearwater lists it
     ),
     ;
 
