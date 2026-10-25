@@ -18,7 +18,7 @@ private val services by lazy { AppServices(createDatabase(), UserDefaultsStore()
 
 /**
  * iOS entry point: hosts the shared Compose UI in a UIViewController for the Swift app
- * to present. Dive computers download over Bluetooth LE only (Peregrine, Petrel 2); there is
+ * to present. Dive computers download over Bluetooth LE only (Peregrine, Petrel 2, 3); there is
  * no git client, so cloud sync is unavailable. Files are imported through the document
  * picker and exported through the share sheet (Share in the export dialog).
  * [setCrashReporting] switches Crashlytics, which lives on the Swift side.

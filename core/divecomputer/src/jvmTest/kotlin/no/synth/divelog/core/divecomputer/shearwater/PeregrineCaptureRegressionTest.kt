@@ -84,5 +84,21 @@ class PeregrineCaptureRegressionTest {
         runCatching { DiveComputerKind.SHEARWATER_PETREL_2.protocol(asStream).download(knownFingerprint = null, limit = 1) }
         assertFalse(asStream.finished)
     }
+
+    @Test
+    fun thePetrel3ReadsTheSameExchange() {
+        // Bluetooth LE only and the same protocol, so its kind replays the capture as it is.
+        val replay = ReplayTransport(transcript)
+        var model: String? = null
+        DiveComputerKind.SHEARWATER_PETREL_3.protocol(replay).download(
+            knownFingerprint = null,
+            listener = object : DownloadListener {
+                override fun onDeviceInfo(info: DeviceInfo) { model = info.model }
+            },
+            limit = 1,
+        )
+        assertTrue(replay.finished, "the protocol stopped before the end of the capture")
+        assertEquals("Petrel 3", model)
+    }
 }
 

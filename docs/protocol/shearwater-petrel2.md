@@ -1,4 +1,4 @@
-# Shearwater Petrel 2
+# Shearwater Petrel 2 and Petrel 3
 
 Status (2026-10-25): **untested on a device**. libdivecomputer lists the Petrel 2 with
 Bluetooth Classic (SPP) and Bluetooth LE, and reads it the way it reads the Peregrine
@@ -32,9 +32,20 @@ Unconfirmed until a device is tried:
   iOS.
 - Whether a Petrel 2 paired over Classic is also reachable over LE on Android (it may be
   listed over both links, and LE may ask to pair again).
-- A Petrel 3 (likely the same protocol) matches "Petrel" and would be stored as a Petrel 2.
+- Whether names really tell the two apart; a model named only "Petrel" goes to the Petrel 2.
   Reading the hardware identifier (`8050`) to name the model is left until a capture shows
   its values.
+
+## Petrel 3
+
+libdivecomputer lists the Petrel 3 with Bluetooth LE only and reads it like the Peregrine,
+so it is the Peregrine's setup with another name: `ShearwaterPetrelFamilyProtocol.petrel3`,
+always over `ShearwaterBlePackets`, keyed by its serial (`shearwater:petrel3:<serial>`), and
+offered wherever there is Bluetooth LE (Android, macOS through `ble-bridge`, iOS). A scanned
+port goes to the Petrel 3 when its advertised name contains "Petrel 3": the most specific
+model name wins (`DiveComputerKind.forAdvertisedName`), so "Petrel" alone stays the Petrel 2's.
+The advertised name is unconfirmed. `PeregrineCaptureRegressionTest` replays the Peregrine
+capture through its kind. Test on a device: `shearwaterCapture --args="PETREL3"`.
 
 Test on a device: `./gradlew :app:desktop:shearwaterCapture --args="PETREL2"` (Bluetooth
 Classic) or `--args="PETREL2 LE"`, or a download in the app with capture recording on

@@ -87,4 +87,13 @@ class DiveComputerKindTest {
         assertEquals("811c9dc5", fnv1a(ByteArray(0)))
         assertEquals("e40c292c", fnv1a("a".encodeToByteArray()))
     }
+
+    @Test
+    fun anAdvertisedNameGoesToTheMostSpecificModel() {
+        assertEquals(DiveComputerKind.SHEARWATER_PEREGRINE, DiveComputerKind.forAdvertisedName("Peregrine TX"))
+        assertEquals(DiveComputerKind.SHEARWATER_PETREL_2, DiveComputerKind.forAdvertisedName("Petrel 2"))
+        assertEquals(DiveComputerKind.SHEARWATER_PETREL_3, DiveComputerKind.forAdvertisedName("petrel 3 1234"))
+        assertNull(DiveComputerKind.forAdvertisedName("Perdix 2"))
+    }
 }
+

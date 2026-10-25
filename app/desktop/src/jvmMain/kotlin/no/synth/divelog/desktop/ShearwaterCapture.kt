@@ -9,15 +9,16 @@ import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.transport.MacBleScanner
 import no.synth.divelog.core.transport.MacBleTransport
 import no.synth.divelog.core.transport.MacRfcommTransport
+import no.synth.divelog.core.transport.ScannedDevice
 import java.time.Instant
 
 /**
  * Command-line Shearwater download over the macOS Bluetooth bridges, to test the link
  * and protocol without the app. A Petrel, Petrel 2 or Predator is picked from the paired
- * serial-port devices, a Peregrine (or a Petrel 2 with LE) from a Bluetooth LE scan; it then
- * downloads the latest dives and prints them parsed.
+ * serial-port devices, a Peregrine, Petrel 3 (or Petrel 2 with LE) from a Bluetooth LE scan;
+ * it then downloads the latest dives and prints them parsed.
  *
- * Run: ./gradlew :app:desktop:shearwaterCapture --args="[PETREL|PETREL2|PREDATOR|PEREGRINE] [LE] [name or id] [dive count]"
+ * Run: ./gradlew :app:desktop:shearwaterCapture --args="[PETREL|PETREL2|PETREL3|PREDATOR|PEREGRINE] [LE] [name or id] [dive count]"
  * Defaults: PETREL, the device whose name contains the model, 3 dives.
  */
 fun main(args: Array<String>) {
@@ -26,11 +27,10 @@ fun main(args: Array<String>) {
     val model = kind.displayName.removePrefix("Shearwater ")
     val count = args.firstNotNullOfOrNull { it.toIntOrNull() } ?: 3
     val target = args.zip(words).firstOrNull { (_, w) -> w !in KINDS && w != "LE" && w.toIntOrNull() == null }?.first
-    val bleName = kind.bleName
-    val overLe = bleName != null && (kind == DiveComputerKind.SHEARWATER_PEREGRINE || "LE" in words)
+    val overLe = kind.bleName != null && (kind in BLE_ONLY || "LE" in words)
     if ("LE" in words && !overLe) return println("$model has no Bluetooth LE.")
     val transport = when {
-        overLe && bleName != null -> bleTransport(target ?: bleName, acceptNameless = target == null)
+        overLe -> bleTransport(target, kind)
         else -> sppTransport(target ?: model)
     } ?: return
 
@@ -65,8 +65,11 @@ private val KINDS = mapOf(
     "PREDATOR" to DiveComputerKind.SHEARWATER_PREDATOR,
     "PEREGRINE" to DiveComputerKind.SHEARWATER_PEREGRINE,
     "PETREL2" to DiveComputerKind.SHEARWATER_PETREL_2,
+    "PETREL3" to DiveComputerKind.SHEARWATER_PETREL_3,
     "PETREL" to DiveComputerKind.SHEARWATER_PETREL,
 )
+
+private val BLE_ONLY = setOf(DiveComputerKind.SHEARWATER_PEREGRINE, DiveComputerKind.SHEARWATER_PETREL_3)
 
 /** The paired serial-port device addressed or named [target], else whose name contains it, through rfcomm-bridge. */
 private fun sppTransport(target: String): Transport? {
@@ -83,18 +86,22 @@ private fun sppTransport(target: String): Transport? {
 
 /**
  * The computer a Bluetooth LE scan finds with id [target] or a name containing it, through
- * ble-bridge; with [acceptNameless] (no target given, only the model) a nameless one too.
+ * ble-bridge; with no target, one whose name says it is a [kind] (as the app's picker
+ * decides), or a nameless one.
  */
-private fun bleTransport(target: String, acceptNameless: Boolean): Transport? {
+private fun bleTransport(target: String?, kind: DiveComputerKind): Transport? {
     val bridge = MacBleScanner.locateBridge()
         ?: return null.also { println("No ble-bridge found (macOS only; run through Gradle so it gets built).") }
     val scanner = MacBleScanner(bridge)
-    println("Scanning for $target; start Bluetooth on it")
+    val wanted = target ?: kind.displayName
+    fun matches(d: ScannedDevice): Boolean = when {
+        target != null -> d.id.equals(target, ignoreCase = true) || d.name?.contains(target, ignoreCase = true) == true
+        else -> d.name?.let { DiveComputerKind.forAdvertisedName(it) == kind } ?: true
+    }
+    println("Scanning for $wanted; start Bluetooth on it")
     scanner.scan()
     do {
-        val device = scanner.found().firstOrNull {
-            it.id.equals(target, ignoreCase = true) || it.name?.contains(target, ignoreCase = true) ?: acceptNameless
-        }
+        val device = scanner.found().firstOrNull(::matches)
         if (device != null) {
             scanner.stop()
             println("Using ${device.name ?: "(no name)"} (${device.id})")
@@ -103,6 +110,6 @@ private fun bleTransport(target: String, acceptNameless: Boolean): Transport? {
         Thread.sleep(250)
     } while (scanner.scanning)
     scanner.stop()
-    println("Nothing found for $target${scanner.problem()?.let { ": $it" } ?: ""}")
+    println("Nothing found for $wanted${scanner.problem()?.let { ": $it" } ?: ""}")
     return null
 }
