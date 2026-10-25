@@ -6,7 +6,7 @@ data class ScannedDevice(val id: String, val name: String?)
 /**
  * Finds Bluetooth LE dive computers in the background, so the picker never blocks on a
  * scan: Android's BleDiveComputers, CoreBluetoothScanner (iOS) and MacBleScanner (the
- * desktop on macOS). Which devices count is [ShearwaterBle.isPeregrine].
+ * desktop on macOS). Which devices count is [ShearwaterBle.isKnown].
  */
 interface BleScanner {
     /** Scan for [ShearwaterBle.SCAN_MS] unless a scan is running; the picker calls it again while it waits. */

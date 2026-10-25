@@ -7,8 +7,8 @@ import no.synth.divelog.core.transport.CoreBluetoothTransport
 
 /**
  * iOS has Bluetooth LE only (an app cannot reach Bluetooth Classic serial devices or USB
- * serial), so the Peregrine is the one computer offered: found by [CoreBluetoothScanner]
- * and opened with [CoreBluetoothTransport].
+ * serial), so the Peregrine and the Petrel 2 are the computers offered: found by
+ * [CoreBluetoothScanner] and opened with [CoreBluetoothTransport].
  */
 class IosSerialPorts : SerialPorts {
     private val ble = CoreBluetoothScanner()

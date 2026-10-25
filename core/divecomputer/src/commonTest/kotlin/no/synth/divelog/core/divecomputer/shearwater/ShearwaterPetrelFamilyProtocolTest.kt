@@ -17,10 +17,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 /**
- * Drives [ShearwaterPeregrineProtocol] against an in-memory Peregrine
- * ([FakeShearwaterDevice] behind [BlePackets]): identifiers, a manifest and compressed dives.
+ * Drives [ShearwaterPetrelFamilyProtocol] against an in-memory Peregrine or Petrel 2
+ * ([FakeShearwaterDevice] behind [BlePackets] or [SlipStream]): identifiers, a manifest and
+ * compressed dives.
  */
-class ShearwaterPeregrineProtocolTest {
+class ShearwaterPetrelFamilyProtocolTest {
     private val dives = listOf(
         FakeDive("0000000a", 0x100L, ByteArray(20) { 10 }), // newest
         FakeDive("0000000b", 0x200L, ByteArray(20) { 11 }), // oldest
@@ -41,7 +42,7 @@ class ShearwaterPeregrineProtocolTest {
     fun readsTheDeviceAndItsRecordFormatDives() {
         val device = device(logBase = 0x80000000L)
         var reported: DeviceInfo? = null
-        val result = ShearwaterPeregrineProtocol(BlePackets(device)).download(
+        val result = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(
             knownFingerprint = null,
             listener = object : DownloadListener {
                 override fun onDeviceInfo(info: DeviceInfo) { reported = info }
@@ -57,9 +58,23 @@ class ShearwaterPeregrineProtocolTest {
     }
 
     @Test
+    fun aPetrel2SpeaksThePlainStreamOverBluetoothClassicAndPacketsOverLe() {
+        for (overLe in listOf(false, true)) {
+            val device = device(logBase = 0xC0000000L)
+            val link = if (overLe) BlePackets(device, maxWriteSize = 20) else SlipStream(device)
+            val protocol = ShearwaterPetrelFamilyProtocol.petrel2(link)
+            assertEquals(DeviceInfo(vendor = "Shearwater", model = "Petrel 2", serial = "1A2B3C4D", firmware = "V92"), protocol.readDeviceInfo())
+            val result = protocol.download(knownFingerprint = null)
+            assertEquals(listOf(0xC0000200L, 0xC0000100L), device.diveReads)
+            assertEquals(listOf(PredatorParser.PETREL_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID), result.map { it.formatId })
+            assertContentEquals(SHUTDOWN, device.commands.last())
+        }
+    }
+
+    @Test
     fun olderFirmwareServesPetrelBlocks() {
         val device = device(logBase = 0x90000000L)
-        val result = ShearwaterPeregrineProtocol(BlePackets(device)).download(knownFingerprint = "0000000b")
+        val result = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = "0000000b")
         assertEquals(listOf(0xC0000100L), device.diveReads)
         assertEquals(listOf(PredatorParser.PETREL_FORMAT_ID), result.map { it.formatId })
     }
@@ -69,7 +84,7 @@ class ShearwaterPeregrineProtocolTest {
         // C0 DB C0 C0: four escaped address bytes make the init 19 bytes, more than 18 fit after the lead.
         val escaped = listOf(FakeDive("0000000a", 0xDBC0C0L, ByteArray(20) { 10 }))
         val link = BlePackets(device(logBase = 0xC0000000L, dives = escaped), maxWriteSize = 20, notificationSize = 20)
-        val result = ShearwaterPeregrineProtocol(link).download(knownFingerprint = null)
+        val result = ShearwaterPetrelFamilyProtocol.peregrine(link).download(knownFingerprint = null)
         assertContentEquals(escaped[0].data, result.single().data)
         assertEquals(true, link.multiPacketFrames > 0, "no request was split")
     }
@@ -77,7 +92,7 @@ class ShearwaterPeregrineProtocolTest {
     @Test
     fun largeNotificationsAndLeadOnlyPacketsAreRead() {
         val device = device(logBase = 0x80000000L)
-        val result = ShearwaterPeregrineProtocol(BlePackets(device, notificationSize = 244, leadOnlyPackets = true))
+        val result = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device, notificationSize = 244, leadOnlyPackets = true))
             .download(knownFingerprint = null)
         assertEquals(listOf("0000000a", "0000000b"), result.map { it.fingerprint })
     }
@@ -85,7 +100,7 @@ class ShearwaterPeregrineProtocolTest {
     @Test
     fun deviceInfoIsReadOnce() {
         val device = device(logBase = 0x80000000L)
-        val protocol = ShearwaterPeregrineProtocol(BlePackets(device))
+        val protocol = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device))
         protocol.readDeviceInfo()
         protocol.download(knownFingerprint = "0000000a")
         for (id in listOf(0x10, 0x11)) {
@@ -96,7 +111,7 @@ class ShearwaterPeregrineProtocolTest {
     @Test
     fun aLimitReadsOnlyTheNewest() {
         val device = device(logBase = 0x80000000L)
-        val result = ShearwaterPeregrineProtocol(BlePackets(device)).download(knownFingerprint = null, limit = 1)
+        val result = ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = null, limit = 1)
         assertEquals(listOf("0000000a"), result.map { it.fingerprint })
         assertEquals(listOf(0x80000100L), device.diveReads)
     }
@@ -106,7 +121,7 @@ class ShearwaterPeregrineProtocolTest {
         val device = device(logBase = 0x80000000L, dropAfterDives = 1)
         val delivered = mutableListOf<String>()
         val error = assertFailsWith<TransportException> {
-            ShearwaterPeregrineProtocol(BlePackets(device)).download(
+            ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(
                 knownFingerprint = null,
                 listener = object : DownloadListener {
                     override fun onDiveDownloaded(index: Int, dive: RawDive) { delivered += dive.fingerprint }
@@ -122,7 +137,7 @@ class ShearwaterPeregrineProtocolTest {
     fun cancellingStillShutsDown() {
         val device = device(logBase = 0x80000000L)
         assertFailsWith<DownloadCancelledException> {
-            ShearwaterPeregrineProtocol(BlePackets(device)).download(knownFingerprint = null, cancel = CancellationSignal { true })
+            ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = null, cancel = CancellationSignal { true })
         }
         assertContentEquals(SHUTDOWN, device.commands.last())
     }
@@ -131,34 +146,34 @@ class ShearwaterPeregrineProtocolTest {
     fun anUnknownLogFormatStopsAndStillShutsDown() {
         val device = device(logBase = 0x12000000L)
         assertFailsWith<ProtocolException> {
-            ShearwaterPeregrineProtocol(BlePackets(device)).download(knownFingerprint = null)
+            ShearwaterPetrelFamilyProtocol.peregrine(BlePackets(device)).download(knownFingerprint = null)
         }
         assertContentEquals(SHUTDOWN, device.commands.last())
     }
 
     @Test
     fun theLogFormatTable() {
-        fun format(base: Long) = ShearwaterPeregrineProtocol.logFormat(byteArrayOf(0) + be32(base) + ByteArray(4))
-        val records = ShearwaterPeregrineProtocol.LogFormat(0x80000000L, PredatorParser.PNF_FORMAT_ID)
-        val blocks = ShearwaterPeregrineProtocol.LogFormat(0xC0000000L, PredatorParser.PETREL_FORMAT_ID)
+        fun format(base: Long) = ShearwaterPetrelFamilyProtocol.logFormat(byteArrayOf(0) + be32(base) + ByteArray(4))
+        val records = ShearwaterPetrelFamilyProtocol.LogFormat(0x80000000L, PredatorParser.PNF_FORMAT_ID)
+        val blocks = ShearwaterPetrelFamilyProtocol.LogFormat(0xC0000000L, PredatorParser.PETREL_FORMAT_ID)
         assertEquals(records, format(0x80000000L))
         for (base in listOf(0xC0000000L, 0x90000000L, 0xDD000000L)) assertEquals(blocks, format(base), base.toString(16))
         for (size in listOf(8, 10)) {
-            assertFailsWith<ProtocolException> { ShearwaterPeregrineProtocol.logFormat(ByteArray(size)) }
+            assertFailsWith<ProtocolException> { ShearwaterPetrelFamilyProtocol.logFormat(ByteArray(size)) }
         }
     }
 
     @Test
     fun serialAndFirmwareDropTheirPadding() {
-        fun serial(text: String) = ShearwaterPeregrineProtocol.serial(text.encodeToByteArray())
+        fun serial(text: String) = ShearwaterPetrelFamilyProtocol.serial(text.encodeToByteArray())
         assertEquals("1A2B3C4D", serial("1a2b3c4d"))
         assertEquals("1A2B3C4D", serial("1A2B3C4D\u0000\u0000"))
         assertEquals("1A2B3C4D", serial(" 1A2B3C4D "))
         assertNull(serial("1A2B-3C4D"))
         assertNull(serial("1A2B3C"))
         assertNull(serial(""))
-        assertEquals("V92", ShearwaterPeregrineProtocol.firmware("V92\u0000\u0000 ".encodeToByteArray()))
-        assertNull(ShearwaterPeregrineProtocol.firmware(ByteArray(4)))
+        assertEquals("V92", ShearwaterPetrelFamilyProtocol.firmware("V92\u0000\u0000 ".encodeToByteArray()))
+        assertNull(ShearwaterPetrelFamilyProtocol.firmware(ByteArray(4)))
     }
 
     private companion object {

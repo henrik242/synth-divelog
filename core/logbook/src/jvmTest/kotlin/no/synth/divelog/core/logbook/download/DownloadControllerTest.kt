@@ -17,6 +17,8 @@ import no.synth.divelog.core.divecomputer.transport.TransportException
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.IncomingDive
+import no.synth.divelog.core.transport.BleScanner
+import no.synth.divelog.core.transport.ScannedDevice
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -195,15 +197,36 @@ class DownloadControllerTest {
     fun eachComputerIsOfferedOnlyThePortsItsLinkCanUse() {
         val usb = SerialPortInfo("usb:0", "cable", SerialPortKind.USB_SERIAL)
         val spp = SerialPortInfo("bt:AA:BB:CC:DD:EE:01", "Petrel", SerialPortKind.BLUETOOTH_SPP)
-        val ble = SerialPortInfo("ble:AA:BB:CC:DD:EE:02", "Peregrine", SerialPortKind.BLUETOOTH_LE)
-        fun ports(type: DiveComputerType) = listOf(usb, spp, ble).filter { type.canUse(it) }
+        fun scanned(id: String, name: String?) = SerialPortInfo("ble:$id", "$name", SerialPortKind.BLUETOOTH_LE, advertisedName = name)
+        val ble = scanned("AA:BB:CC:DD:EE:02", "Peregrine TX")
+        val petrel2 = scanned("AA:BB:CC:DD:EE:03", "Petrel 2")
+        val nameless = scanned("AA:BB:CC:DD:EE:04", null)
+        fun ports(type: DiveComputerType) = listOf(usb, spp, ble, petrel2, nameless).filter { type.canUse(it) }
         assertEquals(listOf(usb), ports(DiveComputerType.SUUNTO_VYPER2))
         assertEquals(listOf(usb, spp), ports(DiveComputerType.SHEARWATER_PETREL))
-        assertEquals(listOf(ble), ports(DiveComputerType.SHEARWATER_PEREGRINE))
-        // Without a Bluetooth LE link (desktop, iOS) the Peregrine is not offered at all.
+        // A scan lists every Shearwater it knows; each model gets its own, and a nameless one could be either.
+        assertEquals(listOf(ble, nameless), ports(DiveComputerType.SHEARWATER_PEREGRINE))
+        assertEquals(listOf(usb, spp, petrel2, nameless), ports(DiveComputerType.SHEARWATER_PETREL_2))
+        // Without a Bluetooth LE link the Peregrine is not offered at all, and on iOS (LE only) the Petrel 1 is not.
         val serialOnly = setOf(SerialPortKind.USB_SERIAL, SerialPortKind.BLUETOOTH_SPP)
         assertFalse(DiveComputerType.SHEARWATER_PEREGRINE.reachableOver(serialOnly))
         assertTrue(DiveComputerType.SHEARWATER_PETREL.reachableOver(serialOnly))
+        assertTrue(DiveComputerType.SHEARWATER_PETREL_2.reachableOver(setOf(SerialPortKind.BLUETOOTH_LE)))
+        assertFalse(DiveComputerType.SHEARWATER_PETREL.reachableOver(setOf(SerialPortKind.BLUETOOTH_LE)))
+        // The Petrel 2 is scanned for only where there is Bluetooth LE (not on Linux or Windows).
+        assertTrue(DiveComputerType.SHEARWATER_PETREL_2.foundByScan(setOf(SerialPortKind.BLUETOOTH_SPP, SerialPortKind.BLUETOOTH_LE)))
+        assertFalse(DiveComputerType.SHEARWATER_PETREL_2.foundByScan(serialOnly))
+    }
+
+    @Test
+    fun aPetrel2IsPreselectedOverAnyOtherPairedDevice() {
+        val headset = SerialPortInfo("bt:AA:BB:CC:DD:EE:06", "Headset (Bluetooth)", SerialPortKind.BLUETOOTH_SPP)
+        val pairedPetrel = SerialPortInfo("bt:AA:BB:CC:DD:EE:07", "Petrel 2 (Bluetooth)", SerialPortKind.BLUETOOTH_SPP)
+        val scanned = SerialPortInfo("ble:0F3C", "0F3C (Bluetooth LE)", SerialPortKind.BLUETOOTH_LE)
+        val type = DiveComputerType.SHEARWATER_PETREL_2
+        assertEquals(pairedPetrel, type.likelyPort(listOf(headset, scanned, pairedPetrel)))
+        assertEquals(scanned, type.likelyPort(listOf(headset, scanned)))
+        assertEquals(headset, type.likelyPort(listOf(headset)))
     }
 
     @Test
@@ -217,5 +240,32 @@ class DownloadControllerTest {
         assertEquals("ble:shearwater-peregrine:12345678", device.bluetoothAddress)
         assertTrue(DiveComputerType.SHEARWATER_PEREGRINE.owns(device))
         assertFalse(DiveComputerType.SHEARWATER_PETREL.owns(device))
+    }
+
+    @Test
+    fun aPetrel2IsOneComputerOverBluetoothClassicAndLe() {
+        val petrel2 = DeviceInfo(vendor = "Shearwater", model = "Petrel 2", serial = "87654321")
+        val controller = controller(FakePorts()) { FakeProtocol(it, listOf(dive(1)), info = petrel2) }
+        download(controller, port = "bt:AA:BB:CC:DD:EE:05", type = DiveComputerType.SHEARWATER_PETREL_2)
+        download(controller, port = "ble:0F3C2A1B-7D44-4E2A-9C61-5B8E2D9A1F00", type = DiveComputerType.SHEARWATER_PETREL_2)
+        val device = container.devices.all().single()
+        assertEquals("shearwater:petrel2:87654321", device.bluetoothAddress)
+        assertTrue(DiveComputerType.SHEARWATER_PETREL_2.owns(device))
+        assertFalse(DiveComputerType.SHEARWATER_PETREL.owns(device))
+    }
+
+    @Test
+    fun aScannedComputerWithABlankNameIsOfferedToEveryModel() {
+        // CoreBluetooth can report an empty name; the scan keeps such a computer, so the picker must too.
+        val scanner = object : BleScanner {
+            override fun scan() {}
+            override fun stop() {}
+            override fun found() = listOf(ScannedDevice("0F3C2A1B", ""))
+            override fun problem(): String? = null
+        }
+        val port = blePorts(scanner).single()
+        assertEquals("0F3C2A1B (Bluetooth LE)", port.label)
+        assertTrue(DiveComputerType.SHEARWATER_PEREGRINE.canUse(port))
+        assertTrue(DiveComputerType.SHEARWATER_PETREL_2.canUse(port))
     }
 }

@@ -12,7 +12,7 @@ import no.synth.divelog.core.divecomputer.transport.Transport
  * manifest of dives and serves each dive individually, compressed ([ShearwaterLogbook]).
  * The dive log records themselves use the same older format the Predator parser reads.
  */
-class ShearwaterPetrelProtocol(
+class ShearwaterPetrel1Protocol(
     transport: Transport,
     timeoutMs: Long = 3_000,
 ) : DiveComputerProtocol {

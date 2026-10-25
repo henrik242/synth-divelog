@@ -109,7 +109,9 @@ class CoreBluetoothTransport(private val identifier: String) : Transport {
             services.asSequence()
                 .flatMap { it.characteristics.orEmpty().filterIsInstance<CBCharacteristic>() }
                 .firstOrNull(::isSerial)
-        } ?: throw TransportException("$identifier has no serial characteristic")
+        } ?: throw TransportException(
+            "$identifier has no serial characteristic (services: ${onQueue { p.services.orEmpty().filterIsInstance<CBService>().joinToString { it.UUID.UUIDString } }})",
+        )
         characteristic = c
         writeType = if (c.properties and CBCharacteristicPropertyWriteWithoutResponse != 0uL) {
             CBCharacteristicWriteWithoutResponse

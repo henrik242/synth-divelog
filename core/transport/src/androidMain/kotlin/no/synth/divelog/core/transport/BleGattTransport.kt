@@ -128,7 +128,7 @@ class BleGattTransport(
         if (!g.discoverServices()) throw TransportException("Service discovery refused")
         await<Result.Discovered>("service discovery")
         val c = serialCharacteristic(g.services.orEmpty())
-            ?: throw TransportException("${device.address} has no serial characteristic")
+            ?: throw TransportException("${device.address} has no serial characteristic (services: ${g.services.orEmpty().joinToString { it.uuid.toString() }})")
         characteristic = c
         writeType = if (c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
             BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE

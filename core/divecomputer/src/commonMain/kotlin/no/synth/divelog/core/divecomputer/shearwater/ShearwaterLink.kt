@@ -10,7 +10,7 @@ import no.synth.divelog.core.divecomputer.transport.Transport
  * The command layer for Shearwater's diagnostic-style protocol. Each message is
  * a small command payload wrapped in a fixed header and sent as one SLIP frame;
  * the device replies with a mirrored header and an echoed command byte. This
- * implements the one-byte-length framing used by the Predator, Petrel 1 and Peregrine.
+ * implements the one-byte-length framing used by the Predator, Petrels and Peregrine.
  */
 class ShearwaterLink(
     transport: Transport,

@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
 private class BleDevice(val name: String?, val address: String, val raw: BluetoothDevice)
 
 /**
- * Android's [BleScanner]: [found] is what scans have seen plus bonded Peregrines, each by
+ * Android's [BleScanner]: [found] is what scans have seen plus bonded Shearwaters, each by
  * its Bluetooth address, and [device] the Android device to connect to.
  *
  * Scanning needs BLUETOOTH_SCAN (declared neverForLocation) and listing bonded devices
@@ -37,7 +37,7 @@ class BleDiveComputers(context: Context) : BleScanner {
             val d = result.device ?: return
             val name = result.scanRecord?.deviceName ?: runCatching { d.name }.getOrNull()
             val advertisesService = result.scanRecord?.serviceUuids.orEmpty().contains(SERVICE)
-            if (ShearwaterBle.isPeregrine(name, advertisesService)) seen[d.address] = BleDevice(name, d.address, d)
+            if (ShearwaterBle.isKnown(name, advertisesService)) seen[d.address] = BleDevice(name, d.address, d)
         }
 
         override fun onScanFailed(errorCode: Int) {
@@ -97,7 +97,7 @@ class BleDiveComputers(context: Context) : BleScanner {
     private fun bonded(): List<BleDevice> = runCatching {
         adapter()?.bondedDevices.orEmpty()
             .filter { it.type == BluetoothDevice.DEVICE_TYPE_LE || it.type == BluetoothDevice.DEVICE_TYPE_DUAL }
-            .filter { ShearwaterBle.isPeregrineName(it.name) }
+            .filter { ShearwaterBle.isKnownName(it.name) }
             .map { BleDevice(it.name, it.address, it) }
     }.getOrDefault(emptyList())
 

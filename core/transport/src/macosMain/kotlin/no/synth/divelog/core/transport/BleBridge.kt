@@ -2,7 +2,7 @@
 // CoreBluetoothScanner and CoreBluetoothTransport as iOS and relays them over stdin/stdout
 // (MacBleTransport and MacBleScanner are the JVM ends).
 //
-//   ble-bridge scan            one scan; stdout gets a DEVICE line per Peregrine as it shows
+//   ble-bridge scan            one scan; stdout gets a DEVICE line per computer as it shows
 //                              up, and a PROBLEM line as Bluetooth changes
 //   ble-bridge connect <id>    open the link; stderr says CONNECTED <max write size>, or ERROR
 //                              before exiting non-zero. Then frames: one from stdin is one write,

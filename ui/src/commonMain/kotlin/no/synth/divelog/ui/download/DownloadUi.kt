@@ -35,13 +35,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import no.synth.divelog.core.logbook.download.DiveComputerType
 import no.synth.divelog.core.logbook.download.DownloadAmount
 import no.synth.divelog.core.logbook.download.KnownComputer
 import no.synth.divelog.core.logbook.download.MergeReview
 import no.synth.divelog.core.logbook.download.SerialPortInfo
-import no.synth.divelog.core.logbook.download.preferredPort
+import no.synth.divelog.core.logbook.download.SerialPortKind
 import no.synth.divelog.core.logbook.format.Format
 
 /** State machine for the shared download affordance driven from the Download button. */
@@ -90,8 +92,9 @@ fun DownloadPickerDialog(
     onRefresh: () -> List<SerialPortInfo>,
     onStart: (type: DiveComputerType, port: SerialPortInfo, amount: DownloadAmount) -> Unit,
     onCancel: () -> Unit,
-    preselectPortId: (DiveComputerType) -> String? = { null },
+    preselectPortId: (DiveComputerType, List<SerialPortInfo>) -> String? = { _, _ -> null },
     hint: (DiveComputerType) -> String? = { null },
+    linkKinds: Set<SerialPortKind> = emptySet(),
     onDiscover: () -> Unit = {},
     scanProblem: () -> String? = { null },
 ) {
@@ -101,8 +104,8 @@ fun DownloadPickerDialog(
         val list = all.filter { choice.type.canUse(it) }
         val own = (choice as? PickerChoice.Known)?.computer?.lastPort?.let { d -> list.firstOrNull { it.descriptor == d } }
         return own
-            ?: preselectPortId(choice.type)?.let { id -> list.firstOrNull { it.id == id } }
-            ?: preferredPort(list)
+            ?: preselectPortId(choice.type, list)?.let { id -> list.firstOrNull { it.id == id } }
+            ?: choice.type.likelyPort(list)
     }
 
     val initial: PickerChoice = (known.firstOrNull { it.key == lastKey } ?: known.firstOrNull())
@@ -112,27 +115,33 @@ fun DownloadPickerDialog(
     var current by remember { mutableStateOf(ports) }
     var port by remember { mutableStateOf(pick(initial, ports)) }
     var amount by remember { mutableStateOf<DownloadAmount>(DownloadAmount.NewOnly) }
+    // Until the user picks a port, a better one a scan turns up (the remembered computer) replaces the guess.
+    var userPicked by remember { mutableStateOf(false) }
 
     var problem by remember { mutableStateOf<String?>(null) }
 
     fun select(c: PickerChoice) {
         choice = c
+        userPicked = false
         port = pick(c, current)
     }
 
-    fun refresh() {
-        current = onRefresh()
-        if (port == null || current.none { it.id == port?.id }) port = pick(choice, current)
+    fun show(ports: List<SerialPortInfo>) {
+        current = ports
+        if (!userPicked || ports.none { it.id == port?.id }) port = pick(choice, ports)
     }
+
+    fun refresh() = show(onRefresh())
 
     // A computer found by scanning shows up whenever the scan sees it, so keep the scan
     // running and the list current while one is selected; no Refresh tapping needed.
+    // Listing can be slow (the macOS Bluetooth helper), so it runs off the main thread.
     LaunchedEffect(choice.type) {
         problem = null
-        if (!choice.type.foundByScan) return@LaunchedEffect
+        if (!choice.type.foundByScan(linkKinds)) return@LaunchedEffect
         while (true) {
             onDiscover()
-            refresh()
+            show(withContext(Dispatchers.Default) { onRefresh() })
             problem = scanProblem()
             delay(SCAN_REFRESH_MS)
         }
@@ -147,7 +156,7 @@ fun DownloadPickerDialog(
         val usable = current.filter { choice.type.canUse(it) }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (usable.isEmpty()) {
-                val empty = if (choice.type.foundByScan) {
+                val empty = if (choice.type.foundByScan(linkKinds)) {
                     problem ?: "Searching for the dive computer..."
                 } else {
                     "No ports found; connect the cable"
@@ -159,11 +168,18 @@ fun DownloadPickerDialog(
                     value = port?.label ?: "Choose a port",
                     options = usable,
                     optionLabel = { it.label },
-                    onSelect = { port = it },
+                    onSelect = {
+                        port = it
+                        userPicked = true
+                    },
                     modifier = Modifier.weight(1f),
                 )
             }
             TextButton(onClick = { refresh() }) { Text("Refresh") }
+        }
+        // Listed ports (a paired device) do not mean the scan works; say why it may not.
+        if (usable.isNotEmpty()) {
+            problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         SelectField(
             label = "Download",

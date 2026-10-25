@@ -10,25 +10,29 @@ import no.synth.divelog.core.divecomputer.transport.Transport
 import no.synth.divelog.core.divecomputer.u32be
 
 /**
- * Downloads from a Shearwater Peregrine over Bluetooth LE. [transport] is the GATT packet
- * link; [ShearwaterBlePackets] turns it into the SLIP stream the command layer speaks.
- * From there it is the Petrel 1's manifest download, with three additions taken from
- * libdivecomputer's `shearwater_petrel.c`: the serial and firmware are read by
- * identifier, the log format identifier says where the dives live and which layout they
- * use, and the session ends with a shutdown command so the device leaves its Bluetooth
- * screen cleanly.
+ * Downloads from the Petrel family as libdivecomputer's `shearwater_petrel.c` reads it: the
+ * Petrel 2 and the Peregrine. It is the Petrel 1's manifest download ([ShearwaterPetrel1Protocol])
+ * with three additions: the serial and firmware are read by identifier, the log format
+ * identifier says where the dives live and which layout they use, and the session ends with
+ * a shutdown command so the device leaves its Bluetooth screen cleanly.
+ *
+ * With [packets] the [transport] is a Bluetooth LE GATT link, which [ShearwaterBlePackets]
+ * turns into the SLIP stream the command layer speaks; without, it is that stream already
+ * (Bluetooth Classic). [model] is what the device is reported as.
  */
-class ShearwaterPeregrineProtocol(
+class ShearwaterPetrelFamilyProtocol private constructor(
     transport: Transport,
+    private val model: String,
+    packets: Boolean,
     timeoutMs: Long = 3_000,
 ) : DiveComputerProtocol {
-    private val link = ShearwaterLink(ShearwaterBlePackets(transport), timeoutMs)
+    private val link = ShearwaterLink(if (packets) ShearwaterBlePackets(transport) else transport, timeoutMs)
     private val logbook = ShearwaterLogbook(ShearwaterMemory(link))
     private var info: DeviceInfo? = null
 
     override fun readDeviceInfo(): DeviceInfo = info ?: DeviceInfo(
         vendor = SHEARWATER,
-        model = MODEL,
+        model = model,
         serial = serial(link.readIdentifier(ID_SERIAL)),
         firmware = firmware(link.readIdentifier(ID_FIRMWARE)),
     ).also { info = it }
@@ -56,7 +60,17 @@ class ShearwaterPeregrineProtocol(
         private const val ID_SERIAL = 0x8010
         private const val ID_FIRMWARE = 0x8011
         private const val ID_LOG_UPLOAD = 0x8021
-        private const val MODEL = "Peregrine"
+
+        /** The Peregrine: Bluetooth LE only. */
+        fun peregrine(transport: Transport) = ShearwaterPetrelFamilyProtocol(transport, "Peregrine", packets = true)
+
+        /**
+         * The Petrel 2, over Bluetooth Classic or LE. A packet link is the one that knows its
+         * write size ([Transport.maxWriteSize] is null for a byte stream), so [transport] must
+         * be open; a replayed LE capture carries its size in the transcript.
+         */
+        fun petrel2(transport: Transport) =
+            ShearwaterPetrelFamilyProtocol(transport, "Petrel 2", packets = transport.maxWriteSize != null)
 
         private const val PNF_BASE = 0x80000000L
         private const val EARLY_PNF_BASE = 0x90000000L
