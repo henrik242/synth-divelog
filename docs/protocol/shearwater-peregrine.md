@@ -56,7 +56,10 @@ cache by its UUID (else scans up to 20 s for it), connects, discovers the servic
 serial characteristic, and turns on notifications. The system pairs on the way if the
 device asks. The MTU is CoreBluetooth's to agree; `maxWriteSize` is
 `maximumWriteValueLength`. Writes go without response when the characteristic allows it,
-waiting while CoreBluetooth's buffer is full, else with a response.
+waiting while CoreBluetooth's buffer is full, else with a response. `close` gives the last
+writes (the shutdown) 300 ms to go out, since a write without response has no
+acknowledgement, then waits up to 2 s for the disconnect. Before that, the macOS helper
+exited at once, and the Peregrine stayed on "sent dive" with a countdown after a download.
 
 - **iOS** (`IosSerialPorts`) offers the Peregrine only. `NSBluetoothAlwaysUsageDescription`
   is in `Info.plist`, and the first scan asks for permission.
