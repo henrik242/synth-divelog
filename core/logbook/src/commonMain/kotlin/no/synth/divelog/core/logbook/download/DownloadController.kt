@@ -35,24 +35,27 @@ import no.synth.divelog.core.model.units.UnitSystem
  *
  * [identityKey] is a stable dedupe key standing in for the device identity, stored as
  * the device's address (dive dedupe keys on device plus fingerprint). A Suunto on the
- * cable and the Peregrine are told apart by the serial they report (the Peregrine's
- * Bluetooth LE address differs per platform: CoreBluetooth makes up a UUID of its own). The
- * Petrel and Predator report no serial, so with [byAddress] their key carries the Bluetooth
- * address they were reached on.
+ * cable, the Peregrine and the Petrel 2 are told apart by the serial they report (a
+ * Bluetooth LE address differs per platform, as CoreBluetooth makes up a UUID of its own,
+ * and the Petrel 2 is reached over Classic or LE). The Petrel and Predator report no
+ * serial, so with [byAddress] their key carries the Bluetooth address they were reached on.
  * [links] are the port kinds it can be read through: a cable, Bluetooth Classic serial,
- * or Bluetooth LE.
+ * or Bluetooth LE. A scan lists every Shearwater it knows, so [bleName] (what the model's
+ * advertised name contains) keeps each one to its own type.
  */
 enum class DiveComputerType(
     val kind: DiveComputerKind,
     private val identityKey: String,
     private val byAddress: Boolean = false,
     private val links: Set<SerialPortKind> = SERIAL_LINKS,
+    private val bleName: String? = null,
 ) {
     SUUNTO_VYPER(DiveComputerKind.SUUNTO_VYPER, "usb-serial:suunto-vyper", links = WIRED),
     SUUNTO_VYPER2(DiveComputerKind.SUUNTO_VYPER2, "usb-serial:suunto-vyper2", links = WIRED),
     SHEARWATER_PETREL(DiveComputerKind.SHEARWATER_PETREL, "serial-spp:shearwater-petrel", byAddress = true),
     SHEARWATER_PREDATOR(DiveComputerKind.SHEARWATER_PREDATOR, "serial-spp:shearwater-predator", byAddress = true),
-    SHEARWATER_PEREGRINE(DiveComputerKind.SHEARWATER_PEREGRINE, "ble:shearwater-peregrine", links = BLE),
+    SHEARWATER_PEREGRINE(DiveComputerKind.SHEARWATER_PEREGRINE, "ble:shearwater-peregrine", links = BLE, bleName = "Peregrine"),
+    SHEARWATER_PETREL_2(DiveComputerKind.SHEARWATER_PETREL_2, "bt:shearwater-petrel2", links = SERIAL_LINKS + BLE, bleName = "Petrel"),
     ;
 
     val displayName: String get() = kind.displayName
@@ -63,8 +66,12 @@ enum class DiveComputerType(
 
     fun parser(): DiveLogParser = kind.parser()
 
-    /** Whether this computer can be read through [port]. */
-    fun canUse(port: SerialPortInfo): Boolean = port.kind in links
+    /** Whether this computer can be read through [port]; a nameless scanned port could be any. */
+    fun canUse(port: SerialPortInfo): Boolean {
+        if (port.kind !in links) return false
+        val name = port.deviceName
+        return port.kind != SerialPortKind.BLUETOOTH_LE || bleName == null || name == null || name.contains(bleName, ignoreCase = true)
+    }
 
     /** Whether this computer is found by a Bluetooth LE scan rather than listed as a port. */
     val foundByScan: Boolean get() = SerialPortKind.BLUETOOTH_LE in links

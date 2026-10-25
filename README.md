@@ -14,7 +14,8 @@ Privacy policy: [PRIVACY.md](PRIVACY.md).
   Petrel 1 over Bluetooth, Suunto Zoop/Vyper and HelO2/Vyper2 over the USB cable.
   New dives only, or a chosen number. On Android the Suunto cable connects through
   a USB OTG adapter. The Shearwater Peregrine downloads over Bluetooth LE on Android,
-  macOS and iOS (the one computer iOS can reach).
+  macOS and iOS, and the Petrel 2 over Bluetooth or Bluetooth LE (the two computers iOS
+  can reach).
 - **File import/export**: Subsurface XML, UDDF, MacDive XML and Shearwater Cloud
   databases. Duplicates are skipped, and the same dive from two computers is merged.
 - **Subsurface cloud import/export** (Android and desktop).

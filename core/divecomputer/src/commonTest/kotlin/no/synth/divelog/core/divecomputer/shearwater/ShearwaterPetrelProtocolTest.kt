@@ -83,7 +83,7 @@ class ShearwaterPetrelProtocolTest {
 }
 
 /** A [FakeShearwaterDevice] behind the Petrel's Bluetooth Classic byte stream: SLIP frames both ways. */
-private class SlipStream(private val device: FakeShearwaterDevice) : Transport {
+internal class SlipStream(private val device: FakeShearwaterDevice) : Transport {
     private var reply = ByteArray(0)
     private var replyPos = 0
 

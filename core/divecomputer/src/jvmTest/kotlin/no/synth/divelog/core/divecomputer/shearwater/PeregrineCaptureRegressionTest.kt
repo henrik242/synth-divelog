@@ -29,7 +29,7 @@ class PeregrineCaptureRegressionTest {
         // them must be written, the shutdown that ends the session included.
         var reported: DeviceInfo? = null
         val replay = ReplayTransport(transcript)
-        val raw = ShearwaterPeregrineProtocol(replay).download(
+        val raw = ShearwaterPetrelFamilyProtocol.peregrine(replay).download(
             knownFingerprint = null,
             listener = object : DownloadListener {
                 override fun onDeviceInfo(info: DeviceInfo) { reported = info }

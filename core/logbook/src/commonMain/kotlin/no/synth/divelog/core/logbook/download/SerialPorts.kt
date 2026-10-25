@@ -18,7 +18,7 @@ enum class SerialPortKind { USB_SERIAL, BLUETOOTH_SPP, BLUETOOTH_LE }
 
 /**
  * A port offered to the download picker: an [id], a human [label] and the [kind] of link
- * it rides. The [id] is opaque to the picker and encodes what the platform [SerialPorts]
+ * it rides, and for a scanned Bluetooth LE computer the [deviceName] it advertises. The [id] is opaque to the picker and encodes what the platform [SerialPorts]
  * needs to reopen the port in this session (it may change between sessions, e.g. a USB
  * adapter index). [descriptor] is the session-stable identity of the physical port, used
  * to remember a device's connection across sessions; it defaults to [id] where that is
@@ -29,6 +29,7 @@ data class SerialPortInfo(
     val label: String,
     val kind: SerialPortKind = SerialPortKind.USB_SERIAL,
     val descriptor: String = id,
+    val deviceName: String? = null,
 )
 
 /**
@@ -78,7 +79,12 @@ class NoSerialPorts : SerialPorts {
 
 /** The picker's ports for the Bluetooth LE computers [scanner] found, by id (an address or CoreBluetooth UUID). */
 internal fun blePorts(scanner: BleScanner): List<SerialPortInfo> = scanner.found().map {
-    SerialPortInfo(id = BLE_PREFIX + it.id, label = "${it.name ?: it.id} (Bluetooth LE)", kind = SerialPortKind.BLUETOOTH_LE)
+    SerialPortInfo(
+        id = BLE_PREFIX + it.id,
+        label = "${it.name ?: it.id} (Bluetooth LE)",
+        kind = SerialPortKind.BLUETOOTH_LE,
+        deviceName = it.name,
+    )
 }
 
 /** Where [blePorts] put the computer's id. */

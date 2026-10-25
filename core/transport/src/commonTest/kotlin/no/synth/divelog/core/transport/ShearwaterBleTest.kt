@@ -7,12 +7,13 @@ import kotlin.test.assertTrue
 
 class ShearwaterBleTest {
     @Test
-    fun aPeregrineIsKnownByNameOrByTheServiceWithoutOne() {
-        assertTrue(ShearwaterBle.isPeregrine("Peregrine TX", advertisesService = false))
-        assertTrue(ShearwaterBle.isPeregrine(null, advertisesService = true))
-        assertTrue(ShearwaterBle.isPeregrine("", advertisesService = true)) // CoreBluetooth may report an empty name
-        assertFalse(ShearwaterBle.isPeregrine("Perdix 2", advertisesService = true))
-        assertFalse(ShearwaterBle.isPeregrine(null, advertisesService = false))
+    fun aComputerIsKnownByNameOrByTheServiceWithoutOne() {
+        assertTrue(ShearwaterBle.isKnown("Peregrine TX", advertisesService = false))
+        assertTrue(ShearwaterBle.isKnown("Petrel 2", advertisesService = false))
+        assertTrue(ShearwaterBle.isKnown(null, advertisesService = true))
+        assertTrue(ShearwaterBle.isKnown("", advertisesService = true)) // CoreBluetooth may report an empty name
+        assertFalse(ShearwaterBle.isKnown("Perdix 2", advertisesService = true))
+        assertFalse(ShearwaterBle.isKnown(null, advertisesService = false))
     }
 
     @Test

@@ -23,8 +23,8 @@ bonds remain unconfirmed; the download worked, so the UUID or the fallback match
 ## Bluetooth LE link
 
 The parts every platform shares are in `core:transport` commonMain: which scan results
-count (`ShearwaterBle.isPeregrine`: a name containing "Peregrine", or the Shearwater service
-advertised without a name), the service order for finding the serial characteristic
+count (`ShearwaterBle.isKnown`: a name containing "Peregrine" or "Petrel", or the Shearwater
+service advertised without a name; the picker gives each model its own), the service order for finding the serial characteristic
 (`ShearwaterBle.serialServices`), and `PacketQueue`, which hands notifications to the
 blocking reads and keeps their boundaries. Each platform's scanner is a `BleScanner`,
 which the download picker's ports come from (`blePorts`, `core:logbook`). An unfiltered

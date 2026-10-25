@@ -82,7 +82,7 @@ class CoreBluetoothScanner : BleScanner {
             val advertisesService = services.orEmpty().any {
                 (it as? CBUUID)?.UUIDString.equals(ShearwaterBle.SERVICE_UUID, ignoreCase = true)
             }
-            if (!ShearwaterBle.isPeregrine(name, advertisesService)) return
+            if (!ShearwaterBle.isKnown(name, advertisesService)) return
             val device = ScannedDevice(didDiscoverPeripheral.identifier.UUIDString, name)
             if (seen[device.id] == device) return
             seen[device.id] = device

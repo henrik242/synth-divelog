@@ -3,7 +3,7 @@ package no.synth.divelog.core.divecomputer
 import no.synth.divelog.core.divecomputer.shearwater.PredatorDump
 import no.synth.divelog.core.divecomputer.shearwater.PredatorParser
 import no.synth.divelog.core.divecomputer.shearwater.ShearwaterLink
-import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPeregrineProtocol
+import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPetrelFamilyProtocol
 import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPetrelProtocol
 import no.synth.divelog.core.divecomputer.shearwater.ShearwaterPredatorProtocol
 import no.synth.divelog.core.divecomputer.suunto.SuuntoVyper2Dump
@@ -19,9 +19,9 @@ import no.synth.divelog.core.divecomputer.transport.Transport
  * The dive computers a download can read: the line settings to open the [Transport]
  * with, the protocol to drive over it, and the parser for the raw dives it yields
  * ([formatIds] are the formats those dives carry). The Suunto families are wired serial;
- * the Petrel and Predator speak Bluetooth Classic SPP, a full-duplex serial stream, and
- * the Peregrine Bluetooth LE, whose transport carries GATT packets (its line settings are
- * unused).
+ * the Petrel and Predator speak Bluetooth Classic SPP, a full-duplex serial stream, the
+ * Peregrine Bluetooth LE, whose transport carries GATT packets (its line settings are
+ * unused), and the Petrel 2 either.
  */
 enum class DiveComputerKind(
     val displayName: String,
@@ -67,7 +67,16 @@ enum class DiveComputerKind(
         displayName = "Shearwater Peregrine",
         serialParams = ShearwaterLink.SERIAL_PARAMS,
         formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
-        protocolFactory = { ShearwaterPeregrineProtocol(it) },
+        protocolFactory = { ShearwaterPetrelFamilyProtocol.peregrine(it) },
+        parserFactory = { PredatorParser() },
+    ),
+
+    /** Bluetooth Classic or LE; the Peregrine's protocol over either. */
+    SHEARWATER_PETREL_2(
+        displayName = "Shearwater Petrel 2",
+        serialParams = ShearwaterLink.SERIAL_PARAMS,
+        formatIds = setOf(PredatorParser.PNF_FORMAT_ID, PredatorParser.PETREL_FORMAT_ID),
+        protocolFactory = { ShearwaterPetrelFamilyProtocol.petrel2(it) },
         parserFactory = { PredatorParser() },
     ),
     ;
