@@ -80,6 +80,8 @@ class DiveRepository(private val db: DiveDatabase) {
 
     fun deleteDive(id: Long) = dives.deleteDive(id)
 
+    fun deleteDives(ids: Collection<Long>) = db.transaction { ids.forEach(dives::deleteDive) }
+
     fun setSite(diveId: Long, siteId: Long?) = dives.setDiveSite(siteId, diveId)
 
     /** Run [body] in one transaction; transactions nest, so repository calls inside join it. */
@@ -432,5 +434,114 @@ class DiveRepository(private val db: DiveDatabase) {
             if (filled != target) updateDive(filled)
             dives.deleteDive(sourceDiveId)
         }
+    }
+
+    /**
+     * Whether [diveIds] can be merged into one: at least two, and no computer logged two
+     * of them at the same time (one computer cannot log two dives at once).
+     */
+    fun canMerge(diveIds: Collection<Long>): Boolean {
+        val ids = diveIds.toSet()
+        if (ids.size < 2) return false
+        val spans = ids.flatMap { id ->
+            val offset = dives.selectDiveById(id).executeAsOneOrNull()?.utcOffsetSeconds ?: return false
+            records.selectRecordSummariesForDive(id).executeAsList().mapNotNull { r ->
+                r.deviceId?.let { RecordSpan(id, it, r.startEpochSeconds + offset, r.startEpochSeconds + offset + r.durationSeconds) }
+            }
+        }
+        return spans.groupBy { it.deviceId }.values.none { same ->
+            same.any { a -> same.any { b -> a.diveId != b.diveId && a.start < b.end && b.start < a.end } }
+        }
+    }
+
+    private data class RecordSpan(val diveId: Long, val deviceId: Long, val start: Long, val end: Long)
+
+    /**
+     * Merge [diveIds] into the earliest of them (see [mergeDives] for what moves over) and
+     * return its id. Computers that logged the same time keep one record each, a
+     * multi-computer dive. The records of one computer from dives one after another are
+     * joined end to end into one record (see [concatenateRecords]), so dives split by a
+     * short surface interval become one single-computer dive. Fails unless [canMerge].
+     */
+    fun mergeDives(diveIds: Collection<Long>): Long = db.transactionWithResult {
+        require(canMerge(diveIds)) { "One computer logged two of these dives at once" }
+        val ordered = diveIds.toSet()
+            .map { dives.selectDiveById(it).executeAsOne().toDomain() }
+            .sortedBy { it.startEpochSeconds + it.utcOffsetSeconds }
+        val target = ordered.first()
+        ordered.drop(1).forEach { mergeDives(sourceDiveId = it.id, targetDiveId = target.id) }
+
+        val joined = recordsForDive(target.id)
+            .filter { it.deviceId != null }
+            .groupBy { it.deviceId }
+            .values
+            .filter { it.size > 1 }
+            .mapNotNull { group -> concatenateRecords(group)?.let { kept -> group to kept } }
+        val merged = requireNotNull(getDive(target.id)) { "Merged dive is gone" }
+        val primaryGroup = joined.firstOrNull { (group, _) -> group.any { it.id == merged.primaryComputerRecordId } }
+        if (primaryGroup != null) {
+            // The dive's summary follows its primary record, which now spans the joined dives.
+            val kept = requireNotNull(record(primaryGroup.second)) { "Joined record is gone" }
+            // Mean depth over the dives' own times, weighted by duration.
+            val weighted = ordered.mapNotNull { d -> d.meanDepthMm?.takeIf { d.durationSeconds > 0 }?.let { it to d.durationSeconds } }
+            val meanDepth = if (weighted.isEmpty()) merged.meanDepthMm
+            else (weighted.sumOf { (mean, s) -> mean.toLong() * s } / weighted.sumOf { (_, s) -> s.toLong() }).toInt()
+            updateDive(
+                merged.copy(
+                    durationSeconds = maxOf(merged.durationSeconds.toLong(), kept.endEpochSeconds - merged.startEpochSeconds).toInt(),
+                    maxDepthMm = ordered.mapNotNull { it.maxDepthMm }.maxOrNull(),
+                    meanDepthMm = meanDepth,
+                    primaryComputerRecordId = kept.id,
+                ),
+            )
+        }
+        target.id
+    }
+
+    /**
+     * Join one computer's [parts] (records of one dive, one after another) into the first:
+     * the later parts' samples and events move onto its timeline and the parts go. The
+     * surface interval between two parts is logged at the surface. The joined record's raw
+     * download covers only the first part, so it is no longer re-parsed
+     * ([CONCATENATED_FORMAT_ID]); it takes the last part's fingerprint, so a later download
+     * stops at the right dive. Returns the kept record, or null (nothing changed) when the
+     * parts overlap.
+     */
+    private fun concatenateRecords(parts: List<DiveComputerRecord>): Long? {
+        val ordered = parts.sortedBy { it.startEpochSeconds }
+        if (ordered.zipWithNext().any { (a, b) -> a.endEpochSeconds > b.startEpochSeconds }) return null
+        val first = ordered.first()
+        var end = first.endEpochSeconds
+        for (part in ordered.drop(1)) {
+            val shift = part.startEpochSeconds - first.startEpochSeconds
+            val times = samples.selectSamplesForRecord(first.id).executeAsList().mapTo(HashSet()) { it.timeOffsetSeconds }
+            if (times.isNotEmpty() && samples.countSamplesForRecord(part.id).executeAsOne() > 0) {
+                val surfaceFrom = end - first.startEpochSeconds
+                for (t in listOf(surfaceFrom, shift - 1).distinct()) {
+                    if (t in surfaceFrom until shift && t !in times) {
+                        samples.insertSample(first.id, t, 0, null, null, null, null, null, null, null, null, null)
+                    }
+                }
+            }
+            samples.moveSamplesToRecord(targetRecordId = first.id, shiftSeconds = shift, sourceRecordId = part.id)
+            samples.moveTankPressuresToRecord(targetRecordId = first.id, shiftSeconds = shift, sourceRecordId = part.id)
+            events.moveEventsToRecord(targetRecordId = first.id, shiftSeconds = shift, sourceRecordId = part.id)
+            records.deleteRecord(part.id)
+            end = maxOf(end, part.endEpochSeconds)
+        }
+        records.updateConcatenatedRecord(
+            durationSeconds = end - first.startEpochSeconds,
+            maxDepthMm = ordered.mapNotNull { it.maxDepthMm }.maxOrNull()?.toLong(),
+            rawData = ByteArray(0),
+            rawFormatId = CONCATENATED_FORMAT_ID,
+            fingerprint = ordered.last().fingerprint,
+            id = first.id,
+        )
+        return first.id
+    }
+
+    companion object {
+        /** Format of a record joined from several downloads; no parser reads it. */
+        const val CONCATENATED_FORMAT_ID = "concatenated"
     }
 }

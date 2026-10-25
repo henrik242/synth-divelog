@@ -51,3 +51,13 @@ DELETE FROM sample WHERE recordId = ?;
 
 deleteTankPressuresForRecord:
 DELETE FROM sampleTankPressure WHERE recordId = ?;
+
+-- Appends one record's samples to another, shifted onto its timeline. A sample at a time
+-- the target already has stays behind (and goes with the source record).
+moveSamplesToRecord:
+UPDATE OR IGNORE sample SET recordId = :targetRecordId, timeOffsetSeconds = timeOffsetSeconds + :shiftSeconds
+WHERE recordId = :sourceRecordId;
+
+moveTankPressuresToRecord:
+UPDATE OR IGNORE sampleTankPressure SET recordId = :targetRecordId, timeOffsetSeconds = timeOffsetSeconds + :shiftSeconds
+WHERE recordId = :sourceRecordId;

@@ -19,3 +19,7 @@ SELECT * FROM event ORDER BY recordId, timeOffsetSeconds, id;
 
 deleteEventsForRecord:
 DELETE FROM event WHERE recordId = ?;
+
+moveEventsToRecord:
+UPDATE event SET recordId = :targetRecordId, timeOffsetSeconds = timeOffsetSeconds + :shiftSeconds
+WHERE recordId = :sourceRecordId;
