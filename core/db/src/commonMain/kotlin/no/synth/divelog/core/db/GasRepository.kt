@@ -49,8 +49,12 @@ class GasRepository(private val db: DiveDatabase) {
      * only names a gas the dive already has adds nothing. The incoming ids are ignored.
      * Returns the dive's tank index for each incoming tank index that has one, so tank
      * pressure samples can follow their tank.
+     *
+     * With [follows] the incoming tanks come from a later dive (back-to-back dives joined
+     * into one): a matched tank ends at the later dive's end pressure, and one that starts
+     * well above where the dive's tank ended is a fresh tank of the same gas, added apart.
      */
-    fun mergeTanks(diveId: Long, incoming: List<Tank>): Map<Int, Int> = db.transactionWithResult {
+    fun mergeTanks(diveId: Long, incoming: List<Tank>, follows: Boolean = false): Map<Int, Int> = db.transactionWithResult {
         if (incoming.isEmpty()) return@transactionWithResult emptyMap()
         val indices = HashMap<Int, Int>()
         val mixes = HashMap<Long, Pair<Int, Int>?>()
@@ -68,8 +72,10 @@ class GasRepository(private val db: DiveDatabase) {
                 gas?.let { g -> onDive.firstOrNull { gasOf(it) == g } }?.let { indices[t.index] = it.index }
                 continue
             }
-            val match = gas?.let { g -> existing.firstOrNull { gasOf(it) == g } }
-                ?: existing.firstOrNull { pairsBySize(it, gasOf(it), t, gas) }
+            val match = (
+                gas?.let { g -> existing.firstOrNull { gasOf(it) == g } }
+                    ?: existing.firstOrNull { pairsBySize(it, gasOf(it), t, gas) }
+                )?.takeUnless { follows && isRefill(it, t) }
             if (match != null) {
                 existing.remove(match)
                 val filled = match.copy(
@@ -77,7 +83,7 @@ class GasRepository(private val db: DiveDatabase) {
                     volumeMl = match.volumeMl ?: t.volumeMl,
                     workingPressureMbar = match.workingPressureMbar ?: t.workingPressureMbar,
                     startPressureMbar = match.startPressureMbar ?: t.startPressureMbar,
-                    endPressureMbar = match.endPressureMbar ?: t.endPressureMbar,
+                    endPressureMbar = if (follows) t.endPressureMbar ?: match.endPressureMbar else match.endPressureMbar ?: t.endPressureMbar,
                 )
                 if (filled != match) updateTank(filled)
                 indices[t.index] = match.index
@@ -88,6 +94,13 @@ class GasRepository(private val db: DiveDatabase) {
             }
         }
         indices
+    }
+
+    /** Whether [later] starts well above where [earlier] ended: a fresh tank, not the same one. */
+    private fun isRefill(earlier: Tank, later: Tank): Boolean {
+        val ended = earlier.endPressureMbar ?: return false
+        val starts = later.startPressureMbar ?: return false
+        return starts - ended > REFILL_MARGIN_MBAR
     }
 
     /**
@@ -112,4 +125,9 @@ class GasRepository(private val db: DiveDatabase) {
     )
 
     fun deleteTank(id: Long) = q.deleteTank(id)
+
+    private companion object {
+        /** More than a tank recovers by warming up at the surface. */
+        const val REFILL_MARGIN_MBAR = 20_000
+    }
 }

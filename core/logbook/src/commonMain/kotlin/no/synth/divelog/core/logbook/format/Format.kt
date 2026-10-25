@@ -46,6 +46,9 @@ object Format {
     fun dateTime(epochSeconds: Long, utcOffsetSeconds: Int): String =
         "${date(epochSeconds, utcOffsetSeconds)} ${time(epochSeconds, utcOffsetSeconds)}"
 
+    /** "1 dive", "2 dives". */
+    fun dives(count: Int): String = if (count == 1) "1 dive" else "$count dives"
+
     fun duration(seconds: Int): String {
         val m = Units.durationMinutesPart(seconds)
         val s = Units.durationSecondsPart(seconds)

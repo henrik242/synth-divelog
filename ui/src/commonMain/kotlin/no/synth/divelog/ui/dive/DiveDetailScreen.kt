@@ -54,9 +54,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import no.synth.divelog.core.db.DiveRepository
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.Device
+import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.GasMix
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.core.model.units.UnitSystem
@@ -64,6 +66,9 @@ import no.synth.divelog.core.model.units.Units
 import no.synth.divelog.ui.common.observe
 import no.synth.divelog.ui.sites.SiteLocationMap
 import kotlin.math.roundToInt
+
+private fun diveLabel(dive: Dive): String =
+    (dive.number?.let { "#$it  " } ?: "") + Format.dateTime(dive.startEpochSeconds, dive.utcOffsetSeconds)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,7 +118,7 @@ fun DiveDetailScreen(
     }
 
     var showMerge by remember { mutableStateOf(false) }
-    var mergeRefused by remember(showMerge) { mutableStateOf(false) }
+    var mergeWith by remember(showMerge) { mutableStateOf<Dive?>(null) }
     var showDelete by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -135,40 +140,45 @@ fun DiveDetailScreen(
     }
 
     if (showMerge) {
-        val others = remember { container.dives.allDives().filter { it.id != diveId } }
+        // Only dives this one can merge with: overlapping it or a short surface interval away.
+        val nearby = remember {
+            val near = DiveRepository.MAX_SURFACE_INTERVAL_SECONDS
+            val start = dive.startEpochSeconds + dive.utcOffsetSeconds
+            container.dives.allDives().filter { other ->
+                val otherStart = other.startEpochSeconds + other.utcOffsetSeconds
+                other.id != diveId &&
+                    otherStart <= start + dive.durationSeconds + near && start <= otherStart + other.durationSeconds + near &&
+                    container.dives.mergeProblem(listOf(diveId, other.id)) == null
+            }
+        }
+        val picked = mergeWith
         AlertDialog(
             onDismissRequest = { showMerge = false },
-            title = { Text("Merge another dive into this one") },
+            title = { Text(if (picked == null) "Merge with another dive" else "Merge with ${diveLabel(picked)}?") },
             text = {
-                if (others.isEmpty()) {
-                    Text("No other dives to merge.")
-                } else if (mergeRefused) {
-                    Text("One computer logged both dives at the same time, so they cannot be merged.")
-                } else {
-                    LazyColumn {
-                        items(others) { other ->
+                when {
+                    picked != null -> Text(MERGE_EXPLAINED)
+                    nearby.isEmpty() -> Text("No dive is close enough in time to merge with this one.")
+                    else -> LazyColumn {
+                        items(nearby) { other ->
                             Text(
-                                text = (other.number?.let { "#$it  " } ?: "") +
-                                    Format.dateTime(other.startEpochSeconds, other.utcOffsetSeconds),
-                                modifier = Modifier.fillMaxWidth()
-                                    .clickable {
-                                        // The earlier dive is kept, so this one may give way to it.
-                                        val pair = listOf(diveId, other.id)
-                                        if (container.dives.canMerge(pair)) {
-                                            val merged = container.dives.mergeDives(pair)
-                                            showMerge = false
-                                            if (merged != diveId) onNavigate(merged)
-                                        } else {
-                                            mergeRefused = true
-                                        }
-                                    }
-                                    .padding(vertical = 12.dp),
+                                text = diveLabel(other),
+                                modifier = Modifier.fillMaxWidth().clickable { mergeWith = other }.padding(vertical = 12.dp),
                             )
                         }
                     }
                 }
             },
-            confirmButton = {},
+            confirmButton = {
+                if (picked != null) {
+                    TextButton(onClick = {
+                        // The earlier dive is kept, so this one may give way to it.
+                        val merged = container.dives.mergeDives(listOf(diveId, picked.id))
+                        showMerge = false
+                        if (merged != diveId) onNavigate(merged)
+                    }) { Text("Merge") }
+                }
+            },
             dismissButton = { TextButton(onClick = { showMerge = false }) { Text("Cancel") } },
         )
     }

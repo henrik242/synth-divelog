@@ -135,7 +135,10 @@ sealed interface DiveStatus {
     /** What the review starts with: what is new comes in, nothing stored is changed. */
     val default: DiveAction
 
-    /** What checking the dive does; for [Overlaps], keeping it separate is [DiveAction.IMPORT]. */
+    /**
+     * What checking the dive does, or [DiveAction.SKIP] when it cannot be taken in. A
+     * [DiveAction.MERGE] can be kept apart instead, as [DiveAction.IMPORT].
+     */
     val checkedAction: DiveAction
 
     /** Neither stored nor overlapping a dive. */
@@ -144,10 +147,10 @@ sealed interface DiveStatus {
         override val checkedAction = DiveAction.IMPORT
     }
 
-    /** The user deleted this dive from the logbook. */
-    data object Deleted : DiveStatus {
+    /** The user deleted this dive from the logbook; taken back, it merges into the dive it [overlaps], if any. */
+    data class Deleted(val overlaps: DiveRef? = null) : DiveStatus {
         override val default = DiveAction.SKIP
-        override val checkedAction = DiveAction.IMPORT
+        override val checkedAction = if (overlaps != null) DiveAction.MERGE else DiveAction.IMPORT
     }
 
     /** Overlaps [dive], likely the same dive from another computer ([computer], if known). */
@@ -477,15 +480,17 @@ class DownloadController(
         return found.id
     }
 
-    private class Outcome(
-        val imported: Int,
-        val merged: Int,
-        val refreshed: Int,
-        val skipped: Int,
-        val leftOut: Int,
-        val unreadable: Int,
-        val heldBack: Int,
-    )
+    /** What happened to one downloaded dive. */
+    private enum class Result { IMPORTED, MERGED, REFRESHED, SKIPPED, LEFT_OUT }
+
+    private class Outcome(results: List<Result>, val unreadable: Int, val heldBack: Int) {
+        private val counts = results.groupingBy { it }.eachCount()
+        val imported = counts[Result.IMPORTED] ?: 0
+        val merged = counts[Result.MERGED] ?: 0
+        val refreshed = counts[Result.REFRESHED] ?: 0
+        val skipped = counts[Result.SKIPPED] ?: 0
+        val leftOut = counts[Result.LEFT_OUT] ?: 0
+    }
 
     /** A parsed dive, what [DiveRepository.classify] decided for it, and its status for the review. */
     private class Classified(val incoming: IncomingDive, val decision: ImportDecision, val status: DiveStatus)
@@ -520,71 +525,60 @@ class DownloadController(
             review(classified.map { it.toDownloaded() })
         }
 
-        var imported = 0
-        var merged = 0
-        var refreshed = 0
-        var skipped = 0
-        var leftOut = 0
-        classified.forEachIndexed { i, entry ->
-            val decision = entry.decision
-            when (actions.getOrElse(i) { entry.status.default }) {
-                DiveAction.SKIP -> if (entry.status is DiveStatus.Stored) skipped++ else leftOut++
-                DiveAction.MERGE -> if (decision is ImportDecision.MergeCandidate) {
-                    container.dives.attachToDive(entry.incoming, decision.diveId)
-                    merged++
-                } else {
-                    leftOut++
-                }
-                DiveAction.REFRESH -> if (entry.status is DiveStatus.Stored && entry.status.joined) {
-                    skipped++
-                } else if (decision is ImportDecision.Duplicate) {
-                    container.dives.refreshRecord(decision.existingRecordId, entry.incoming)
-                    refreshed++
-                } else {
-                    leftOut++
-                }
-                DiveAction.IMPORT -> if (decision is ImportDecision.Duplicate) {
-                    skipped++
-                } else {
-                    container.dives.importAsNewDive(entry.incoming)
-                    imported++
-                }
-            }
-        }
-        return Outcome(
-            imported, merged, refreshed, skipped, leftOut,
-            unreadable = raws.size - readable, heldBack = readable - usable.size,
-        )
+        val results = classified.mapIndexed { i, entry -> apply(entry, actions.getOrElse(i) { entry.status.default }) }
+        return Outcome(results, unreadable = raws.size - readable, heldBack = readable - usable.size)
     }
 
+    /** Carry out [action] on one dive; one its status does not allow leaves the dive out. */
+    private fun apply(entry: Classified, action: DiveAction): Result {
+        val decision = entry.decision
+        val allowed = action == entry.status.checkedAction || (action == DiveAction.IMPORT && entry.status.checkedAction == DiveAction.MERGE)
+        return when {
+            !allowed || action == DiveAction.SKIP -> if (entry.status is DiveStatus.Stored) Result.SKIPPED else Result.LEFT_OUT
+            decision is ImportDecision.MergeCandidate && action == DiveAction.MERGE -> {
+                container.dives.attachToDive(entry.incoming, decision.diveId)
+                Result.MERGED
+            }
+            decision is ImportDecision.Duplicate -> {
+                container.dives.refreshRecord(decision.existingRecordId, entry.incoming)
+                Result.REFRESHED
+            }
+            else -> {
+                container.dives.importAsNewDive(entry.incoming)
+                Result.IMPORTED
+            }
+        }
+    }
+
+    /** A stored copy wins; then a dive the user deleted, even when it overlaps a dive; then an overlap; else it is new. */
     private fun classify(incoming: IncomingDive, deviceId: Long): Classified {
         val decision = container.dives.classify(incoming)
-        val deleted = decision !is ImportDecision.Duplicate && container.dives.isDeleted(deviceId, incoming.fingerprint)
-        val status = if (deleted) DiveStatus.Deleted else when (decision) {
-            is ImportDecision.Duplicate -> {
+        val candidate = (decision as? ImportDecision.MergeCandidate)?.diveId
+        val status = when {
+            decision is ImportDecision.Duplicate -> {
                 val record = container.dives.record(decision.existingRecordId)
                 val dive = record?.let { container.dives.getDive(it.diveId) }
                 DiveStatus.Stored(
-                    dive = dive?.let { DiveRef(it.number, it.startEpochSeconds, it.utcOffsetSeconds) }
-                        ?: DiveRef(null, incoming.startEpochSeconds, incoming.utcOffsetSeconds),
+                    dive = refTo(record?.diveId, incoming),
                     secondComputer = dive != null && dive.primaryComputerRecordId != decision.existingRecordId,
                     joined = record?.rawFormatId == DiveRepository.CONCATENATED_FORMAT_ID,
                 )
             }
-            is ImportDecision.MergeCandidate -> {
-                val dive = container.dives.getDive(decision.diveId)
-                val computer = container.dives.recordsForDive(decision.diveId)
+            container.dives.isDeleted(deviceId, incoming.fingerprint) -> DiveStatus.Deleted(candidate?.let { refTo(it, incoming) })
+            candidate != null -> {
+                val computer = container.dives.recordsForDive(candidate)
                     .firstNotNullOfOrNull { r -> r.deviceId?.let { container.devices.get(it) } }
-                DiveStatus.Overlaps(
-                    dive = dive?.let { DiveRef(it.number, it.startEpochSeconds, it.utcOffsetSeconds) }
-                        ?: DiveRef(null, incoming.startEpochSeconds, incoming.utcOffsetSeconds),
-                    computer = computer?.let { it.nickname?.takeIf(String::isNotBlank) ?: it.model },
-                )
+                DiveStatus.Overlaps(refTo(candidate, incoming), computer?.let { it.nickname?.takeIf(String::isNotBlank) ?: it.model })
             }
-            ImportDecision.NewDive -> DiveStatus.New
+            else -> DiveStatus.New
         }
         return Classified(incoming, decision, status)
     }
+
+    /** How the review names dive [diveId]; by [incoming]'s start when it is gone. */
+    private fun refTo(diveId: Long?, incoming: IncomingDive): DiveRef =
+        diveId?.let { container.dives.getDive(it) }?.let { DiveRef(it.number, it.startEpochSeconds, it.utcOffsetSeconds) }
+            ?: DiveRef(null, incoming.startEpochSeconds, incoming.utcOffsetSeconds)
 
     private fun Classified.toDownloaded() = DownloadedDive(
         number = incoming.number,

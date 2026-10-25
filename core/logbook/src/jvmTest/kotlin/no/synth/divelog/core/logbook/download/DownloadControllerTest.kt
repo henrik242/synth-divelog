@@ -25,13 +25,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /** The download orchestration over a fake protocol, port and parser, into an in-memory logbook. */
 class DownloadControllerTest {
     private val container = AppContainer(createDatabase())
 
-    /** A dive the fake parser reads: [n] orders them in time; [readable] false makes it fail. */
+    /** A dive the fake parser reads: [n] orders them in time, 10 minutes apart; [readable] false makes it fail. */
     private fun dive(n: Int, readable: Boolean = true) =
         RawDive(fingerprint = "fp$n", data = byteArrayOf(if (readable) n.toByte() else -1), formatId = "fake")
 
@@ -42,7 +43,7 @@ class DownloadControllerTest {
             val n = raw.data[0].toInt()
             if (n < 0) throw ProtocolException("unreadable")
             return IncomingDive(
-                startEpochSeconds = 1_700_000_000L + n * 86_400L,
+                startEpochSeconds = 1_700_000_000L + n * 2_400L,
                 utcOffsetSeconds = 0,
                 durationSeconds = 1_800,
                 maxDepthMm = 20_000,
@@ -175,15 +176,34 @@ class DownloadControllerTest {
             statuses = list.map { it.status }
             list.map { it.status.default }
         }
-        assertEquals(DiveStatus.Deleted, statuses.first())
+        assertEquals(DiveStatus.Deleted(), statuses.first())
         assertEquals("Skipped 1 already in the logbook, left out 1", left)
         assertEquals(1, container.dives.allDives().size)
 
         val back = download(controller(FakePorts()) { FakeProtocol(it, dives) }, amount = DownloadAmount.All) { list ->
-            list.map { it.status.checkedAction.takeIf { _ -> it.status == DiveStatus.Deleted } ?: DiveAction.SKIP }
+            list.map { if (it.status is DiveStatus.Deleted) DiveAction.IMPORT else DiveAction.SKIP }
         }
         assertEquals("Imported 1 new dive, skipped 1 already in the logbook", back)
         assertEquals(2, container.dives.allDives().size)
+    }
+
+    @Test
+    fun aDeletedDiveTakenBackMergesIntoTheDiveItOverlaps() {
+        val dives = listOf(dive(1))
+        download(controller(FakePorts()) { FakeProtocol(it, dives) })
+        container.dives.deleteDive(container.dives.allDives().single().id)
+        val other = container.devices.add(Device(vendor = "Shearwater", model = "Perdix", serial = "9"))
+        container.dives.importAsNewDive(parser.parse(dive(1)).copy(deviceId = other, fingerprint = "perdix"))
+
+        var status: DiveStatus? = null
+        val message = download(controller(FakePorts()) { FakeProtocol(it, dives) }, amount = DownloadAmount.All) { list ->
+            status = list.single().status
+            list.map { it.status.checkedAction }
+        }
+
+        assertEquals(DiveAction.MERGE, assertIs<DiveStatus.Deleted>(status).checkedAction)
+        assertEquals("Merged 1 into existing dive", message)
+        assertEquals(2, container.dives.recordsForDive(container.dives.allDives().single().id).size)
     }
 
     @Test

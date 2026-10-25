@@ -23,3 +23,15 @@ sealed interface ImportResult {
 
     data class AttachedToDive(val diveId: Long, val recordId: Long) : ImportResult
 }
+
+/** Why dives cannot be merged into one ([DiveRepository.mergeProblem]). */
+enum class MergeProblem {
+    /** Fewer than two dives. */
+    TOO_FEW,
+
+    /** A surface interval between them is longer than [DiveRepository.MAX_SURFACE_INTERVAL_SECONDS]. */
+    TOO_FAR_APART,
+
+    /** One computer logged two of them at the same time. */
+    ONE_COMPUTER_AT_ONCE,
+}

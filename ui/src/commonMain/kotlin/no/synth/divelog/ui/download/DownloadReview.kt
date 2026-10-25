@@ -16,10 +16,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -31,13 +35,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -59,26 +65,21 @@ import no.synth.divelog.core.model.units.UnitSystem
 @Composable
 fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSystem) {
     val dives = state.dives
-    val actions = remember(state) { mutableStateListOf<DiveAction>().apply { addAll(dives.map { it.status.default }) } }
-    // Overlapping dives the user chose to keep as dives of their own when checked.
-    var keepSeparate by remember(state) { mutableStateOf(emptySet<Int>()) }
+    var choices by remember(state) { mutableStateOf(ReviewChoices(dives.map { it.status })) }
     var storedOpen by remember(state) { mutableStateOf(dives.all { it.status is DiveStatus.Stored }) }
     var confirmClose by remember(state) { mutableStateOf(false) }
 
-    fun checkedAction(i: Int): DiveAction =
-        if (dives[i].status is DiveStatus.Overlaps && i in keepSeparate) DiveAction.IMPORT else dives[i].status.checkedAction
-
-    // What starts checked, keeping a keep-separate choice made since.
-    fun newOnly(i: Int): DiveAction = if (dives[i].status.default == DiveAction.SKIP) DiveAction.SKIP else checkedAction(i)
-
-    fun toggle(i: Int) {
-        actions[i] = if (actions[i] == DiveAction.SKIP) checkedAction(i) else DiveAction.SKIP
-    }
-
-    fun setAll(pick: (Int) -> DiveAction) = dives.indices.forEach { actions[it] = pick(it) }
-
     val stored = dives.indices.filter { dives[it].status is DiveStatus.Stored }
     val others = dives.indices.filter { dives[it].status !is DiveStatus.Stored }
+
+    @Composable
+    fun Row(i: Int) = DiveRow(
+        dive = dives[i],
+        choices = choices,
+        index = i,
+        unitSystem = unitSystem,
+        onChange = { choices = it },
+    )
 
     Dialog(
         onDismissRequest = { confirmClose = true },
@@ -109,50 +110,18 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSyste
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     ) {
-                        TextButton(onClick = { setAll(::newOnly) }) { Text("Select new") }
-                        TextButton(onClick = { setAll(::checkedAction) }) { Text("Select all") }
-                        TextButton(onClick = { setAll { DiveAction.SKIP } }) { Text("Select none") }
+                        TextButton(onClick = { choices = choices.suggested() }) { Text("Select suggested") }
+                        TextButton(onClick = { choices = choices.all() }) { Text("Select all") }
+                        TextButton(onClick = { choices = choices.none() }) { Text("Select none") }
                     }
                     HorizontalDivider()
                     LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                        items(others, key = { it }) { i ->
-                            DiveRow(
-                                dive = dives[i],
-                                action = actions[i],
-                                unitSystem = unitSystem,
-                                onToggle = { toggle(i) },
-                                onKeepSeparate = { separate ->
-                                    keepSeparate = if (separate) keepSeparate + i else keepSeparate - i
-                                    actions[i] = if (separate) DiveAction.IMPORT else DiveAction.MERGE
-                                },
-                            )
-                        }
+                        items(others, key = { it }) { i -> Row(i) }
                         if (stored.isNotEmpty()) {
                             item(key = "stored") {
-                                Column(
-                                    Modifier.fillMaxWidth().clickable { storedOpen = !storedOpen }
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                ) {
-                                    Text(
-                                        "${stored.size} already in the logbook - ${if (storedOpen) "hide" else "show"}",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                    if (storedOpen) {
-                                        Text(
-                                            "Checking one refreshes it from the computer: its samples and computer data " +
-                                                "are replaced, its site, buddies and notes are kept.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
+                                StoredHeader(count = stored.size, open = storedOpen, onToggle = { storedOpen = !storedOpen })
                             }
-                            if (storedOpen) {
-                                items(stored, key = { it }) { i ->
-                                    DiveRow(dives[i], actions[i], unitSystem, onToggle = { toggle(i) }, onKeepSeparate = {})
-                                }
-                            }
+                            if (storedOpen) items(stored, key = { it }) { i -> Row(i) }
                         }
                     }
                     HorizontalDivider()
@@ -160,7 +129,7 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSyste
                         horizontalArrangement = Arrangement.End,
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                     ) {
-                        Button(onClick = { state.onResolve(actions.toList()) }) { Text(confirmLabel(actions)) }
+                        Button(onClick = { state.onResolve(choices.actions) }) { Text(confirmLabel(choices.actions)) }
                     }
                 }
             }
@@ -170,38 +139,70 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSyste
     if (confirmClose) {
         AlertDialog(
             onDismissRequest = { confirmClose = false },
-            title = { Text("Discard ${dives.size} downloaded dive${if (dives.size == 1) "" else "s"}?") },
-            text = { Text("To get them back you would have to download again.") },
+            title = { Text("Leave the review?") },
+            text = { Text("Nothing is imported. To get the ${Format.dives(dives.size)} back you would have to download again.") },
             confirmButton = {
-                TextButton(onClick = { state.onResolve(dives.indices.map(::newOnly)) }) { Text("Import new only") }
+                TextButton(
+                    onClick = { state.onResolve(dives.map { DiveAction.SKIP }) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Discard download") }
             },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = { state.onResolve(dives.map { DiveAction.SKIP }) }) { Text("Discard") }
-                    TextButton(onClick = { confirmClose = false }) { Text("Keep reviewing") }
-                }
-            },
+            dismissButton = { TextButton(onClick = { confirmClose = false }) { Text("Keep reviewing") } },
         )
     }
 }
 
-/** One downloaded dive: a checkbox, when and how deep, its status, and for an overlap whether to merge. */
+/** Opens and closes the group of dives already in the logbook. */
+@Composable
+private fun StoredHeader(count: Int, open: Boolean, onToggle: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onToggle)
+            .semantics { stateDescription = if (open) "Expanded" else "Collapsed" }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "$count already in the logbook",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Icon(
+                if (open) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (open) {
+            Text(
+                "Checking one refreshes it from the computer: its samples and computer data " +
+                    "are replaced, its site, buddies and notes are kept.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** One downloaded dive [index]: a checkbox, when and how deep, its status, and for a merge whether to keep it apart. */
 @Composable
 private fun DiveRow(
     dive: DownloadedDive,
-    action: DiveAction,
+    choices: ReviewChoices,
+    index: Int,
     unitSystem: UnitSystem,
-    onToggle: () -> Unit,
-    onKeepSeparate: (Boolean) -> Unit,
+    onChange: (ReviewChoices) -> Unit,
 ) {
-    val checked = action != DiveAction.SKIP
-    val enabled = dive.status.checkedAction != DiveAction.SKIP
+    val checked = choices.isChecked(index)
+    val action = choices.action(index)
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onToggle).padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth()
+            .toggleable(value = checked, enabled = choices.canCheck(index), role = Role.Checkbox) { onChange(choices.toggle(index)) }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
-        Checkbox(checked = checked, onCheckedChange = { onToggle() }, enabled = enabled)
-        Column(Modifier.weight(1f)) {
+        Checkbox(checked = checked, onCheckedChange = null, enabled = choices.canCheck(index))
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
             Text(
                 listOfNotNull(
                     dive.number?.let { "#$it" },
@@ -216,17 +217,17 @@ private fun DiveRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            val status = dive.status
-            if (status is DiveStatus.Overlaps && checked) {
+            val into = mergeTarget(dive.status)
+            if (into != null && checked && choices.canKeepApart(index)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = action == DiveAction.MERGE,
-                        onClick = { onKeepSeparate(false) },
-                        label = { Text("Merge into ${refLabel(status.dive)}") },
+                        onClick = { onChange(choices.keepApart(index, false)) },
+                        label = { Text("Merge into ${refLabel(into)}") },
                     )
                     FilterChip(
                         selected = action == DiveAction.IMPORT,
-                        onClick = { onKeepSeparate(true) },
+                        onClick = { onChange(choices.keepApart(index, true)) },
                         label = { Text("Keep separate") },
                     )
                 }
@@ -235,12 +236,20 @@ private fun DiveRow(
     }
 }
 
+/** The dive that checking [status] merges into, if any. */
+private fun mergeTarget(status: DiveStatus): DiveRef? = when (status) {
+    is DiveStatus.Overlaps -> status.dive
+    is DiveStatus.Deleted -> status.overlaps
+    else -> null
+}
+
 private fun refLabel(ref: DiveRef): String =
     ref.number?.let { "#$it" } ?: Format.dateTime(ref.startEpochSeconds, ref.utcOffsetSeconds)
 
 private fun statusText(status: DiveStatus): String = when (status) {
     DiveStatus.New -> "New"
-    DiveStatus.Deleted -> "Deleted from the logbook"
+    is DiveStatus.Deleted -> "You deleted this dive; check it to " +
+        (status.overlaps?.let { "merge it into ${refLabel(it)} again" } ?: "import it again")
     is DiveStatus.Overlaps -> "Overlaps ${refLabel(status.dive)}" + (status.computer?.let { " ($it)" } ?: "")
     is DiveStatus.Stored -> when {
         status.joined -> "Joined into ${refLabel(status.dive)}; cannot be refreshed"
@@ -254,10 +263,10 @@ private fun summaryLine(dives: List<DownloadedDive>): String {
     val parts = listOfNotNull(
         dives.count { it.status == DiveStatus.New }.takeIf { it > 0 }?.let { "$it new" },
         dives.count { it.status is DiveStatus.Overlaps }.takeIf { it > 0 }?.let { "$it overlap${if (it == 1) "s" else ""} a dive" },
-        dives.count { it.status == DiveStatus.Deleted }.takeIf { it > 0 }?.let { "$it deleted" },
+        dives.count { it.status is DiveStatus.Deleted }.takeIf { it > 0 }?.let { "$it you deleted before" },
         dives.count { it.status is DiveStatus.Stored }.takeIf { it > 0 }?.let { "$it already in the logbook" },
     )
-    return "Downloaded ${dives.size} dive${if (dives.size == 1) "" else "s"}: ${parts.joinToString(", ")}"
+    return "Downloaded ${Format.dives(dives.size)}: ${parts.joinToString(", ")}"
 }
 
 /** Says what the import will do: "Import 4, merge 2, refresh 1". */
