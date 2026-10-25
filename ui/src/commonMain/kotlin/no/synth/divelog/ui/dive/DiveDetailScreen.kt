@@ -112,6 +112,7 @@ fun DiveDetailScreen(
     }
 
     var showMerge by remember { mutableStateOf(false) }
+    var mergeRefused by remember(showMerge) { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -140,6 +141,8 @@ fun DiveDetailScreen(
             text = {
                 if (others.isEmpty()) {
                     Text("No other dives to merge.")
+                } else if (mergeRefused) {
+                    Text("One computer logged both dives at the same time, so they cannot be merged.")
                 } else {
                     LazyColumn {
                         items(others) { other ->
@@ -148,8 +151,15 @@ fun DiveDetailScreen(
                                     Format.dateTime(other.startEpochSeconds, other.utcOffsetSeconds),
                                 modifier = Modifier.fillMaxWidth()
                                     .clickable {
-                                        container.dives.mergeDives(sourceDiveId = other.id, targetDiveId = diveId)
-                                        showMerge = false
+                                        // The earlier dive is kept, so this one may give way to it.
+                                        val pair = listOf(diveId, other.id)
+                                        if (container.dives.canMerge(pair)) {
+                                            val merged = container.dives.mergeDives(pair)
+                                            showMerge = false
+                                            if (merged != diveId) onNavigate(merged)
+                                        } else {
+                                            mergeRefused = true
+                                        }
                                     }
                                     .padding(vertical = 12.dp),
                             )

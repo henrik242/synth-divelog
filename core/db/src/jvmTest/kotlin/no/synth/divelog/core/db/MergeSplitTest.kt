@@ -1,13 +1,16 @@
 package no.synth.divelog.core.db
 
 import no.synth.divelog.core.model.Device
+import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Tank
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class MergeSplitTest {
     private val db = testDatabase()
@@ -142,5 +145,72 @@ class MergeSplitTest {
 
         // The source record's 900_000 + 7_200 wall clock, in the target's zero-offset frame.
         assertEquals(907_200, assertNotNull(dives.record(b.recordId)).startEpochSeconds)
+    }
+
+    @Test
+    fun mergingOneComputersDivesJoinsThemIntoOneRecord() {
+        val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel", bluetoothAddress = "2"))
+        val profile = listOf(sampleAt(0, 0), sampleAt(300, 20_000), sampleAt(600, 1_000))
+        val a = assertIs<ImportResult.CreatedDive>(
+            dives.import(incoming(deviceId = petrel, start = 10_000, duration = 600, maxDepthMm = 20_000, fingerprint = "a", samples = profile)) { false },
+        )
+        val b = assertIs<ImportResult.CreatedDive>(
+            dives.import(
+                incoming(
+                    deviceId = petrel, start = 12_000, duration = 600, maxDepthMm = 25_000, fingerprint = "b",
+                    samples = listOf(sampleAt(0, 1_000), sampleAt(300, 25_000), sampleAt(600, 0)),
+                    events = listOf(eventAt(100, EventType.BOOKMARK)),
+                ),
+            ) { false },
+        )
+        assertTrue(dives.canMerge(listOf(a.diveId, b.diveId)))
+
+        val merged = dives.mergeDives(listOf(b.diveId, a.diveId))
+
+        assertEquals(a.diveId, merged, "the earliest dive is kept")
+        assertNull(dives.getDive(b.diveId))
+        val record = dives.recordsForDive(merged).single()
+        assertEquals(a.recordId, record.id)
+        assertEquals(2_600, record.durationSeconds)
+        assertEquals(25_000, record.maxDepthMm)
+        assertEquals(DiveRepository.CONCATENATED_FORMAT_ID, record.rawFormatId)
+        assertEquals("b", record.fingerprint)
+        assertEquals(
+            listOf(0 to 0, 300 to 20_000, 600 to 1_000, 1_999 to 0, 2_000 to 1_000, 2_300 to 25_000, 2_600 to 0),
+            dives.samplesForRecord(record.id).map { it.timeOffsetSeconds to it.depthMm },
+        )
+        assertEquals(listOf(2_100), dives.eventsForRecord(record.id).map { it.timeOffsetSeconds })
+        val dive = assertNotNull(dives.getDive(merged))
+        assertEquals(2_600, dive.durationSeconds)
+        assertEquals(25_000, dive.maxDepthMm)
+        assertEquals(record.id, dive.primaryComputerRecordId)
+        // The second dive downloaded again is already here.
+        assertIs<ImportDecision.Duplicate>(dives.classify(incoming(deviceId = petrel, start = 12_000, duration = 600, fingerprint = "b")))
+    }
+
+    @Test
+    fun mergingOverlappingDivesFromTwoComputersKeepsAProfileEach() {
+        val predator = devices.add(Device(vendor = "Shearwater", model = "Predator", bluetoothAddress = "1"))
+        val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel", bluetoothAddress = "2"))
+        val a = assertIs<ImportResult.CreatedDive>(dives.import(incoming(deviceId = predator, start = 10_000, fingerprint = "a")) { false })
+        val b = assertIs<ImportResult.CreatedDive>(dives.import(incoming(deviceId = petrel, start = 10_060, fingerprint = "b")) { false })
+
+        val merged = dives.mergeDives(listOf(a.diveId, b.diveId))
+
+        assertEquals(setOf(a.recordId, b.recordId), dives.recordsForDive(merged).map { it.id }.toSet())
+        assertEquals("test-format", assertNotNull(dives.record(b.recordId)).rawFormatId)
+        assertEquals(a.recordId, assertNotNull(dives.getDive(merged)).primaryComputerRecordId)
+    }
+
+    @Test
+    fun oneComputerLoggingTwoDivesAtOnceCannotMerge() {
+        val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel", bluetoothAddress = "2"))
+        val a = assertIs<ImportResult.CreatedDive>(dives.import(incoming(deviceId = petrel, start = 10_000, fingerprint = "a")) { false }).diveId
+        val b = dives.importAsNewDive(incoming(deviceId = petrel, start = 10_600, fingerprint = "b")).diveId
+
+        assertFalse(dives.canMerge(listOf(a, b)))
+        assertFalse(dives.canMerge(listOf(a)))
+        assertFailsWith<IllegalArgumentException> { dives.mergeDives(listOf(a, b)) }
+        assertEquals(2, dives.allDives().size)
     }
 }

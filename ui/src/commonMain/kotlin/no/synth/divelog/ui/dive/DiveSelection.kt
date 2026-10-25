@@ -3,8 +3,8 @@ package no.synth.divelog.ui.dive
 import androidx.compose.runtime.saveable.Saver
 
 /**
- * Dives picked in the dive list for export: [ids], and the [anchor] a range pick extends
- * from (the dive last toggled). Hidden dives stay picked while a filter hides them.
+ * Dives picked in the dive list to export, merge or delete: [ids], and the [anchor] a range
+ * pick extends from (the dive last toggled). Hidden dives stay picked while a filter hides them.
  */
 data class DiveSelection(val ids: Set<Long> = emptySet(), val anchor: Long? = null) {
     val isEmpty: Boolean get() = ids.isEmpty()

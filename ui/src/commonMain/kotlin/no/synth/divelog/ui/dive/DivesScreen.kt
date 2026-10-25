@@ -15,9 +15,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CallMerge
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.Waves
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -56,7 +60,7 @@ import no.synth.divelog.ui.components.ExportDialog
  * The Dives section: the searchable dive list, or the open dive [openDiveId] (in its
  * editor when [editing]). The list keeps its filters and scroll position while a dive is
  * open. The list follows the database. Select (in the top bar) or a long press picks dives
- * to export through [exportActions].
+ * to export through [exportActions], merge into one or delete.
  */
 @Composable
 fun DivesScreen(
@@ -88,6 +92,8 @@ fun DivesScreen(
     var selecting by rememberSaveable { mutableStateOf(false) }
     var selection by rememberSaveable(stateSaver = DiveSelection.Saver) { mutableStateOf(DiveSelection()) }
     var exportOpen by rememberSaveable { mutableStateOf(false) }
+    var mergeOpen by rememberSaveable { mutableStateOf(false) }
+    var deleteOpen by rememberSaveable { mutableStateOf(false) }
 
     val years = remember(dives) {
         dives.map { Format.year(it.startEpochSeconds, it.utcOffsetSeconds) }.distinct().sortedDescending()
@@ -151,8 +157,14 @@ fun DivesScreen(
     val shownIds = remember(shown) { shown.map { it.id } }
     // Dives deleted elsewhere drop out of the selection.
     LaunchedEffect(diveIds) { selection = selection.retainExisting(diveIds) }
-    // The dialog goes with the selection, so it cannot come back on its own later.
-    LaunchedEffect(selecting, selection.isEmpty) { if (!selecting || selection.isEmpty) exportOpen = false }
+    // The dialogs go with the selection, so they cannot come back on their own later.
+    LaunchedEffect(selecting, selection.isEmpty) {
+        if (!selecting || selection.isEmpty) {
+            exportOpen = false
+            mergeOpen = false
+            deleteOpen = false
+        }
+    }
 
     fun endSelecting() {
         selecting = false
@@ -164,19 +176,15 @@ fun DivesScreen(
     val selectAction: @Composable RowScope.() -> Unit = {
         IconButton(onClick = { selecting = true }) { Icon(Icons.Filled.Checklist, contentDescription = "Select dives") }
     }
-    DisposableEffect(selecting, dives.isEmpty(), exportActions.available) {
-        onTopBarActions(if (selecting || dives.isEmpty() || !exportActions.available) null else selectAction)
+    DisposableEffect(selecting, dives.isEmpty()) {
+        onTopBarActions(if (selecting || dives.isEmpty()) null else selectAction)
         onDispose { onTopBarActions(null) }
     }
 
     val onOpen: (Long) -> Unit = { id -> if (selecting) selection = selection.toggle(id) else onOpenDive(id) }
-    val onPick: ((Long, Boolean) -> Unit)? = if (exportActions.available) {
-        { id, range ->
-            selecting = true
-            selection = if (range) selection.extendTo(id, shownIds) else selection.toggle(id)
-        }
-    } else {
-        null
+    val onPick: (Long, Boolean) -> Unit = { id, range ->
+        selecting = true
+        selection = if (range) selection.extendTo(id, shownIds) else selection.toggle(id)
     }
 
     if (exportOpen) {
@@ -190,6 +198,53 @@ fun DivesScreen(
         )
     }
 
+    if (mergeOpen) {
+        val ids = selection.ids
+        val canMerge = remember(ids) { container.dives.canMerge(ids) }
+        AlertDialog(
+            onDismissRequest = { mergeOpen = false },
+            title = { Text("Merge ${ids.size} dives?") },
+            text = {
+                Text(
+                    if (canMerge) {
+                        "They become one dive. A computer's dives one after another join into one " +
+                            "profile; computers that logged the same time keep a profile each."
+                    } else {
+                        "One computer logged two of these dives at the same time, so they cannot be merged."
+                    },
+                )
+            },
+            confirmButton = {
+                if (canMerge) {
+                    TextButton(onClick = {
+                        container.dives.mergeDives(ids)
+                        endSelecting()
+                    }) { Text("Merge") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { mergeOpen = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (deleteOpen) {
+        val count = selection.ids.size
+        AlertDialog(
+            onDismissRequest = { deleteOpen = false },
+            title = { Text("Delete $count ${if (count == 1) "dive" else "dives"}?") },
+            text = { Text("This removes the ${if (count == 1) "dive" else "dives"} and their computer records.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        container.dives.deleteDives(selection.ids)
+                        endSelecting()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleteOpen = false }) { Text("Cancel") } },
+        )
+    }
+
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             if (selecting) {
@@ -199,7 +254,9 @@ fun DivesScreen(
                     allShownPicked = selection.allPicked(shownIds),
                     onClose = ::endSelecting,
                     onToggleAll = { selection = selection.toggleAll(shownIds) },
-                    onExport = { exportOpen = true },
+                    onExport = if (exportActions.available) ({ exportOpen = true }) else null,
+                    onMerge = { mergeOpen = true },
+                    onDelete = { deleteOpen = true },
                 )
             }
             if (dives.isEmpty()) {
@@ -296,7 +353,7 @@ private fun DiveItem(
     selecting: Boolean,
     selection: DiveSelection,
     onOpen: (Long) -> Unit,
-    onPick: ((Long, Boolean) -> Unit)?,
+    onPick: (Long, Boolean) -> Unit,
 ) {
     DiveRow(
         dive,
@@ -305,13 +362,13 @@ private fun DiveItem(
         siteName = dive.siteId?.let { siteNames[it] },
         source = sources[dive.id],
         selected = if (selecting) dive.id in selection else null,
-        onPick = onPick?.let { pick -> { range -> pick(dive.id, range) } },
+        onPick = { range -> onPick(dive.id, range) },
     )
 }
 
 /**
  * Shown while picking dives: the count ([hidden] of them filtered out of the list), close,
- * select or deselect all shown, and export.
+ * select or deselect all shown, export (when [onExport] is set), merge and delete.
  */
 @Composable
 private fun SelectionBar(
@@ -320,7 +377,9 @@ private fun SelectionBar(
     allShownPicked: Boolean,
     onClose: () -> Unit,
     onToggleAll: () -> Unit,
-    onExport: () -> Unit,
+    onExport: (() -> Unit)?,
+    onMerge: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondaryContainer) {
         Row(
@@ -335,7 +394,9 @@ private fun SelectionBar(
                 }
             }
             TextButton(onClick = onToggleAll) { Text(if (allShownPicked) "Deselect all" else "Select all") }
-            TextButton(onClick = onExport, enabled = count > 0) { Text("Export") }
+            if (onExport != null) TextButton(onClick = onExport, enabled = count > 0) { Text("Export") }
+            IconButton(onClick = onMerge, enabled = count > 1) { Icon(Icons.Filled.CallMerge, contentDescription = "Merge") }
+            IconButton(onClick = onDelete, enabled = count > 0) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
         }
     }
 }
