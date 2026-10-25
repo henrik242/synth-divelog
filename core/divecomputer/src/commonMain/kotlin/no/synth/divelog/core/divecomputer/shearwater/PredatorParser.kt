@@ -118,7 +118,7 @@ class PredatorParser(
         layout.freediveOffsets.forEachIndexed { index, offset -> samples += freediveSample(d, offset, timeOf(index), layout) }
         val diveMode = layout.diveMode
             ?: if (layout.freediveOffsets.isNotEmpty()) DiveMode.FREEDIVE else sampleMode ?: DiveMode.OPEN_CIRCUIT
-        // An open-circuit dive has no loop: its ppO2 is only the gas fraction times depth.
+        // Off the loop (open circuit, gauge, freedive) the ppO2 is only the gas fraction times depth.
         if (diveMode != DiveMode.CLOSED_CIRCUIT && diveMode != DiveMode.SEMI_CLOSED) {
             for (i in samples.indices) samples[i] = samples[i].copy(ppO2Mbar = null)
         }
@@ -170,8 +170,9 @@ class PredatorParser(
 
     /**
      * Where a layout keeps the opening fields, its samples (each at the sample-field base)
-     * and duration, and the sample interval (milliseconds) when the log records one. [wide] samples (32
-     * bytes: Petrel 1 blocks and records) also hold CNS and air-integration pressures;
+     * and duration, and the sample interval (milliseconds) when the log records one.
+     * [wide] samples (32 bytes: Petrel 1 blocks and records) also hold CNS and
+     * air-integration pressures;
      * [extended] maps a sample's index to the fields of the extended record (0xE1) after
      * it. A freedive log has [freediveOffsets] (8-byte samples) instead of samples.
      */

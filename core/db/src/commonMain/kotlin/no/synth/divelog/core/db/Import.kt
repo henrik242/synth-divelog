@@ -26,7 +26,7 @@ sealed interface ImportResult {
 
 /** Why dives cannot be merged into one ([DiveRepository.mergeProblem]). */
 enum class MergeProblem {
-    /** Fewer than two dives. */
+    /** Fewer than two dives, or one of them is gone. */
     TOO_FEW,
 
     /** A surface interval between them is longer than [DiveRepository.MAX_SURFACE_INTERVAL_SECONDS]. */

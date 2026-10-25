@@ -391,7 +391,7 @@ private fun DeleteDivesDialog(count: Int, hidden: Int, onDelete: () -> Unit, onD
                 listOfNotNull(
                     if (hidden > 0) "$hidden of them are hidden by the filter." else null,
                     if (count == 1) "This removes the dive and its computer records." else "This removes them and their computer records.",
-                    "A downloaded dive comes back only if you check it in a later download's review.",
+                    "A downloaded dive comes back only if you download all or the latest dives again and check it in the review.",
                 ).joinToString(" "),
             )
         },

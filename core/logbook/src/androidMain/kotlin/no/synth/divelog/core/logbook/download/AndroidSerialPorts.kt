@@ -24,11 +24,11 @@ import kotlin.coroutines.resumeWithException
  * Android serial layer with three kinds of port: USB-serial adapters over USB host mode
  * (the wired Suunto cable), paired Bluetooth Classic SPP devices (the Petrel and
  * Predator, and the newer ones) and Bluetooth LE Shearwaters. [list] returns all of them, each
- * [SerialPortInfo.id] prefixed so [open] opens the matching transport: a
+ * [SerialPortInfo.id] prefixed so [transport] makes the matching one: a
  * [UsbSerialTransport] for USB, a [BluetoothRfcommTransport] for Bluetooth Classic, a
  * [BleGattTransport] for Bluetooth LE.
  *
- * USB enumeration needs no runtime permission; [open] requests the per-device USB
+ * USB enumeration needs no runtime permission; [transport] requests the per-device USB
  * permission when it is not held, suspending on the broadcast result. Listing and
  * connecting paired Bluetooth devices needs BLUETOOTH_CONNECT, which the caller requests
  * before [list]; without it the Bluetooth ports are simply absent. LE computers come from

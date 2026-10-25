@@ -88,8 +88,9 @@ internal class HelperLink(helper: File, vararg args: String) {
 }
 
 /**
- * Start [helper] with [args] for a transport's open; when the transport was [closed]
- * meanwhile (its close found no helper to stop), stop the helper again and say so.
+ * Start [helper] with [args] for a transport's open. A transport [closed] before or while
+ * the helper starts (its close found no helper to stop) stops it here and throws
+ * [TransportClosedException].
  */
 internal fun startHelper(helper: File, closed: () -> Boolean, vararg args: String): HelperLink {
     if (closed()) throw TransportClosedException()

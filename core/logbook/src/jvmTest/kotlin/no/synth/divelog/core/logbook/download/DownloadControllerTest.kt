@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
 class DownloadControllerTest {
     private val container = AppContainer(createDatabase())
 
-    /** A dive the fake parser reads: [n] orders them in time, 10 minutes apart; [readable] false makes it fail. */
+    /** A dive the fake parser reads: [n] orders them in time, 30 minutes long with 10 minutes between them; [readable] false makes it fail. */
     private fun dive(n: Int, readable: Boolean = true) =
         RawDive(fingerprint = "fp$n", data = byteArrayOf(if (readable) n.toByte() else -1), formatId = "fake")
 

@@ -510,8 +510,7 @@ class DiveRepository(private val db: DiveDatabase) {
     /**
      * Why [diveIds] cannot be merged into one, or null when they can: at least two, each
      * starting at most [MAX_SURFACE_INTERVAL_SECONDS] after the ones before it end, and
-     * no computer logging two of them at the same time (one computer cannot log two dives
-     * at once).
+     * no computer logging two of them at the same time.
      */
     fun mergeProblem(diveIds: Collection<Long>): MergeProblem? {
         val picked = diveIds.toSet().map { getDive(it) ?: return MergeProblem.TOO_FEW }.sortedBy { it.wallStart }

@@ -526,7 +526,7 @@ class DownloadController(
         return Outcome(results, unreadable = raws.size - readable, heldBack = readable - usable.size)
     }
 
-    /** Carry out [action] on one dive; one its status does not allow leaves the dive out. */
+    /** Carry out [action] on one dive. An action its status does not allow is not carried out: the dive is left out. */
     private fun apply(entry: Classified, action: DiveAction): Result {
         val decision = entry.decision
         val allowed = action == entry.status.checkedAction || (action == DiveAction.IMPORT && entry.status.checkedAction == DiveAction.MERGE)

@@ -152,7 +152,7 @@ fun DownloadReviewDialog(state: DownloadUiState.Reviewing, unitSystem: UnitSyste
     }
 }
 
-/** Opens and closes the group of dives already in the logbook. */
+/** The header that opens and closes the group of dives already in the logbook. */
 @Composable
 private fun StoredHeader(count: Int, open: Boolean, onToggle: () -> Unit) {
     Column(
