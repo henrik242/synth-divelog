@@ -127,8 +127,9 @@ read.
 
 `PredatorParser` reads both formats. For the record format it takes the **sample
 interval** from opening record 5 (`0x15`, BE16 milliseconds at `+23`) when opening
-record 4 (`0x14`) gives log version 9 or later at `+16`; otherwise, or for a part-second
-interval, the 10 s default applies. This also applies to Shearwater Cloud imports.
+record 4 (`0x14`) gives log version 9 or later at `+16`; otherwise the 10 s default
+applies. A part-second interval puts each sample in the whole second it falls in. This
+also applies to Shearwater Cloud imports.
 
 Sample fields, corrected against the first Peregrine download and libdivecomputer; they
 apply to the Predator and Petrel too:
@@ -138,14 +139,16 @@ apply to the Predator and Petrel too:
   not the stop time (it read as a 1:00 stop on every no-deco sample). What does not
   apply is 0, not null (no stop: depth and time 0; in deco: NDL 0), since the file
   formats leave a null out and carry the previous value over it.
-- **ppO2:** only on a rebreather sample (status byte `+11` without the open-circuit
-  bit `0x10`): byte `+6`, in hundredths of a bar, the ppO2 the computer used. On
-  internal sensors it is their average. With the external-ppO2 bit (`0x02`), as on a
-  Petrel 1 run at a fixed setpoint with no sensors calibrated (calibration mask 0), it
-  is the setpoint (0.70 or 1.30 in the capture); libdivecomputer reports nothing there.
-  On open circuit `+6` holds the gas fraction times ambient pressure, which a logbook
-  works out itself, so it is left out. The raw sensor bytes (`+12`, `+14`, `+15`) need
-  calibration; read as ppO2 they gave a constant ~0.54 bar on open circuit.
+- **ppO2:** byte `+6`, in hundredths of a bar, the ppO2 the computer used, kept on a
+  rebreather dive only. On the loop (status byte `+11` without the open-circuit bit
+  `0x10`) on internal sensors it is their average. With the external-ppO2 bit (`0x02`),
+  as on a Petrel 1 run at a fixed setpoint with no sensors calibrated (calibration mask
+  0), it is the setpoint (0.70 or 1.30 in the capture); libdivecomputer reports nothing
+  there. On open circuit `+6` holds the gas fraction times ambient pressure: kept for a
+  bailout, so the loop's last value does not carry over it after an export (the capture's
+  bailout reads 0.61 bar at 2.5 m on about 50% O2), and left out on an open-circuit dive.
+  The raw sensor bytes (`+12`, `+14`, `+15`) need calibration; read as ppO2 they gave a
+  constant ~0.54 bar on open circuit.
 
 Further fields, from libdivecomputer and unit-tested only (no real log with them yet).
 Offsets are from the sample fields, which sit one byte after a record's type byte:

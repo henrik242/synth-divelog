@@ -75,11 +75,8 @@ class BleDiveComputers(context: Context) : BleScanner {
         if (scanning) return
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         // Unfiltered: a filter on the service would miss a computer that only advertises its name.
-        val started = runCatching {
-            val scanner = adapter()?.takeIf { it.isEnabled }?.bluetoothLeScanner ?: return
-            scanner.startScan(null, settings, callback)
-        }.isSuccess
-        if (!started) return
+        val scanner = runCatching { adapter()?.takeIf { it.isEnabled }?.bluetoothLeScanner }.getOrNull() ?: return
+        if (runCatching { scanner.startScan(null, settings, callback) }.isFailure) return
         scanning = true
         main.postDelayed({ stop() }, STOP_TOKEN, ShearwaterBle.SCAN_MS)
     }

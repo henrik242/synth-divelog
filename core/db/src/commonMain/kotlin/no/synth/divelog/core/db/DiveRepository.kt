@@ -368,14 +368,16 @@ class DiveRepository(private val db: DiveDatabase) {
         addMissingGases(rec.diveId, incoming.gases)
         if (dive.primaryComputerRecordId == recordId) {
             // Other records (more computers, or dives merged into this one) keep their share
-            // of the summary: it spans every record and takes the deepest.
+            // of the summary: it spans every record and takes the deepest. A mean depth over
+            // several records cannot be told from this one, so only a lone record sets it.
             val others = records.selectRecordSummariesForDive(rec.diveId).executeAsList().filter { it.id != recordId }
+            val othersEnd = others.maxOfOrNull { it.startEpochSeconds + it.durationSeconds } ?: start
+            val deepest = (others.mapNotNull { it.maxDepthMm?.toInt() } + listOfNotNull(incoming.maxDepthMm)).maxOrNull()
             updateDive(
                 dive.copy(
                     startEpochSeconds = start,
-                    durationSeconds = (others.maxOfOrNull { it.startEpochSeconds + it.durationSeconds } ?: 0L)
-                        .let { end -> maxOf(incoming.durationSeconds.toLong(), end - start).toInt() },
-                    maxDepthMm = (others.mapNotNull { it.maxDepthMm?.toInt() } + listOfNotNull(incoming.maxDepthMm)).maxOrNull(),
+                    durationSeconds = maxOf(incoming.durationSeconds.toLong(), othersEnd - start).toInt(),
+                    maxDepthMm = deepest,
                     meanDepthMm = if (others.isEmpty()) incoming.meanDepthMm else dive.meanDepthMm,
                     waterTempMk = incoming.waterTempMk,
                 ),
@@ -456,16 +458,24 @@ class DiveRepository(private val db: DiveDatabase) {
     /**
      * Fold [sourceDiveId] into [targetDiveId], then drop the source: its records (moved into
      * the target's time frame), buddies, tags and tanks (merged by gas, see
-     * [GasRepository.mergeTanks]) move over, and the target's empty fields take the
-     * source's values. The target keeps its primary record and start.
+     * [GasRepository.mergeTanks]; a source that starts after the target ends is a later
+     * dive, whose tanks carry on from the target's) move over, and the target's empty
+     * fields take the source's values. The target keeps its primary record and start.
      */
     fun mergeDives(sourceDiveId: Long, targetDiveId: Long) {
+        val target = dives.selectDiveById(targetDiveId).executeAsOne().toDomain()
+        mergeDives(sourceDiveId, targetDiveId, targetEnd = target.wallStart + target.durationSeconds)
+    }
+
+    /** [mergeDives] into a target whose dives so far end at [targetEnd] (wall clock). */
+    private fun mergeDives(sourceDiveId: Long, targetDiveId: Long, targetEnd: Long) {
         require(sourceDiveId != targetDiveId) { "Cannot merge a dive into itself" }
         db.transaction {
             val source = dives.selectDiveById(sourceDiveId).executeAsOne().toDomain()
             val target = dives.selectDiveById(targetDiveId).executeAsOne().toDomain()
             // Tanks first: their indices on the target decide where the pressure samples go.
-            val tankIndices = gases.mergeTanks(targetDiveId, gases.tanksForDive(sourceDiveId))
+            val follows = source.wallStart >= targetEnd
+            val tankIndices = gases.mergeTanks(targetDiveId, gases.tanksForDive(sourceDiveId), follows)
             records.selectRecordSummariesForDive(sourceDiveId).executeAsList().forEach { renumberTanks(it.id, tankIndices) }
             records.moveRecordsToDive(
                 targetDiveId = targetDiveId,
@@ -495,7 +505,8 @@ class DiveRepository(private val db: DiveDatabase) {
     private fun renumberTanks(recordId: Long, indices: Map<Int, Int>) {
         if (indices.all { (from, to) -> from == to }) return
         val rows = samples.selectTankPressuresForRecord(recordId).executeAsList()
-        if (rows.none { indices[it.tankIndex.toInt()]?.let { to -> to.toLong() != it.tankIndex } == true }) return
+        fun moves(index: Long) = indices[index.toInt()]?.let { it.toLong() != index } ?: false
+        if (rows.none { moves(it.tankIndex) }) return
         samples.deleteTankPressuresForRecord(recordId)
         rows.map { it.copy(tankIndex = indices[it.tankIndex.toInt()]?.toLong() ?: it.tankIndex) }
             .distinctBy { it.timeOffsetSeconds to it.tankIndex }
@@ -503,22 +514,32 @@ class DiveRepository(private val db: DiveDatabase) {
     }
 
     /**
-     * Whether [diveIds] can be merged into one: at least two, and no computer logged two
-     * of them at the same time (one computer cannot log two dives at once).
+     * Why [diveIds] cannot be merged into one, or null when they can: at least two, each
+     * starting at most [MAX_SURFACE_INTERVAL_SECONDS] after the ones before it end, and
+     * no computer logging two of them at the same time.
      */
-    fun canMerge(diveIds: Collection<Long>): Boolean {
-        val ids = diveIds.toSet()
-        if (ids.size < 2) return false
-        val spans = ids.flatMap { id ->
-            val offset = dives.selectDiveById(id).executeAsOneOrNull()?.utcOffsetSeconds ?: return false
-            records.selectRecordSummariesForDive(id).executeAsList().mapNotNull { r ->
-                r.deviceId?.let { RecordSpan(id, it, r.startEpochSeconds + offset, r.startEpochSeconds + offset + r.durationSeconds) }
+    fun mergeProblem(diveIds: Collection<Long>): MergeProblem? {
+        val picked = diveIds.toSet().map { getDive(it) ?: return MergeProblem.TOO_FEW }.sortedBy { it.wallStart }
+        if (picked.size < 2) return MergeProblem.TOO_FEW
+        var end = picked.first().wallStart
+        for (dive in picked) {
+            if (dive.wallStart - end > MAX_SURFACE_INTERVAL_SECONDS) return MergeProblem.TOO_FAR_APART
+            end = maxOf(end, dive.wallStart + dive.durationSeconds)
+        }
+        val spans = picked.flatMap { dive ->
+            records.selectRecordSummariesForDive(dive.id).executeAsList().mapNotNull { r ->
+                val start = r.startEpochSeconds + dive.utcOffsetSeconds
+                r.deviceId?.let { RecordSpan(dive.id, it, start, start + r.durationSeconds) }
             }
         }
-        return spans.groupBy { it.deviceId }.values.none { same ->
+        val sameTime = spans.groupBy { it.deviceId }.values.any { same ->
             same.any { a -> same.any { b -> a.diveId != b.diveId && a.start < b.end && b.start < a.end } }
         }
+        return if (sameTime) MergeProblem.ONE_COMPUTER_AT_ONCE else null
     }
+
+    /** A dive's start on the wall clock, the frame merged dives are compared in. */
+    private val Dive.wallStart: Long get() = startEpochSeconds + utcOffsetSeconds
 
     private data class RecordSpan(val diveId: Long, val deviceId: Long, val start: Long, val end: Long)
 
@@ -527,15 +548,21 @@ class DiveRepository(private val db: DiveDatabase) {
      * return its id. Computers that logged the same time keep one record each, a
      * multi-computer dive. The records of one computer from dives one after another are
      * joined end to end into one record (see [concatenateRecords]), so dives split by a
-     * short surface interval become one single-computer dive. Fails unless [canMerge].
+     * short surface interval become one single-computer dive. Fails on a [mergeProblem].
      */
     fun mergeDives(diveIds: Collection<Long>): Long = db.transactionWithResult {
-        require(canMerge(diveIds)) { "One computer logged two of these dives at once" }
+        mergeProblem(diveIds)?.let { throw IllegalArgumentException("Cannot merge these dives: $it") }
         val ordered = diveIds.toSet()
             .map { dives.selectDiveById(it).executeAsOne().toDomain() }
-            .sortedBy { it.startEpochSeconds + it.utcOffsetSeconds }
+            .sortedBy { it.wallStart }
         val target = ordered.first()
-        ordered.drop(1).forEach { mergeDives(sourceDiveId = it.id, targetDiveId = target.id) }
+        // The target's own duration stays as it was until the end, so track where the dives
+        // folded in so far end: a second computer's copy of a later dive does not follow it.
+        var foldedEnd = target.wallStart + target.durationSeconds
+        for (source in ordered.drop(1)) {
+            mergeDives(sourceDiveId = source.id, targetDiveId = target.id, targetEnd = foldedEnd)
+            foldedEnd = maxOf(foldedEnd, source.wallStart + source.durationSeconds)
+        }
 
         val joined = recordsForDive(target.id)
             .filter { it.deviceId != null }
@@ -549,7 +576,7 @@ class DiveRepository(private val db: DiveDatabase) {
             ?.second ?: merged.primaryComputerRecordId
         // The summary spans every merged dive, in the kept dive's time frame. Mean depth
         // is over the dives' own times, weighted by duration.
-        val end = ordered.maxOf { it.startEpochSeconds + it.utcOffsetSeconds - target.utcOffsetSeconds + it.durationSeconds }
+        val end = ordered.maxOf { it.wallStart - target.utcOffsetSeconds + it.durationSeconds }
         val weighted = ordered.mapNotNull { d -> d.meanDepthMm?.takeIf { d.durationSeconds > 0 }?.let { it to d.durationSeconds } }
         val meanDepth = if (weighted.isEmpty()) merged.meanDepthMm
         else (weighted.sumOf { (mean, s) -> mean.toLong() * s } / weighted.sumOf { (_, s) -> s.toLong() }).toInt()
@@ -566,11 +593,11 @@ class DiveRepository(private val db: DiveDatabase) {
     /**
      * Join one computer's [parts] (records of one dive, one after another) into the first:
      * the later parts' samples and events move onto its timeline and the parts go. The
-     * surface interval between two parts is logged at the surface. The joined record's raw
-     * download covers only the first part, so it is no longer re-parsed
-     * ([CONCATENATED_FORMAT_ID]); it takes the last part's fingerprint, so a later download
-     * stops at the right dive. Returns the kept record, or null (nothing changed) when the
-     * parts overlap.
+     * surface interval between two parts is logged at the surface. No one raw download
+     * covers the joined record, so none is kept and it is no longer re-parsed, refreshed
+     * or split ([CONCATENATED_FORMAT_ID]); it takes the last part's fingerprint, so a later
+     * download stops at the right dive. Returns the kept record, or null (nothing changed)
+     * when the parts overlap.
      */
     private fun concatenateRecords(parts: List<DiveComputerRecord>): Long? {
         val ordered = parts.sortedBy { it.startEpochSeconds }
@@ -579,21 +606,20 @@ class DiveRepository(private val db: DiveDatabase) {
         var end = first.endEpochSeconds
         // The kept record takes the last part's fingerprint; remember the others', which go.
         ordered.dropLast(1).forEach { deleted.rememberRecord(it.id) }
+        val times = samples.selectSamplesForRecord(first.id).executeAsList().mapTo(HashSet()) { it.timeOffsetSeconds }
         for (part in ordered.drop(1)) {
             val shift = part.startEpochSeconds - first.startEpochSeconds
-            val times = samples.selectSamplesForRecord(first.id).executeAsList().mapTo(HashSet()) { it.timeOffsetSeconds }
-            if (times.isNotEmpty() && samples.countSamplesForRecord(part.id).executeAsOne() > 0) {
-                // At the surface from the end of one part (or a second later, when the part
-                // logged its end) until a second before the next. No stop and no TTS are 0,
-                // not null, or the last values carry over the interval after an export.
-                val surfaceFrom = end - first.startEpochSeconds
-                val surface = listOf(if (surfaceFrom in times) surfaceFrom + 1 else surfaceFrom, shift - 1).distinct()
-                for (t in surface) {
-                    if (t in surfaceFrom until shift && t !in times) {
-                        samples.insertSample(first.id, t, 0, null, null, null, 0, 0, 0, null, null, 0)
-                    }
+            val partTimes = samples.selectSamplesForRecord(part.id).executeAsList().map { it.timeOffsetSeconds + shift }
+            if (times.isNotEmpty() && partTimes.isNotEmpty()) {
+                // At the surface from the end of one part (a second later, when the part
+                // logged its end) until a second before the next.
+                val ended = end - first.startEpochSeconds
+                val from = if (ended in times) ended + 1 else ended
+                for (t in setOf(from, shift - 1)) {
+                    if (t in from until shift && times.add(t)) insertSurfaceSample(first.id, t)
                 }
             }
+            times += partTimes
             samples.moveSamplesToRecord(targetRecordId = first.id, shiftSeconds = shift, sourceRecordId = part.id)
             samples.moveTankPressuresToRecord(targetRecordId = first.id, shiftSeconds = shift, sourceRecordId = part.id)
             events.moveEventsToRecord(targetRecordId = first.id, shiftSeconds = shift, sourceRecordId = part.id)
@@ -611,8 +637,30 @@ class DiveRepository(private val db: DiveDatabase) {
         return first.id
     }
 
+    /**
+     * A sample at the surface. No ceiling, stop and TTS are 0, not null, or the last
+     * values carry over the interval after an export (Subsurface formats carry them).
+     */
+    private fun insertSurfaceSample(recordId: Long, time: Long) = samples.insertSample(
+        recordId = recordId,
+        timeOffsetSeconds = time,
+        depthMm = 0,
+        temperatureMk = null,
+        ppO2Mbar = null,
+        ndlSeconds = null,
+        ceilingMm = 0,
+        stopDepthMm = 0,
+        stopTimeSeconds = 0,
+        cnsPermille = null,
+        activeGasIndex = null,
+        ttsSeconds = 0,
+    )
+
     companion object {
         /** Format of a record joined from several downloads; no parser reads it. */
         const val CONCATENATED_FORMAT_ID = "concatenated"
+
+        /** The longest surface interval that still makes back-to-back dives one dive. */
+        const val MAX_SURFACE_INTERVAL_SECONDS = 30 * 60L
     }
 }

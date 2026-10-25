@@ -48,44 +48,50 @@ class BleGattTransport(
     @Volatile private var mtu: Int? = null
     private var writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
 
-    /** The outcome of one GATT step, posted by the callback that ends it. */
+    /** What a wait can get: the end of a GATT step, or of the link. */
     private sealed interface Result {
+        /** The link dropped or was closed; ends any wait. */
+        data object Ended : Result
+    }
+
+    /** The outcome of one GATT step, posted by the callback that ends it. */
+    private sealed interface Step : Result {
         val status: Int
 
-        data class Connected(override val status: Int) : Result
-        data class Mtu(val mtu: Int, override val status: Int) : Result
-        data class Discovered(override val status: Int) : Result
-        data class DescriptorWritten(override val status: Int) : Result
-        data class Written(override val status: Int) : Result
+        data class Connected(override val status: Int) : Step
+        data class Mtu(val mtu: Int, override val status: Int) : Step
+        data class Discovered(override val status: Int) : Step
+        data class DescriptorWritten(override val status: Int) : Step
+        data class Written(override val status: Int) : Step
     }
 
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> results.put(Result.Connected(status))
+                BluetoothProfile.STATE_CONNECTED -> results.put(Step.Connected(status))
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     lostStatus = status
                     // Wake whichever wait is pending: a setup step or a read.
-                    results.put(Result.Connected(DISCONNECTED))
+                    results.put(Result.Ended)
                     notifications.end(TransportException("Connection to ${device.address} lost (status $status)"))
                 }
             }
         }
 
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
-            results.put(Result.Mtu(mtu, status))
+            results.put(Step.Mtu(mtu, status))
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            results.put(Result.Discovered(status))
+            results.put(Step.Discovered(status))
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            results.put(Result.DescriptorWritten(status))
+            results.put(Step.DescriptorWritten(status))
         }
 
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
-            results.put(Result.Written(status))
+            results.put(Step.Written(status))
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
@@ -116,6 +122,7 @@ class BleGattTransport(
     @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
     private fun connect() {
+        if (closed) throw TransportClosedException() // closed during the retry delay
         lostStatus = null
         results.clear()
         notifications.clear()
@@ -123,10 +130,10 @@ class BleGattTransport(
             ?: throw TransportException("Could not connect to ${device.address}")
         gatt = g
         if (closed) throw TransportClosedException() // closed while connectGatt ran
-        await<Result.Connected>("connect")
+        await<Step.Connected>("connect")
         mtu = negotiateMtu(g)
         if (!g.discoverServices()) throw TransportException("Service discovery refused")
-        await<Result.Discovered>("service discovery")
+        await<Step.Discovered>("service discovery")
         val c = serialCharacteristic(g.services.orEmpty())
             ?: throw TransportException("${device.address} has no serial characteristic (services: ${g.services.orEmpty().joinToString { it.uuid.toString() }})")
         characteristic = c
@@ -144,7 +151,7 @@ class BleGattTransport(
     @SuppressLint("MissingPermission")
     private fun negotiateMtu(g: BluetoothGatt): Int {
         if (!g.requestMtu(REQUESTED_MTU)) return DEFAULT_MTU
-        val result = await<Result.Mtu>("MTU exchange", checkStatus = false)
+        val result = await<Step.Mtu>("MTU exchange", checkStatus = false)
         return if (result.status == BluetoothGatt.GATT_SUCCESS) result.mtu else DEFAULT_MTU
     }
 
@@ -159,7 +166,7 @@ class BleGattTransport(
         }
         val started = g.writeDescriptor(cccd, value)
         if (started != BluetoothStatusCodes.SUCCESS) throw TransportException("Notification setup refused ($started)")
-        await<Result.DescriptorWritten>("notification setup")
+        await<Step.DescriptorWritten>("notification setup")
     }
 
     override val maxWriteSize: Int? get() = mtu?.let { it - ATT_OVERHEAD }
@@ -172,10 +179,10 @@ class BleGattTransport(
         // Drop a late callback from a write that timed out, so it cannot end this one.
         val stale = ArrayList<Result>()
         results.drainTo(stale)
-        if (stale.any { it.status == DISCONNECTED }) throw lost("write")
+        if (Result.Ended in stale) throw lost("write")
         val started = g.writeCharacteristic(c, data, writeType)
         if (started != BluetoothStatusCodes.SUCCESS) throw TransportException("Write to ${device.address} refused ($started)")
-        await<Result.Written>("write", WRITE_TIMEOUT_MS)
+        await<Step.Written>("write", WRITE_TIMEOUT_MS)
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int, timeoutMs: Long): Int =
@@ -184,7 +191,7 @@ class BleGattTransport(
     override fun close() {
         closed = true
         notifications.close()
-        results.put(Result.Connected(DISCONNECTED))
+        results.put(Result.Ended)
         release()
     }
 
@@ -204,18 +211,18 @@ class BleGattTransport(
      * Wait for the callback that ends the step [what]; a disconnect or close ends it with an
      * error, and so does a failed status unless [checkStatus] is off.
      */
-    private inline fun <reified T : Result> await(
+    private inline fun <reified T : Step> await(
         what: String,
         timeoutMs: Long = SETUP_TIMEOUT_MS,
         checkStatus: Boolean = true,
     ): T {
-        val deadline = System.currentTimeMillis() + timeoutMs
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000
         while (true) {
-            val left = deadline - System.currentTimeMillis()
-            val result = (if (left > 0) results.poll(left, TimeUnit.MILLISECONDS) else null)
+            val left = deadline - System.nanoTime()
+            val result = (if (left > 0) results.poll(left, TimeUnit.NANOSECONDS) else null)
                 ?: throw TransportTimeoutException("Timed out waiting for Bluetooth $what")
             if (closed) throw TransportClosedException()
-            if (result.status == DISCONNECTED) throw lost(what)
+            if (result == Result.Ended) throw lost(what)
             // A stale result from an earlier step is skipped.
             if (result !is T) continue
             if (checkStatus && result.status != BluetoothGatt.GATT_SUCCESS) {
@@ -231,10 +238,10 @@ class BleGattTransport(
     companion object {
         private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
+        /** From Android 14 the system asks for 517 whatever is passed; the agreed MTU comes from onMtuChanged. */
         private const val REQUESTED_MTU = 247
         private const val DEFAULT_MTU = 23
         private const val ATT_OVERHEAD = 3
-        private const val DISCONNECTED = -1
 
         /** Android's catch-all GATT_ERROR, often seen on a first connect. */
         private const val GATT_ERROR = 133

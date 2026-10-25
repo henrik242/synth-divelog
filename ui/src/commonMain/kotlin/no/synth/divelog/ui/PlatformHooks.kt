@@ -15,7 +15,7 @@ import no.synth.divelog.core.logbook.io.ExportFile
  * - [shareExport]: hands an exported logbook to another app (a share sheet).
  *   Null hides that button in the export dialog; with both null there is no export.
  * - [prepareDownload]: runs before the download picker opens (runtime permissions).
- * - [downloadHint]: a connection note shown under the selected computer in the picker.
+ * - [downloadHint]: a platform's connection note, shown in the picker after the shared one (`connectHint`).
  * - [onDownloadActive]: brackets a running download (keep the process awake);
  *   [onDownloadProgress] follows it.
  * - [recordTranscript]: saves a download's wire exchange for replay as a test fixture.

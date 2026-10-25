@@ -53,20 +53,24 @@ class PetrelCaptureRegressionTest {
         assertEquals(gf, oc.decoModel)
         assertTrue(oc.samples.all { it.ppO2Mbar == null })
 
-        // The header says closed circuit, but every sample has the open-circuit bit.
+        // The header says closed circuit, but every sample has the open-circuit bit: the
+        // ppO2 is that of the gas breathed (here about 50% O2, 0.54 bar at 0.9 m).
         assertEquals(881, ccModeOnOc.number)
         assertEquals(DiveMode.CLOSED_CIRCUIT, ccModeOnOc.diveMode)
         assertEquals(205, ccModeOnOc.samples.size)
-        assertTrue(ccModeOnOc.samples.all { it.ppO2Mbar == null })
+        assertEquals(540 to 900, ccModeOnOc.samples.first().let { it.ppO2Mbar to it.depthMm })
+        assertTrue(ccModeOnOc.samples.all { it.ppO2Mbar != null })
 
         // Fixed setpoint 0.70 with no sensors calibrated (the samples flag the ppO2 as
-        // external), then open circuit from the 26th sample on.
+        // external), then a bailout to open circuit from the 26th sample on.
         assertEquals(880, cc.number)
         assertEquals(1_784_982_027, cc.startEpochSeconds)
         assertEquals(32 * 60, cc.durationSeconds)
         assertEquals(5_000, cc.maxDepthMm)
         assertEquals(DiveMode.CLOSED_CIRCUIT, cc.diveMode)
         assertEquals(gf, cc.decoModel)
-        assertEquals(List(25) { 700 } + List(167) { null }, cc.samples.map { it.ppO2Mbar })
+        assertEquals(List(25) { 700 }, cc.samples.take(25).map { it.ppO2Mbar })
+        assertEquals(610 to 2_500, cc.samples[25].let { it.ppO2Mbar to it.depthMm })
+        assertTrue(cc.samples.drop(25).all { it.ppO2Mbar != null })
     }
 }

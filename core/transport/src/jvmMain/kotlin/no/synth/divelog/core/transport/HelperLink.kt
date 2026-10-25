@@ -7,19 +7,15 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /**
- * The Bluetooth helpers bundled with the macOS desktop app: `rfcomm-bridge` (Bluetooth
- * Classic, Swift) and `ble-bridge` (Bluetooth LE, core:transport's macOS executable).
+ * A Bluetooth helper bundled with the macOS desktop app, `rfcomm-bridge` (Bluetooth Classic,
+ * Swift) or `ble-bridge` (Bluetooth LE, core:transport's macOS executable): the
+ * `synth.<property>` system property (set by `gradlew run`), else the app's bundled
+ * resources. Null where there is none (not macOS, or not built).
  */
-internal object MacHelper {
-    /**
-     * The helper [name]: the `synth.<property>` system property (set by `gradlew run`), else
-     * the app's bundled resources. Null where there is none (not macOS, or not built).
-     */
-    fun locate(name: String, property: String): File? = listOfNotNull(
-        System.getProperty("synth.$property")?.let(::File),
-        System.getProperty("compose.application.resources.dir")?.let { File(it, name) },
-    ).firstOrNull { it.canExecute() }
-}
+internal fun locateHelper(name: String, property: String): File? = listOfNotNull(
+    System.getProperty("synth.$property")?.let(::File),
+    System.getProperty("compose.application.resources.dir")?.let { File(it, name) },
+).firstOrNull { it.canExecute() }
 
 /**
  * A running helper that links to a device: it reports on stderr "CONNECTED <detail>" once
@@ -89,4 +85,19 @@ internal class HelperLink(helper: File, vararg args: String) {
         const val ABORTED = "ABORTED"
         const val EXIT_WAIT_MS = 2_000L
     }
+}
+
+/**
+ * Start [helper] with [args] for a transport's open. A transport [closed] before or while
+ * the helper starts (its close found no helper to stop) stops it here and throws
+ * [TransportClosedException].
+ */
+internal fun startHelper(helper: File, closed: () -> Boolean, vararg args: String): HelperLink {
+    if (closed()) throw TransportClosedException()
+    val link = HelperLink(helper, *args)
+    if (closed()) {
+        link.stop()
+        throw TransportClosedException()
+    }
+    return link
 }

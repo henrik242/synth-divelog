@@ -24,30 +24,22 @@ import kotlin.coroutines.resumeWithException
  * Android serial layer with three kinds of port: USB-serial adapters over USB host mode
  * (the wired Suunto cable), paired Bluetooth Classic SPP devices (the Petrel and
  * Predator, and the newer ones) and Bluetooth LE Shearwaters. [list] returns all of them, each
- * [SerialPortInfo.id] prefixed so [open] opens the matching transport: a
+ * [SerialPortInfo.id] prefixed so [transport] makes the matching one: a
  * [UsbSerialTransport] for USB, a [BluetoothRfcommTransport] for Bluetooth Classic, a
  * [BleGattTransport] for Bluetooth LE.
  *
- * USB enumeration needs no runtime permission; [open] requests the per-device USB
+ * USB enumeration needs no runtime permission; [transport] requests the per-device USB
  * permission when it is not held, suspending on the broadcast result. Listing and
  * connecting paired Bluetooth devices needs BLUETOOTH_CONNECT, which the caller requests
  * before [list]; without it the Bluetooth ports are simply absent. LE computers come from
- * a background scan ([BleDiveComputers], needing BLUETOOTH_SCAN) that [discover] starts;
- * [open] stops it, as a scan slows down any Bluetooth connect.
+ * a background scan ([BleDiveComputers], needing BLUETOOTH_SCAN).
  */
 class AndroidSerialPorts(context: Context) : SerialPorts {
     private val appContext = context.applicationContext
-    private val ble = BleDiveComputers(appContext)
+    override val bleScanner = BleDiveComputers(appContext)
     override val downloadSupported = true
 
-    override val linkKinds: Set<SerialPortKind> =
-        setOf(SerialPortKind.USB_SERIAL, SerialPortKind.BLUETOOTH_SPP, SerialPortKind.BLUETOOTH_LE)
-
-    override fun list(): List<SerialPortInfo> = usbPorts() + bluetoothPorts() + blePorts(ble)
-
-    override fun discover() = ble.scan()
-
-    override fun scanProblem(): String? = ble.problem()
+    override fun list(): List<SerialPortInfo> = usbPorts() + bluetoothPorts() + blePorts(bleScanner.found())
 
     // The id is the adapter's index in the current listing (open() re-lists to resolve it,
     // since the index is not stable across replugs); the descriptor keys on the stable
@@ -76,44 +68,40 @@ class AndroidSerialPorts(context: Context) : SerialPorts {
                 )
             }
 
-    override suspend fun open(id: String, params: SerialParams): Transport {
-        ble.stop()
-        return when {
-            id.startsWith(BT_PREFIX) -> openBluetooth(id.removePrefix(BT_PREFIX))
-            id.startsWith(BLE_PREFIX) -> openBle(id.removePrefix(BLE_PREFIX))
-            else -> openUsb(id.removePrefix(USB_PREFIX), params)
-        }
+    override suspend fun transport(id: String, params: SerialParams): Transport = when {
+        id.startsWith(BT_PREFIX) -> bluetoothTransport(id.removePrefix(BT_PREFIX))
+        id.startsWith(BLE_PREFIX) -> bleTransport(id.removePrefix(BLE_PREFIX))
+        else -> usbTransport(id.removePrefix(USB_PREFIX), params)
     }
 
-    private suspend fun openUsb(index: String, params: SerialParams): Transport {
+    private suspend fun usbTransport(index: String, params: SerialParams): Transport {
         val candidate = UsbSerialDevices.available(appContext).getOrNull(index.toIntOrNull() ?: -1)
             ?: throw TransportException("USB serial adapter not found; reconnect the cable")
         if (!UsbSerialDevices.hasPermission(appContext, candidate)) requestPermission(candidate)
-        return UsbSerialDevices.transportFor(appContext, candidate, params).also { closingOnCancel(it) { it.open() } }
+        return UsbSerialDevices.transportFor(appContext, candidate, params)
     }
 
-    private suspend fun openBluetooth(address: String): Transport {
+    private fun bluetoothTransport(address: String): Transport {
         val device = BluetoothDevices.paired(appContext).firstOrNull { it.address == address }
             ?: throw TransportException("Bluetooth device not found; pair it in system settings")
-        // A Bluetooth connect can block for seconds; cancelling closes the socket to end it.
-        return BluetoothDevices.transportFor(device.raw).also { closingOnCancel(it) { it.open() } }
+        return BluetoothDevices.transportFor(device.raw)
     }
 
-    private suspend fun openBle(address: String): Transport {
-        val found = ble.found().firstOrNull { it.id == address }
-        val name = found?.name ?: "the dive computer"
-        val device = ble.device(address) ?: throw TransportException("Could not find $name; start Bluetooth on it and try again")
-        val transport = BleGattTransport(appContext, device)
-        try {
-            closingOnCancel(transport) { transport.open() }
-        } catch (e: TransportClosedException) {
-            throw e
-        } catch (e: TransportException) {
-            // The GATT detail (status codes, the address) goes to the log; the user gets what to do.
-            Log.w(TAG, "Bluetooth LE connect to $address failed", e)
-            throw TransportException("Could not connect to $name. Start Bluetooth on it, keep it near the phone and try again.", e)
+    /** A GATT link whose failure to connect says what to do; the GATT detail (status codes, the address) goes to the log. */
+    private fun bleTransport(address: String): Transport {
+        val name = bleScanner.found().firstOrNull { it.id == address }?.name ?: "the dive computer"
+        val device = bleScanner.device(address) ?: throw TransportException("Could not find $name; start Bluetooth on it and try again")
+        val gatt = BleGattTransport(appContext, device)
+        return object : Transport by gatt {
+            override fun open() = try {
+                gatt.open()
+            } catch (e: TransportClosedException) {
+                throw e
+            } catch (e: TransportException) {
+                Log.w(TAG, "Bluetooth LE connect to $address failed", e)
+                throw TransportException("Could not connect to $name. Start Bluetooth on it, keep it near the phone and try again.", e)
+            }
         }
-        return transport
     }
 
     /** Ask for USB permission and suspend until the broadcast grants or denies it. */

@@ -91,9 +91,7 @@ fun DivesScreen(
     val listState = rememberLazyListState()
     var selecting by rememberSaveable { mutableStateOf(false) }
     var selection by rememberSaveable(stateSaver = DiveSelection.Saver) { mutableStateOf(DiveSelection()) }
-    var exportOpen by rememberSaveable { mutableStateOf(false) }
-    var mergeOpen by rememberSaveable { mutableStateOf(false) }
-    var deleteOpen by rememberSaveable { mutableStateOf(false) }
+    var dialog by rememberSaveable { mutableStateOf<SelectionDialog?>(null) }
 
     val years = remember(dives) {
         dives.map { Format.year(it.startEpochSeconds, it.utcOffsetSeconds) }.distinct().sortedDescending()
@@ -159,11 +157,7 @@ fun DivesScreen(
     LaunchedEffect(diveIds) { selection = selection.retainExisting(diveIds) }
     // The dialogs go with the selection, so they cannot come back on their own later.
     LaunchedEffect(selecting, selection.isEmpty) {
-        if (!selecting || selection.isEmpty) {
-            exportOpen = false
-            mergeOpen = false
-            deleteOpen = false
-        }
+        if (!selecting || selection.isEmpty) dialog = null
     }
 
     fun endSelecting() {
@@ -187,62 +181,25 @@ fun DivesScreen(
         selection = if (range) selection.extendTo(id, shownIds) else selection.toggle(id)
     }
 
-    if (exportOpen) {
-        val count = selection.ids.size
-        ExportDialog(
-            title = "Export $count ${if (count == 1) "dive" else "dives"}",
+    when (dialog) {
+        SelectionDialog.EXPORT -> ExportDialog(
+            title = "Export ${Format.dives(selection.ids.size)}",
             actions = exportActions,
             diveIds = selection.ids,
             onExported = ::endSelecting,
-            onDismiss = { exportOpen = false },
+            onDismiss = { dialog = null },
         )
-    }
-
-    if (mergeOpen) {
-        val ids = selection.ids
-        val canMerge = remember(ids) { container.dives.canMerge(ids) }
-        AlertDialog(
-            onDismissRequest = { mergeOpen = false },
-            title = { Text("Merge ${ids.size} dives?") },
-            text = {
-                Text(
-                    if (canMerge) {
-                        "They become one dive. A computer's dives one after another join into one " +
-                            "profile; computers that logged the same time keep a profile each."
-                    } else {
-                        "One computer logged two of these dives at the same time, so they cannot be merged."
-                    },
-                )
+        SelectionDialog.MERGE -> MergeDivesDialog(container, selection.ids, onMerged = ::endSelecting, onDismiss = { dialog = null })
+        SelectionDialog.DELETE -> DeleteDivesDialog(
+            count = selection.ids.size,
+            hidden = selection.hiddenCount(shownIds),
+            onDelete = {
+                container.dives.deleteDives(selection.ids)
+                endSelecting()
             },
-            confirmButton = {
-                if (canMerge) {
-                    TextButton(onClick = {
-                        container.dives.mergeDives(ids)
-                        endSelecting()
-                    }) { Text("Merge") }
-                }
-            },
-            dismissButton = { TextButton(onClick = { mergeOpen = false }) { Text("Cancel") } },
+            onDismiss = { dialog = null },
         )
-    }
-
-    if (deleteOpen) {
-        val count = selection.ids.size
-        AlertDialog(
-            onDismissRequest = { deleteOpen = false },
-            title = { Text("Delete $count ${if (count == 1) "dive" else "dives"}?") },
-            text = { Text("This removes the ${if (count == 1) "dive" else "dives"} and their computer records.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        container.dives.deleteDives(selection.ids)
-                        endSelecting()
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { deleteOpen = false }) { Text("Cancel") } },
-        )
+        null -> Unit
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -254,9 +211,9 @@ fun DivesScreen(
                     allShownPicked = selection.allPicked(shownIds),
                     onClose = ::endSelecting,
                     onToggleAll = { selection = selection.toggleAll(shownIds) },
-                    onExport = if (exportActions.available) ({ exportOpen = true }) else null,
-                    onMerge = { mergeOpen = true },
-                    onDelete = { deleteOpen = true },
+                    onExport = if (exportActions.available) ({ dialog = SelectionDialog.EXPORT }) else null,
+                    onMerge = { dialog = SelectionDialog.MERGE },
+                    onDelete = { dialog = SelectionDialog.DELETE },
                 )
             }
             if (dives.isEmpty()) {
@@ -399,6 +356,53 @@ private fun SelectionBar(
             IconButton(onClick = onDelete, enabled = count > 0) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
         }
     }
+}
+
+private enum class SelectionDialog { EXPORT, MERGE, DELETE }
+
+/** Asks before merging [ids] into one dive, or says why they cannot be. */
+@Composable
+private fun MergeDivesDialog(container: AppContainer, ids: Set<Long>, onMerged: () -> Unit, onDismiss: () -> Unit) {
+    val problem = remember(ids) { container.dives.mergeProblem(ids) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Merge ${Format.dives(ids.size)}?") },
+        text = { Text(problem?.let(::mergeProblemText) ?: MERGE_EXPLAINED) },
+        confirmButton = {
+            if (problem == null) {
+                TextButton(onClick = {
+                    container.dives.mergeDives(ids)
+                    onMerged()
+                }) { Text("Merge") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Asks before deleting [count] dives, saying how many of them the filter hides. */
+@Composable
+private fun DeleteDivesDialog(count: Int, hidden: Int, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete ${Format.dives(count)}?") },
+        text = {
+            Text(
+                listOfNotNull(
+                    if (hidden > 0) "$hidden of them are hidden by the filter." else null,
+                    if (count == 1) "This removes the dive and its computer records." else "This removes them and their computer records.",
+                    "A downloaded dive comes back only if you download all or the latest dives again and check it in the review.",
+                ).joinToString(" "),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDelete,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Delete") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 private enum class DiveSort(val label: String) { DATE("Date"), NUMBER("Number"), DEPTH("Depth"), DURATION("Duration") }

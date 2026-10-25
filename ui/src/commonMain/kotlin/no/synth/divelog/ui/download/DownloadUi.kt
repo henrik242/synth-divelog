@@ -27,12 +27,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import no.synth.divelog.core.logbook.download.DiveAction
 import no.synth.divelog.core.logbook.download.DiveComputerType
@@ -40,8 +43,10 @@ import no.synth.divelog.core.logbook.download.DownloadAmount
 import no.synth.divelog.core.logbook.download.DownloadedDive
 import no.synth.divelog.core.logbook.download.KnownComputer
 import no.synth.divelog.core.logbook.download.SerialPortInfo
-import no.synth.divelog.core.logbook.download.SerialPortKind
+import no.synth.divelog.core.logbook.download.SerialPorts
 import no.synth.divelog.core.logbook.format.Format
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 /** State machine for the shared download affordance driven from the Download button. */
 sealed interface DownloadUiState {
@@ -73,7 +78,8 @@ private sealed interface PickerChoice {
  * logbook ([known]) are listed first with their dive count, newest dive and last port;
  * choosing one preselects the port it was last reached on. The computer used last
  * ([lastKey]) starts selected. Any [types] entry can still be picked for a new computer.
- * The selected computer shows its [hint], if any, above the port.
+ * The selected computer shows its [hint], if any, above the port. [ports] are the ones
+ * [serialPorts] listed when the picker opened.
  * Shared across desktop (wired ports and paired Bluetooth devices) and Android (USB-serial
  * adapters, paired Bluetooth Classic devices and scanned Bluetooth LE computers).
  */
@@ -82,16 +88,14 @@ fun DownloadPickerDialog(
     types: List<DiveComputerType>,
     known: List<KnownComputer>,
     lastKey: String?,
+    serialPorts: SerialPorts,
     ports: List<SerialPortInfo>,
-    onRefresh: () -> List<SerialPortInfo>,
     onStart: (type: DiveComputerType, port: SerialPortInfo, amount: DownloadAmount) -> Unit,
     onCancel: () -> Unit,
     preselectPortId: (DiveComputerType, List<SerialPortInfo>) -> String? = { _, _ -> null },
     hint: (DiveComputerType) -> String? = { null },
-    linkKinds: Set<SerialPortKind> = emptySet(),
-    onDiscover: () -> Unit = {},
-    scanProblem: () -> String? = { null },
 ) {
+    val scope = rememberCoroutineScope()
     // A known computer's own last port, else the port a device of this type was last
     // reached on, else a sensible guess; only among the ports the type can use.
     fun pick(choice: PickerChoice, all: List<SerialPortInfo>): SerialPortInfo? {
@@ -113,6 +117,8 @@ fun DownloadPickerDialog(
     var userPicked by remember { mutableStateOf(false) }
 
     var problem by remember { mutableStateOf<String?>(null) }
+    // Whether a scan has run a while without finding the selected computer.
+    var searchedLong by remember { mutableStateOf(false) }
 
     fun select(c: PickerChoice) {
         choice = c
@@ -125,19 +131,27 @@ fun DownloadPickerDialog(
         if (!userPicked || ports.none { it.id == port?.id }) port = pick(choice, ports)
     }
 
-    fun refresh() = show(onRefresh())
+    // Listing can be slow (the macOS Bluetooth helper), so it runs off the main thread.
+    suspend fun refresh() = show(withContext(Dispatchers.IO) { serialPorts.list() })
 
     // A computer found by scanning shows up whenever the scan sees it, so keep the scan
-    // running and the list current while one is selected; no Refresh tapping needed.
-    // Listing can be slow (the macOS Bluetooth helper), so it runs off the main thread.
+    // running and the list current while one is selected; no Refresh tapping needed. The
+    // scan stops with the picker or another selection.
     LaunchedEffect(choice.type) {
         problem = null
-        if (!choice.type.foundByScan(linkKinds)) return@LaunchedEffect
-        while (true) {
-            onDiscover()
-            show(withContext(Dispatchers.Default) { onRefresh() })
-            problem = scanProblem()
-            delay(SCAN_REFRESH_MS)
+        searchedLong = false
+        if (!choice.type.foundByScan(serialPorts.linkKinds)) return@LaunchedEffect
+        val started = TimeSource.Monotonic.markNow()
+        try {
+            while (true) {
+                serialPorts.discover()
+                refresh()
+                problem = serialPorts.scanProblem()
+                searchedLong = started.elapsedNow() >= SEARCH_HINT_AFTER
+                delay(SCAN_REFRESH_MS)
+            }
+        } finally {
+            serialPorts.stopDiscovery()
         }
     }
 
@@ -150,8 +164,12 @@ fun DownloadPickerDialog(
         val usable = current.filter { choice.type.canUse(it) }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (usable.isEmpty()) {
-                val empty = if (choice.type.foundByScan(linkKinds)) {
-                    problem ?: "Searching for the dive computer..."
+                val empty = if (choice.type.foundByScan(serialPorts.linkKinds)) {
+                    problem ?: if (searchedLong) {
+                        "Not found yet. Is Bluetooth started in the computer's menu, and the computer close by?"
+                    } else {
+                        "Searching for the dive computer..."
+                    }
                 } else {
                     "No ports found; connect the cable"
                 }
@@ -169,7 +187,7 @@ fun DownloadPickerDialog(
                     modifier = Modifier.weight(1f),
                 )
             }
-            TextButton(onClick = { refresh() }) { Text("Refresh") }
+            TextButton(onClick = { scope.launch { refresh() } }) { Text("Refresh") }
         }
         // Listed ports (a paired device) do not mean the scan works; say why it may not.
         if (usable.isNotEmpty()) {
@@ -315,3 +333,14 @@ fun DownloadProgressDialog(state: DownloadUiState.Running, onCancel: () -> Unit)
 
 /** How often the picker refreshes the list while a scanned computer is selected. */
 private const val SCAN_REFRESH_MS = 2_000L
+
+/** How long a scan runs before the picker asks whether the computer is ready. */
+private val SEARCH_HINT_AFTER = 25.seconds
+
+/** What to do on the computer itself before downloading from it, on every platform. */
+fun connectHint(type: DiveComputerType): String = when (type) {
+    DiveComputerType.SUUNTO_VYPER, DiveComputerType.SUUNTO_VYPER2 -> "Connect the Suunto USB cable."
+    DiveComputerType.SHEARWATER_PETREL, DiveComputerType.SHEARWATER_PREDATOR ->
+        "Pair the computer in the system's Bluetooth settings, then start Bluetooth from its menu."
+    DiveComputerType.SHEARWATER -> "Start Bluetooth from the computer's menu and keep it close by."
+}

@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Bluetooth Classic serial to the dive computer. -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <!-- Bluetooth to the dive computer, Classic serial or LE (minSdk 33, so no legacy permissions). -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- Bluetooth LE scan for the Peregrine; the scan is never used to infer location. -->
+    <!-- Bluetooth LE scan for the Shearwater computers; the scan is never used to infer location. -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
@@ -33,10 +31,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SynthDivelog">
 
+        <!-- A download runs in the composition, so the activity takes these changes itself instead of restarting. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|locale|layoutDirection|fontScale"
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

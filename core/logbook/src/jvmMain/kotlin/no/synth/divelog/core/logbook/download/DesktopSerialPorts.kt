@@ -17,26 +17,14 @@ import java.io.File
  * On macOS, paired Bluetooth serial-port devices are listed through [rfcommBridge] and
  * opened with [MacRfcommTransport], since their "cu.*" nodes no longer bring the link up;
  * those nodes are hidden. Bluetooth LE computers come from a scan through [bleBridge]
- * ([MacBleScanner], started by [discover]) and are opened with [MacBleTransport].
+ * ([MacBleScanner]) and are opened with [MacBleTransport].
  */
 class DesktopSerialPorts(
     private val rfcommBridge: File? = MacRfcommTransport.locateBridge(),
     private val bleBridge: File? = MacBleScanner.locateBridge(),
 ) : SerialPorts {
-    private val ble = bleBridge?.let(::MacBleScanner)
+    override val bleScanner = bleBridge?.let(::MacBleScanner)
     override val downloadSupported = true
-
-    override val linkKinds: Set<SerialPortKind> = buildSet {
-        add(SerialPortKind.USB_SERIAL)
-        add(SerialPortKind.BLUETOOTH_SPP)
-        if (ble != null) add(SerialPortKind.BLUETOOTH_LE)
-    }
-
-    override fun discover() {
-        ble?.scan()
-    }
-
-    override fun scanProblem(): String? = ble?.problem()
 
     override fun list(): List<SerialPortInfo> {
         val bluetooth = rfcommBridge?.let { MacRfcommTransport.pairedDevices(it) }.orEmpty()
@@ -53,20 +41,14 @@ class DesktopSerialPorts(
                 descriptor = it.address,
             )
         }
-        val scanned = ble?.let(::blePorts).orEmpty()
+        val scanned = bleScanner?.let { blePorts(it.found()) }.orEmpty()
         return paired + scanned + wired
     }
 
-    override suspend fun open(id: String, params: SerialParams): Transport {
-        ble?.stop()
-        val transport = when {
-            id.startsWith(BLUETOOTH_PREFIX) && rfcommBridge != null ->
-                MacRfcommTransport(rfcommBridge, id.removePrefix(BLUETOOTH_PREFIX))
-            id.startsWith(BLE_PREFIX) && bleBridge != null -> MacBleTransport(bleBridge, id.removePrefix(BLE_PREFIX))
-            else -> JSerialCommTransport.byName(id, params)
-        }
-        // A Bluetooth bridge can take a while to connect; cancelling closes it.
-        return transport.also { closingOnCancel(it) { it.open() } }
+    override suspend fun transport(id: String, params: SerialParams): Transport = when {
+        id.startsWith(BLUETOOTH_PREFIX) && rfcommBridge != null -> MacRfcommTransport(rfcommBridge, id.removePrefix(BLUETOOTH_PREFIX))
+        id.startsWith(BLE_PREFIX) && bleBridge != null -> MacBleTransport(bleBridge, id.removePrefix(BLE_PREFIX))
+        else -> JSerialCommTransport.byName(id, params)
     }
 
     /** macOS names a device's serial node after the device name with spaces and punctuation dropped. */

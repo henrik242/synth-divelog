@@ -68,7 +68,10 @@ class PeregrineCaptureRegressionTest {
     fun withoutAWriteSizeTheCaptureIsNotAByteStream() {
         // A link without a write size is Bluetooth Classic, which this capture is not.
         val asStream = ReplayTransport(transcript.copy(maxWriteSize = null))
-        runCatching { DiveComputerKind.SHEARWATER.protocol(asStream).download(knownFingerprint = null, limit = 1) }
+        val failure = runCatching { DiveComputerKind.SHEARWATER.protocol(asStream).download(knownFingerprint = null, limit = 1) }
+            .exceptionOrNull()
+        // The first command goes out without the BLE packet lead, so it is not the recorded one.
+        assertTrue(failure?.message.orEmpty().startsWith("Write mismatch"), "failed with $failure")
         assertFalse(asStream.finished)
     }
 }

@@ -63,10 +63,10 @@ class PnfRecordLayoutTest {
         // Log version 9 and later record the interval in milliseconds.
         val twoSeconds = parse(version = 9, intervalMs = 2_000)
         assertEquals(listOf(0, 2, 4), twoSeconds.samples.take(3).map { it.timeOffsetSeconds })
-        // Before version 9 the field is not the interval, and an interval in part seconds
-        // is not one samples can be placed on; both keep the 10 s default.
+        // Before version 9 the field is not the interval, so the 10 s default applies.
         assertEquals(listOf(0, 10, 20), parse(version = 8, intervalMs = 2_000).samples.take(3).map { it.timeOffsetSeconds })
-        assertEquals(listOf(0, 10, 20), parse(version = 9, intervalMs = 2_500).samples.take(3).map { it.timeOffsetSeconds })
+        // An interval in part seconds puts each sample in the second it falls in.
+        assertEquals(listOf(0, 2, 5), parse(version = 9, intervalMs = 2_500).samples.take(3).map { it.timeOffsetSeconds })
     }
 
     /** [records] with opening records 4 (log [version] at +16) and 5 ([intervalMs] at +23) after the first. */

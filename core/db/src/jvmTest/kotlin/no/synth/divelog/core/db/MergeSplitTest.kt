@@ -8,10 +8,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 class MergeSplitTest {
     private val db = testDatabase()
@@ -164,7 +162,7 @@ class MergeSplitTest {
                 ),
             ) { false },
         )
-        assertTrue(dives.canMerge(listOf(a.diveId, b.diveId)))
+        assertNull(dives.mergeProblem(listOf(a.diveId, b.diveId)))
 
         val merged = dives.mergeDives(listOf(b.diveId, a.diveId))
 
@@ -211,8 +209,8 @@ class MergeSplitTest {
         val a = assertIs<ImportResult.CreatedDive>(dives.import(incoming(deviceId = petrel, start = 10_000, fingerprint = "a")) { false }).diveId
         val b = dives.importAsNewDive(incoming(deviceId = petrel, start = 10_600, fingerprint = "b")).diveId
 
-        assertFalse(dives.canMerge(listOf(a, b)))
-        assertFalse(dives.canMerge(listOf(a)))
+        assertEquals(MergeProblem.ONE_COMPUTER_AT_ONCE, dives.mergeProblem(listOf(a, b)))
+        assertEquals(MergeProblem.TOO_FEW, dives.mergeProblem(listOf(a)))
         assertFailsWith<IllegalArgumentException> { dives.mergeDives(listOf(a, b)) }
         assertEquals(2, dives.allDives().size)
     }
@@ -257,11 +255,86 @@ class MergeSplitTest {
     fun aJoinedRecordGivesTheNewestFingerprintOfItsDives() {
         val petrel = devices.add(Device(vendor = "Shearwater", model = "Petrel", bluetoothAddress = "2"))
         val a = assertIs<ImportResult.CreatedDive>(dives.import(incoming(deviceId = petrel, start = 10_000, duration = 600, fingerprint = "a")) { false }).diveId
-        dives.import(incoming(deviceId = petrel, start = 12_000, duration = 600, fingerprint = "b")) { false }
-        val c = assertIs<ImportResult.CreatedDive>(dives.import(incoming(deviceId = petrel, start = 14_000, duration = 600, fingerprint = "c")) { false }).diveId
+        dives.import(incoming(deviceId = petrel, start = 11_000, duration = 300, fingerprint = "b")) { false }
+        val c = assertIs<ImportResult.CreatedDive>(dives.import(incoming(deviceId = petrel, start = 11_400, duration = 600, fingerprint = "c")) { false }).diveId
 
+        // b, left out, starts after the joined record: newest by start would be b, by end it is c.
         dives.mergeDives(listOf(a, c))
 
         assertEquals("c", dives.newestFingerprint(petrel))
+    }
+
+    @Test
+    fun divesFarApartCannotMerge() {
+        val first = dives.insertDive(Dive(startEpochSeconds = 10_000, utcOffsetSeconds = 0, durationSeconds = 600))
+        val second = dives.insertDive(
+            Dive(startEpochSeconds = 10_600 + DiveRepository.MAX_SURFACE_INTERVAL_SECONDS + 1, utcOffsetSeconds = 0, durationSeconds = 600),
+        )
+
+        assertEquals(MergeProblem.TOO_FAR_APART, dives.mergeProblem(listOf(first, second)))
+        assertFailsWith<IllegalArgumentException> { dives.mergeDives(listOf(first, second)) }
+    }
+
+    @Test
+    fun joiningBackToBackDivesEndsTheTankWhereTheLaterDiveEnded() {
+        val first = dives.insertDive(Dive(startEpochSeconds = 10_000, utcOffsetSeconds = 0, durationSeconds = 600))
+        val second = dives.insertDive(Dive(startEpochSeconds = 11_000, utcOffsetSeconds = 0, durationSeconds = 600))
+        val air = gases.getOrCreateGasMix(210, 0)
+        gases.addTank(Tank(diveId = first, index = 0, startPressureMbar = 200_000, endPressureMbar = 150_000, gasMixId = air))
+        gases.addTank(Tank(diveId = second, index = 0, startPressureMbar = 152_000, endPressureMbar = 90_000, gasMixId = air))
+
+        val merged = dives.mergeDives(listOf(first, second))
+
+        val tank = gases.tanksForDive(merged).single()
+        assertEquals(200_000 to 90_000, tank.startPressureMbar to tank.endPressureMbar)
+    }
+
+    @Test
+    fun aFreshTankOfTheSameGasAfterTheSurfaceIntervalStaysApart() {
+        val first = dives.insertDive(Dive(startEpochSeconds = 10_000, utcOffsetSeconds = 0, durationSeconds = 600))
+        val second = dives.insertDive(Dive(startEpochSeconds = 11_000, utcOffsetSeconds = 0, durationSeconds = 600))
+        val air = gases.getOrCreateGasMix(210, 0)
+        gases.addTank(Tank(diveId = first, index = 0, startPressureMbar = 200_000, endPressureMbar = 60_000, gasMixId = air))
+        gases.addTank(Tank(diveId = second, index = 0, startPressureMbar = 210_000, endPressureMbar = 120_000, gasMixId = air))
+
+        val merged = dives.mergeDives(listOf(first, second))
+
+        assertEquals(
+            listOf(200_000 to 60_000, 210_000 to 120_000),
+            gases.tanksForDive(merged).map { it.startPressureMbar to it.endPressureMbar },
+        )
+    }
+
+    @Test
+    fun aThirdDiveCarriesOnTheTankItsPressureFollows() {
+        val air = gases.getOrCreateGasMix(210, 0)
+        val ids = listOf(200_000 to 60_000, 210_000 to 120_000, 120_000 to 80_000).mapIndexed { i, (start, end) ->
+            dives.insertDive(Dive(startEpochSeconds = 10_000L + i * 1_000, utcOffsetSeconds = 0, durationSeconds = 600)).also {
+                gases.addTank(Tank(diveId = it, index = 0, startPressureMbar = start, endPressureMbar = end, gasMixId = air))
+            }
+        }
+
+        val merged = dives.mergeDives(ids)
+
+        assertEquals(
+            listOf(200_000 to 60_000, 210_000 to 80_000),
+            gases.tanksForDive(merged).map { it.startPressureMbar to it.endPressureMbar },
+        )
+    }
+
+    @Test
+    fun aSecondComputersCopyOfALaterDiveIsNotARefill() {
+        val air = gases.getOrCreateGasMix(210, 0)
+        fun dive(start: Long, from: Int, to: Int) =
+            dives.insertDive(Dive(startEpochSeconds = start, utcOffsetSeconds = 0, durationSeconds = 600)).also {
+                gases.addTank(Tank(diveId = it, index = 0, startPressureMbar = from, endPressureMbar = to, gasMixId = air))
+            }
+        val first = dive(10_000, 200_000, 150_000)
+        val later = dive(11_000, 150_000, 90_000)
+        val laterOnAnotherComputer = dive(11_010, 150_000, 90_000)
+
+        val merged = dives.mergeDives(listOf(first, later, laterOnAnotherComputer))
+
+        assertEquals(listOf(200_000 to 90_000), gases.tanksForDive(merged).map { it.startPressureMbar to it.endPressureMbar })
     }
 }

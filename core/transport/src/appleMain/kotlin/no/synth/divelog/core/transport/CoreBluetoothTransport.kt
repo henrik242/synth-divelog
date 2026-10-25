@@ -12,7 +12,6 @@ import no.synth.divelog.core.divecomputer.transport.TransportException
 import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
-import platform.CoreBluetooth.CBCentralManagerOptionShowPowerAlertKey
 import platform.CoreBluetooth.CBCharacteristic
 import platform.CoreBluetooth.CBCharacteristicPropertyIndicate
 import platform.CoreBluetooth.CBCharacteristicPropertyNotify
@@ -57,8 +56,7 @@ class CoreBluetoothTransport(private val identifier: String) : Transport {
     private val delegate = Delegate()
     private val queue = dispatch_queue_create("ble-link", null)
 
-    // No system "Turn on Bluetooth" alert: the picker already says so (CoreBluetoothScanner).
-    private val central = CBCentralManager(delegate, queue, mapOf<Any?, Any>(CBCentralManagerOptionShowPowerAlertKey to false))
+    private val central = centralManager(delegate, queue)
 
     @Volatile private var peripheral: CBPeripheral? = null
     @Volatile private var characteristic: CBCharacteristic? = null
@@ -73,7 +71,8 @@ class CoreBluetoothTransport(private val identifier: String) : Transport {
         data object Connected : Event
         data object ServicesDiscovered : Event
         data object CharacteristicsDiscovered : Event
-        data object NotifyingOrWritten : Event
+        data object Notifying : Event
+        data object Written : Event
         data object ReadyToWrite : Event
         data class Failed(val error: NSError?) : Event
         data class Ended(val reason: TransportException) : Event
@@ -106,21 +105,25 @@ class CoreBluetoothTransport(private val identifier: String) : Transport {
             await<Event.CharacteristicsDiscovered>("characteristic discovery")
         }
         val c = onQueue {
-            services.asSequence()
+            val serial = services.asSequence()
                 .flatMap { it.characteristics.orEmpty().filterIsInstance<CBCharacteristic>() }
                 .firstOrNull(::isSerial)
-        } ?: throw TransportException(
-            "$identifier has no serial characteristic (services: ${onQueue { p.services.orEmpty().filterIsInstance<CBService>().joinToString { it.UUID.UUIDString } }})",
-        )
+            // Without responses when it can: a write then waits for no acknowledgement.
+            serial?.also {
+                writeType = if (it.properties and CBCharacteristicPropertyWriteWithoutResponse != 0uL) {
+                    CBCharacteristicWriteWithoutResponse
+                } else {
+                    CBCharacteristicWriteWithResponse
+                }
+            }
+        } ?: throw TransportException("$identifier has no serial characteristic (services: ${serviceNames(p)})")
         characteristic = c
-        writeType = if (c.properties and CBCharacteristicPropertyWriteWithoutResponse != 0uL) {
-            CBCharacteristicWriteWithoutResponse
-        } else {
-            CBCharacteristicWriteWithResponse
-        }
         onQueue { p.setNotifyValue(true, c) }
-        await<Event.NotifyingOrWritten>("notification setup")
+        await<Event.Notifying>("notification setup")
     }
+
+    private fun serviceNames(p: CBPeripheral): String =
+        onQueue { p.services.orEmpty().filterIsInstance<CBService>().joinToString { it.UUID.UUIDString } }
 
     /** The peripheral the system already knows by [identifier], else the first scan result with it. */
     private fun find(): CBPeripheral {
@@ -157,7 +160,12 @@ class CoreBluetoothTransport(private val identifier: String) : Transport {
             onQueue { p.writeValue(data.toNSData(), c, writeType) }
         } else {
             onQueue { p.writeValue(data.toNSData(), c, writeType) }
-            await<Event.NotifyingOrWritten>("write", WRITE_TIMEOUT_MS)
+            // Not a timeout to retry: a late acknowledgement would then count for the next write.
+            try {
+                await<Event.Written>("write", WRITE_TIMEOUT_MS)
+            } catch (e: TransportTimeoutException) {
+                throw TransportException("The dive computer did not acknowledge a write", e)
+            }
         }
     }
 
@@ -264,11 +272,11 @@ class CoreBluetoothTransport(private val identifier: String) : Transport {
 
         @ObjCSignatureOverride
         override fun peripheral(peripheral: CBPeripheral, didUpdateNotificationStateForCharacteristic: CBCharacteristic, error: NSError?) =
-            stepDone(error, Event.NotifyingOrWritten)
+            stepDone(error, Event.Notifying)
 
         @ObjCSignatureOverride
         override fun peripheral(peripheral: CBPeripheral, didWriteValueForCharacteristic: CBCharacteristic, error: NSError?) =
-            stepDone(error, Event.NotifyingOrWritten)
+            stepDone(error, Event.Written)
 
         @ObjCSignatureOverride
         override fun peripheral(peripheral: CBPeripheral, didUpdateValueForCharacteristic: CBCharacteristic, error: NSError?) {

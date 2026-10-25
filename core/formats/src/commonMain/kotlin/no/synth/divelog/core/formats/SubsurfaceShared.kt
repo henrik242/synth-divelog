@@ -230,7 +230,7 @@ internal object SubsurfaceShared {
         val t = text?.trim()?.uppercase() ?: return null
         GRADIENT_FACTORS.find(t)?.let { m ->
             val (low, high) = m.groupValues.drop(1).map { it.toInt() }
-            return if (low in 1..150 && high in 1..150) {
+            return if (low in DecoModel.GF_PERCENT_RANGE && high in DecoModel.GF_PERCENT_RANGE) {
                 DecoModel(DecoAlgorithm.BUHLMANN, low, high)
             } else {
                 DecoModel(DecoAlgorithm.BUHLMANN)

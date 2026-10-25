@@ -77,7 +77,7 @@ fun SettingsSection(
                     Text("Export logbook")
                 }
                 Text(
-                    "To export only some dives, tap Select in the Dives list.",
+                    "To export only some dives, long-press one in the Dives list, or tap the checklist button above it.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
