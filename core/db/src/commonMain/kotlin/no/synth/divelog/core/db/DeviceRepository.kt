@@ -60,6 +60,7 @@ class DeviceRepository(private val db: DiveDatabase) {
         if (fromId == toId) return
         db.transaction {
             db.recordQueries.reassignRecordsFromDevice(toId, fromId)
+            db.deletedRecordQueries.reassignFromDevice(toId = toId, fromId = fromId)
             q.deleteDevice(fromId)
         }
     }

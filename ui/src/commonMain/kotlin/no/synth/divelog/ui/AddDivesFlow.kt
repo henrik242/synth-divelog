@@ -25,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import no.synth.divelog.core.logbook.AppServices
+import no.synth.divelog.core.logbook.download.DiveAction
 import no.synth.divelog.core.logbook.download.DiveComputerType
 import no.synth.divelog.core.logbook.download.DownloadAmount
 import no.synth.divelog.core.logbook.download.DownloadController
@@ -92,9 +93,9 @@ internal class AddDivesFlow(
                             downloadUi = DownloadUiState.Running(fraction, label)
                             hooks.onDownloadProgress(label)
                         },
-                        reviewMerges = { reviews ->
-                            val answer = CompletableDeferred<Set<Int>>()
-                            downloadUi = DownloadUiState.Reviewing(reviews) { answer.complete(it) }
+                        review = { dives ->
+                            val answer = CompletableDeferred<List<DiveAction>>()
+                            downloadUi = DownloadUiState.Reviewing(dives) { answer.complete(it) }
                             answer.await().also { downloadUi = DownloadUiState.Running(1f, "Importing dives") }
                         },
                     )
@@ -160,7 +161,7 @@ internal class AddDivesFlow(
                 scanProblem = { hooks.serialPorts.scanProblem() },
             )
             is DownloadUiState.Running -> DownloadProgressDialog(state = ui, onCancel = { cancelDownload = true })
-            is DownloadUiState.Reviewing -> DownloadReviewDialog(ui)
+            is DownloadUiState.Reviewing -> DownloadReviewDialog(ui, services.settings.unitSystem)
         }
 
         if (chooserOpen) {

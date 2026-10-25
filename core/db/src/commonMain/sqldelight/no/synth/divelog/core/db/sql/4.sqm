@@ -1,0 +1,7 @@
+-- Downloaded dives the user deleted, so a download does not bring them back unasked.
+CREATE TABLE deletedRecord (
+    deviceId INTEGER NOT NULL REFERENCES device(id) ON DELETE CASCADE,
+    fingerprint TEXT NOT NULL,
+    endEpochSeconds INTEGER NOT NULL,
+    PRIMARY KEY (deviceId, fingerprint)
+);

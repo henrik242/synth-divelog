@@ -22,6 +22,7 @@ class DiveRepository(private val db: DiveDatabase) {
     private val records = db.recordQueries
     private val samples = db.sampleQueries
     private val events = db.eventQueries
+    private val deleted = db.deletedRecordQueries
     private val gases = GasRepository(db)
 
     // --- Dive CRUD ---
@@ -78,9 +79,20 @@ class DiveRepository(private val db: DiveDatabase) {
         dive.id,
     )
 
-    fun deleteDive(id: Long) = dives.deleteDive(id)
+    /**
+     * Delete a dive with its records. Its downloaded records are remembered (see
+     * [isDeleted]), so a later download does not bring the dive back unasked.
+     */
+    fun deleteDive(id: Long) = db.transaction {
+        deleted.rememberRecordsOfDive(id)
+        dives.deleteDive(id)
+    }
 
-    fun deleteDives(ids: Collection<Long>) = db.transaction { ids.forEach(dives::deleteDive) }
+    /** Whether the user deleted the dive [deviceId] logged as [fingerprint]. */
+    fun isDeleted(deviceId: Long, fingerprint: String): Boolean =
+        deleted.isDeleted(deviceId, fingerprint).executeAsOne()
+
+    fun deleteDives(ids: Collection<Long>) = db.transaction { ids.forEach(::deleteDive) }
 
     fun setSite(diveId: Long, siteId: Long?) = dives.setDiveSite(siteId, diveId)
 
@@ -163,8 +175,8 @@ class DiveRepository(private val db: DiveDatabase) {
     // --- Import ---
 
     /**
-     * Fingerprint of the newest dive already stored for [deviceId], or null if none.
-     * Passed to a protocol download so it stops once it reaches dives already here.
+     * Fingerprint of the newest dive already stored or deleted for [deviceId], or null if
+     * none. Passed to a protocol download so it stops once it reaches dives already here.
      */
     fun newestFingerprint(deviceId: Long): String? =
         records.selectNewestFingerprintForDevice(deviceId).executeAsOneOrNull()
@@ -289,6 +301,7 @@ class DiveRepository(private val db: DiveDatabase) {
         )
         val recordId = records.lastInsertRowId().executeAsOne()
         insertSamplesAndEvents(recordId, incoming)
+        incoming.deviceId?.let { deleted.forget(it, incoming.fingerprint) }
         return recordId
     }
 
@@ -362,6 +375,15 @@ class DiveRepository(private val db: DiveDatabase) {
                 ),
             )
         }
+    }
+
+    /**
+     * Replace a stored record with a fresh download of it: its raw data and fingerprint,
+     * then [reparseRecord]. The dive's user-entered fields are kept.
+     */
+    fun refreshRecord(recordId: Long, incoming: IncomingDive) = db.transaction {
+        records.updateRecordRaw(incoming.rawData, incoming.rawFormatId, incoming.fingerprint, recordId)
+        reparseRecord(recordId, incoming)
     }
 
     // --- Manual merge and split ---
@@ -524,6 +546,8 @@ class DiveRepository(private val db: DiveDatabase) {
         if (ordered.zipWithNext().any { (a, b) -> a.endEpochSeconds > b.startEpochSeconds }) return null
         val first = ordered.first()
         var end = first.endEpochSeconds
+        // The kept record takes the last part's fingerprint; remember the others', which go.
+        ordered.dropLast(1).forEach { deleted.rememberRecord(it.id) }
         for (part in ordered.drop(1)) {
             val shift = part.startEpochSeconds - first.startEpochSeconds
             val times = samples.selectSamplesForRecord(first.id).executeAsList().mapTo(HashSet()) { it.timeOffsetSeconds }

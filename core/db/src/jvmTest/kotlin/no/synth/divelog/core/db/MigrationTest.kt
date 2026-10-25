@@ -4,15 +4,16 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import no.synth.divelog.core.db.sql.DiveDatabase
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class MigrationTest {
     @Test
-    fun schemaVersionBumpedForDiveSettings() {
+    fun schemaVersionBumpedForDeletedDives() {
         // 1.sqm (tags) takes the schema to version 2, 2.sqm (visibility stars) to 3,
-        // 3.sqm (dive settings, time to surface) to 4.
-        assertEquals(4L, DiveDatabase.Schema.version)
+        // 3.sqm (dive settings, time to surface) to 4, 4.sqm (deleted dives) to 5.
+        assertEquals(5L, DiveDatabase.Schema.version)
     }
 
     @Test
@@ -44,6 +45,22 @@ class MigrationTest {
     }
 
     @Test
+    fun version4RemembersDeletedDivesFromThenOn() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        DiveDatabase.Schema.create(driver)
+        undo4Sqm(driver)
+        driver.execute(null, "INSERT INTO device(vendor, model) VALUES ('Shearwater', 'Petrel')", 0)
+
+        DiveDatabase.Schema.migrate(driver, 4, DiveDatabase.Schema.version)
+
+        val repo = DiveRepository(DiveDatabase(driver))
+        val diveId = repo.importAsNewDive(incoming(deviceId = 1, fingerprint = "a")).diveId
+        assertFalse(repo.isDeleted(1, "a"))
+        repo.deleteDive(diveId)
+        assertTrue(repo.isDeleted(1, "a"))
+    }
+
+    @Test
     fun version3AddsDiveSettingsAndTimeToSurface() {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         DiveDatabase.Schema.create(driver)
@@ -70,10 +87,19 @@ class MigrationTest {
     }
 }
 
-/** Undo what 3.sqm adds (dive settings on records, time to surface on samples), back to schema version 3. */
+/**
+ * Undo what 3.sqm adds (dive settings on records, time to surface on samples) and what
+ * later ones add ([undo4Sqm]), back to schema version 3.
+ */
 internal fun undo3Sqm(driver: JdbcSqliteDriver) {
+    undo4Sqm(driver)
     for (column in listOf("diveMode", "decoAlgorithm", "gfLowPercent", "gfHighPercent", "decoConservatism")) {
         driver.execute(null, "ALTER TABLE diveComputerRecord DROP COLUMN $column", 0)
     }
     driver.execute(null, "ALTER TABLE sample DROP COLUMN ttsSeconds", 0)
+}
+
+/** Undo what 4.sqm adds (deleted dives), back to schema version 4. */
+internal fun undo4Sqm(driver: JdbcSqliteDriver) {
+    driver.execute(null, "DROP TABLE deletedRecord", 0)
 }
