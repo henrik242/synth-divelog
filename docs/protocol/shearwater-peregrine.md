@@ -25,7 +25,7 @@ bonds remain unconfirmed; the download worked, so the UUID or the fallback match
 The parts every platform shares are in `core:transport` commonMain: which scan results
 count (`ShearwaterBle.isPeregrine`: a name containing "Peregrine", or the Shearwater service
 advertised without a name), the service order for finding the serial characteristic
-(`ShearwaterBle.serialServices`), and `NotificationQueue`, which hands notifications to the
+(`ShearwaterBle.serialServices`), and `PacketQueue`, which hands notifications to the
 blocking reads and keeps their boundaries. An unfiltered scan keeps running while the
 picker has the Peregrine selected, and the list updates by itself. The computer is known
 by the serial it reports, not its address, since CoreBluetooth gives each device a UUID of
@@ -62,12 +62,18 @@ acknowledgement, then waits up to 2 s for the disconnect. Before that, the macOS
 exited at once, and the Peregrine stayed on "sent dive" with a countdown after a download.
 
 - **iOS** (`IosSerialPorts`) offers the Peregrine only. `NSBluetoothAlwaysUsageDescription`
-  is in `Info.plist`, and the first scan asks for permission.
+  is in `Info.plist`, and the first scan asks for permission. Auto-lock is off while a
+  download runs, since a suspended app stalls the link; there is no background mode.
+- **Both:** CoreBluetooth is only called on the transport's own queue. A Bluetooth reset
+  ends the link, and the transport shows no power alert of its own (the scanner's does).
 - **macOS:** a JVM cannot reach CoreBluetooth, so the desktop app bundles `ble-bridge`,
   `core:transport`'s macOS executable (`BleBridge.kt`), and drives it over stdin/stdout:
   `ble-bridge scan` prints the Peregrines it finds (`MacBleScanner`), and
   `ble-bridge connect <uuid>` relays the link as frames of a BE16 length and the bytes,
   one per write or notification, so packet boundaries survive the pipe (`MacBleTransport`).
+  The lines and frames are `BridgeProtocol`'s, and `MacBleTransportTest` runs the JVM end
+  against shell scripts. Apple Silicon only (`macosArm64`). `gradlew run` uses the debug
+  build of the helper, a packaged app the release build.
   `./gradlew :app:desktop:shearwaterCapture --args="PEREGRINE"` tests it without the app.
 
 ## Packet layer

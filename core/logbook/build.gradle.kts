@@ -14,6 +14,8 @@ kotlin {
             implementation(project(":core:db"))
             implementation(project(":core:formats"))
             implementation(project(":core:divecomputer"))
+            // Dive-computer links: serial, Bluetooth Classic and Bluetooth LE.
+            implementation(project(":core:transport"))
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
             // Shearwater Cloud exports carry JSON blobs.
@@ -22,14 +24,10 @@ kotlin {
         getByName("jvmAndAndroidMain").dependencies {
             // The cloud sync client.
             implementation(libs.jgit)
-            // Serial ports for the wired download.
-            implementation(project(":core:transport"))
         }
         iosMain.dependencies {
             // Reads and writes Shearwater Cloud database files.
             implementation(libs.sqliter)
-            // Bluetooth LE downloads over CoreBluetooth.
-            implementation(project(":core:transport"))
         }
         // A raw driver for tests that count queries.
         jvmTest.dependencies {

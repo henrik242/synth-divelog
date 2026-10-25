@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
  * The Bluetooth helpers bundled with the macOS desktop app: `rfcomm-bridge` (Bluetooth
  * Classic, Swift) and `ble-bridge` (Bluetooth LE, core:transport's macOS executable).
  */
-object MacHelper {
+internal object MacHelper {
     /**
      * The helper [name]: the `synth.<property>` system property (set by `gradlew run`), else
      * the app's bundled resources. Null where there is none (not macOS, or not built).
@@ -31,9 +31,12 @@ internal class HelperLink(helper: File, vararg args: String) {
     @Volatile private var error: String? = null
 
     private val statusReader = Thread({
-        process.errorStream.bufferedReader().forEachLine {
-            if (it.startsWith("ERROR ")) error = it.removePrefix("ERROR ")
-            status.put(it)
+        // Ends with the helper; killing it (stop) closes the stream under the reader.
+        runCatching {
+            process.errorStream.bufferedReader().forEachLine {
+                if (it.startsWith(BridgeProtocol.ERROR)) error = it.removePrefix(BridgeProtocol.ERROR)
+                status.put(it)
+            }
         }
     }, "${helper.name}-status").apply {
         isDaemon = true
@@ -46,18 +49,25 @@ internal class HelperLink(helper: File, vararg args: String) {
         return error
     }
 
-    /** Wait for the link to come up and return the CONNECTED detail; [abort] ends the wait. */
+    /**
+     * Wait for the link to come up and return the CONNECTED detail; [abort] ends the wait.
+     * Other stderr lines (a runtime warning) are skipped.
+     */
     fun awaitConnected(device: String, timeoutMs: Long): String {
-        val line = try {
-            status.poll(timeoutMs, TimeUnit.MILLISECONDS)
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            null
-        }
-        if (line != null && line.startsWith("CONNECTED")) return line.removePrefix("CONNECTED").trim()
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var line: String?
+        do {
+            line = try {
+                status.poll((deadline - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                null
+            }
+        } while (line != null && line != ABORTED && !line.startsWith(BridgeProtocol.CONNECTED) && !line.startsWith(BridgeProtocol.ERROR))
+        if (line != null && line.startsWith(BridgeProtocol.CONNECTED)) return line.removePrefix(BridgeProtocol.CONNECTED).trim()
         process.destroy()
         if (line == ABORTED) throw TransportClosedException()
-        val reason = line?.removePrefix("ERROR ") ?: "no answer within ${timeoutMs / 1000} s"
+        val reason = line?.removePrefix(BridgeProtocol.ERROR) ?: "no answer within ${timeoutMs / 1000} s"
         throw TransportException("Could not connect to $device: $reason")
     }
 

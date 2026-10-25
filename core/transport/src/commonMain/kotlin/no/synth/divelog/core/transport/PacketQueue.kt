@@ -9,28 +9,30 @@ import no.synth.divelog.core.divecomputer.transport.TransportTimeoutException
 import kotlin.concurrent.Volatile
 
 /**
- * The notifications of a Bluetooth LE link, handed from the callback thread to a blocking
- * [read] that keeps packet boundaries: a read returns bytes of one notification only, and
- * what did not fit comes on the next read. The protocol's packet layer
- * (ShearwaterBlePackets) relies on that.
+ * Packets a link's callback or reader thread receives (Bluetooth LE notifications, chunks
+ * of a stream), handed to a blocking [read] with a deadline. A read returns bytes of one
+ * packet only and what did not fit comes on the next read, so packet boundaries survive;
+ * the BLE packet layer (ShearwaterBlePackets) relies on that.
  *
  * When the link ends, [end] gives the reason later reads throw; [close] makes them throw
  * [TransportClosedException] instead, whichever came first.
  */
-class NotificationQueue {
-    private val packets = Channel<ByteArray>(Channel.UNLIMITED)
+internal class PacketQueue {
+    // A read that times out just as a packet is handed over would drop it; keep it for the next read.
+    private val packets = Channel<ByteArray>(Channel.UNLIMITED, onUndeliveredElement = { undelivered = it })
+    @Volatile private var undelivered: ByteArray? = null
     private var leftover = END
     private var leftoverPos = 0
 
     @Volatile private var endReason: TransportException? = null
     @Volatile private var closed = false
 
-    /** Queue one notification; called from the link's callback thread. */
+    /** Queue one packet, which the queue then owns; called from the link's callback or reader thread. */
     fun offer(packet: ByteArray) {
-        if (packet.isNotEmpty()) packets.trySend(packet.copyOf())
+        if (packet.isNotEmpty()) packets.trySend(packet)
     }
 
-    /** The link dropped: reads throw [reason] once the queued notifications are read. */
+    /** The link dropped: reads throw [reason] once the queued packets are read. */
     fun end(reason: TransportException) {
         if (endReason == null) endReason = reason
         packets.trySend(END)
@@ -45,6 +47,7 @@ class NotificationQueue {
     /** Drop what is queued from an earlier connection, for a fresh attempt. */
     fun clear() {
         while (packets.tryReceive().isSuccess) continue
+        undelivered = null
         endReason = null
         leftover = END
         leftoverPos = 0
@@ -53,7 +56,8 @@ class NotificationQueue {
     fun read(buffer: ByteArray, offset: Int, length: Int, timeoutMs: Long): Int {
         if (closed) throw TransportClosedException()
         if (leftoverPos >= leftover.size) {
-            val packet = runBlocking { withTimeoutOrNull(timeoutMs.coerceAtLeast(1)) { packets.receive() } }
+            val packet = undelivered?.also { undelivered = null }
+                ?: runBlocking { withTimeoutOrNull(timeoutMs.coerceAtLeast(1)) { packets.receive() } }
                 ?: throw TransportTimeoutException()
             if (packet.isEmpty()) {
                 packets.trySend(END) // later reads see the end too
@@ -70,7 +74,7 @@ class NotificationQueue {
     }
 
     private companion object {
-        /** Queued when the link ends; notifications are never empty. */
+        /** Queued when the link ends; packets are never empty. */
         val END = ByteArray(0)
     }
 }

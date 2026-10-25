@@ -76,7 +76,7 @@ class NoSerialPorts : SerialPorts {
 }
 
 /** The picker's port for a Bluetooth LE computer a scan found by [id] (an address or CoreBluetooth UUID). */
-fun blePort(id: String, name: String?): SerialPortInfo =
+internal fun blePort(id: String, name: String?): SerialPortInfo =
     SerialPortInfo(id = BLE_PREFIX + id, label = "${name ?: id} (Bluetooth LE)", kind = SerialPortKind.BLUETOOTH_LE)
 
 /** Where [blePort] put the computer's id. */
