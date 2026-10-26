@@ -4,6 +4,7 @@ import no.synth.divelog.core.db.BuddyRepository
 import no.synth.divelog.core.db.DeviceRepository
 import no.synth.divelog.core.db.DiveRepository
 import no.synth.divelog.core.db.GasRepository
+import no.synth.divelog.core.db.GearRepository
 import no.synth.divelog.core.db.SiteRepository
 import no.synth.divelog.core.db.TagRepository
 import no.synth.divelog.core.db.sql.DiveDatabase
@@ -17,6 +18,7 @@ class AppContainer(database: DiveDatabase) {
     val tags = TagRepository(database)
     val devices = DeviceRepository(database)
     val gases = GasRepository(database)
+    val gear = GearRepository(database)
 
     init {
         // Older imports stored computers as "Imported <name>"; give them vendor and model.

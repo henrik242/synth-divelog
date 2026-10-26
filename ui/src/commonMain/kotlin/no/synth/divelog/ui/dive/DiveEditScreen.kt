@@ -12,8 +12,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,7 +22,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDialog
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +49,7 @@ import no.synth.divelog.core.model.UNSAVED_ID
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.core.model.units.Units
 import no.synth.divelog.ui.components.CountryField
+import no.synth.divelog.ui.components.DatePickerFor
 import no.synth.divelog.ui.components.DecimalField
 import no.synth.divelog.ui.components.NameChipsField
 import no.synth.divelog.ui.components.NamedItem
@@ -419,25 +417,6 @@ private fun SummaryFields(draft: DiveSummaryDraft, unitSystem: UnitSystem, onCha
                 isError = !draft.meanDepthValid(),
             )
         }
-    }
-}
-
-/** A calendar for the dive's date; dates are UTC midnight in epoch milliseconds, as the picker uses. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DatePickerFor(selectedMillis: Long?, onPick: (Long) -> Unit, onDismiss: () -> Unit) {
-    val state = rememberDatePickerState(initialSelectedDateMillis = selectedMillis)
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                onClick = { state.selectedDateMillis?.let(onPick) ?: onDismiss() },
-                enabled = state.selectedDateMillis != null,
-            ) { Text("OK") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    ) {
-        DatePicker(state)
     }
 }
 

@@ -2,6 +2,8 @@ package no.synth.divelog.core.db
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import no.synth.divelog.core.db.sql.DiveDatabase
+import no.synth.divelog.core.model.GearItem
+import no.synth.divelog.core.model.GearService
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -10,10 +12,10 @@ import kotlin.test.assertTrue
 
 class MigrationTest {
     @Test
-    fun schemaVersionBumpedForDeletedDives() {
+    fun schemaVersionBumpedForGear() {
         // 1.sqm (tags) takes the schema to version 2, 2.sqm (visibility stars) to 3,
-        // 3.sqm (dive settings, time to surface) to 4, 4.sqm (deleted dives) to 5.
-        assertEquals(5L, DiveDatabase.Schema.version)
+        // 3.sqm (dive settings, time to surface) to 4, 4.sqm (deleted dives) to 5, 5.sqm (gear) to 6.
+        assertEquals(6L, DiveDatabase.Schema.version)
     }
 
     @Test
@@ -61,6 +63,20 @@ class MigrationTest {
     }
 
     @Test
+    fun version5AddsGear() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        DiveDatabase.Schema.create(driver)
+        undo5Sqm(driver)
+
+        DiveDatabase.Schema.migrate(driver, 5, DiveDatabase.Schema.version)
+
+        val gear = GearRepository(DiveDatabase(driver))
+        val id = gear.add(GearItem(name = "Regulator"))
+        gear.addService(GearService(gearId = id, epochDay = 20_000))
+        assertEquals(listOf(20_000), gear.services(id).map { it.epochDay })
+    }
+
+    @Test
     fun version3AddsDiveSettingsAndTimeToSurface() {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         DiveDatabase.Schema.create(driver)
@@ -99,7 +115,14 @@ internal fun undo3Sqm(driver: JdbcSqliteDriver) {
     driver.execute(null, "ALTER TABLE sample DROP COLUMN ttsSeconds", 0)
 }
 
-/** Undo what 4.sqm adds (deleted dives), back to schema version 4. */
+/** Undo what 4.sqm adds (deleted dives) and what 5.sqm adds ([undo5Sqm]), back to schema version 4. */
 internal fun undo4Sqm(driver: JdbcSqliteDriver) {
+    undo5Sqm(driver)
     driver.execute(null, "DROP TABLE deletedRecord", 0)
+}
+
+/** Undo what 5.sqm adds (gear), back to schema version 5. */
+internal fun undo5Sqm(driver: JdbcSqliteDriver) {
+    driver.execute(null, "DROP TABLE gearService", 0)
+    driver.execute(null, "DROP TABLE gear", 0)
 }

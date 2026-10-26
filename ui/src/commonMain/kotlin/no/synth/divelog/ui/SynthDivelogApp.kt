@@ -61,6 +61,7 @@ import no.synth.divelog.ui.sites.SitesOverview
 import no.synth.divelog.ui.stats.StatisticsSection
 import no.synth.divelog.ui.tools.DivePlannerState
 import no.synth.divelog.ui.tools.GasBlenderState
+import no.synth.divelog.ui.tools.GearItemScreen
 import no.synth.divelog.ui.tools.ModEndState
 import no.synth.divelog.ui.tools.TankBuoyancyState
 import no.synth.divelog.ui.tools.ToolsSection
@@ -174,6 +175,13 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
             "Forgot all dives"
         }
     }
+    val onImportGear = hooks.pickImportFile?.let { pick ->
+        {
+            runReported("Gear import failed") {
+                pick()?.let { bytes -> withContext(Dispatchers.Default) { logbook.importGearMessage(bytes) } }
+            }
+        }
+    }
     val onCloudPush = services.cloud?.let { cloud ->
         { email: String, pass: String ->
             runReported("Push failed") {
@@ -222,7 +230,13 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
             val top = nav.top
             // Keyed per page, so a section keeps its list position and filters while another
             // section or the dive computers page is shown.
-            pageState.SaveableStateProvider(nav.section.name + if (top is Screen.Computers) "/computers" else "") {
+            // A page shown over a list gets its own key, so the list keeps its state while it is away.
+            val page = when (top) {
+                is Screen.Computers -> "/computers"
+                is Screen.Gear -> "/gear"
+                else -> ""
+            }
+            pageState.SaveableStateProvider(nav.section.name + page) {
                 if (top is Screen.Computers) {
                     ComputersScreen(
                         container = container,
@@ -278,12 +292,18 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         else -> LabelList(tags) { nav.push(Screen.Tag(it)) }
                     }
                     Section.STATS -> StatisticsSection(container, unitSystem)
-                    Section.TOOLS -> ToolsSection(
-                        (top as? Screen.ToolPage)?.tool,
-                        { tool -> if (tool == null) back() else nav.push(Screen.ToolPage(tool)) },
-                        blender, tank, modEnd, planner, unitSystem,
-                        onTopBarActions = { topBarActions = it },
-                    )
+                    Section.TOOLS -> if (top is Screen.Gear) {
+                        GearItemScreen(container, top.gearId, onDeleted = ::back)
+                    } else {
+                        ToolsSection(
+                            (top as? Screen.ToolPage)?.tool,
+                            { tool -> if (tool == null) back() else nav.push(Screen.ToolPage(tool)) },
+                            blender, tank, modEnd, planner, unitSystem, container,
+                            onOpenGear = { nav.push(Screen.Gear(it)) },
+                            onImportGear = onImportGear,
+                            onTopBarActions = { topBarActions = it },
+                        )
+                    }
                     Section.SETTINGS -> if (top == Screen.Attributions) AttributionsScreen() else SettingsSection(
                         settings = settings,
                         unitSystem = unitSystem,
@@ -317,6 +337,7 @@ private fun screenLabel(screen: Screen, container: AppContainer): String = when 
     is Screen.Site -> container.sites.site(screen.siteId)?.name ?: "Site"
     is Screen.Buddy -> container.buddies.get(screen.buddyId)?.name ?: "Buddy"
     is Screen.Tag -> container.tags.get(screen.tagId)?.name ?: "Tag"
+    is Screen.Gear -> container.gear.get(screen.gearId)?.name ?: "Gear"
     else -> fixedLabel(screen)
 }
 
@@ -328,6 +349,7 @@ private fun screenLabelFlow(screen: Screen, container: AppContainer): Flow<Strin
     is Screen.Site -> container.sites.siteFlow(screen.siteId).map { it?.name ?: "Site" }
     is Screen.Buddy -> container.buddies.getFlow(screen.buddyId).map { it?.name ?: "Buddy" }
     is Screen.Tag -> container.tags.getFlow(screen.tagId).map { it?.name ?: "Tag" }
+    is Screen.Gear -> container.gear.getFlow(screen.gearId).map { it?.name ?: "Gear" }
     else -> flowOf(fixedLabel(screen))
 }
 
