@@ -17,6 +17,7 @@ import no.synth.divelog.core.formats.UddfFormat
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
+import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.IncomingDive
 import kotlin.time.Clock
 
@@ -224,6 +225,7 @@ class LogbookIo(private val container: AppContainer) {
 
     private fun importItem(item: ImportItem, formatId: String, autoMerge: Boolean): Outcome {
         val entry = item.entry
+        if (entry.computers.isEmpty() && item.parsed == null) return importWithoutComputer(entry)
         val fingerprint = "import:$formatId:${entry.startEpochSeconds}:${entry.number ?: 0}:${entry.maxDepthMm ?: 0}"
         // The computer with a profile leads; the others are attached as extra records.
         val primaryIndex = entry.computers.indexOfFirst { it.samples.isNotEmpty() }.coerceAtLeast(0)
@@ -278,6 +280,40 @@ class LogbookIo(private val container: AppContainer) {
                 Outcome.MERGED
             }
         }
+    }
+
+    /**
+     * A dive logged with no computer, such as one entered by hand, is stored without a record
+     * so it stays editable as one. A dive already at that time takes only its metadata.
+     */
+    private fun importWithoutComputer(entry: DiveEntry): Outcome {
+        val probe = IncomingDive(
+            startEpochSeconds = entry.startEpochSeconds,
+            utcOffsetSeconds = entry.utcOffsetSeconds,
+            durationSeconds = entry.durationSeconds,
+            rawData = ByteArray(0),
+            rawFormatId = "",
+            fingerprint = "",
+        )
+        val existing = (container.dives.classify(probe) as? ImportDecision.MergeCandidate)?.diveId
+        if (existing != null) {
+            merger.applyMetadata(existing, entry)
+            return Outcome.SKIPPED
+        }
+        val diveId = container.dives.insertDive(
+            Dive(
+                number = entry.number ?: container.dives.nextDiveNumber(),
+                startEpochSeconds = entry.startEpochSeconds,
+                utcOffsetSeconds = entry.utcOffsetSeconds,
+                durationSeconds = entry.durationSeconds,
+                maxDepthMm = entry.maxDepthMm,
+                meanDepthMm = entry.meanDepthMm,
+                waterTempMk = entry.waterTempMk,
+                airTempMk = entry.airTempMk,
+            ),
+        )
+        merger.applyMetadata(diveId, entry)
+        return Outcome.IMPORTED
     }
 
     /**

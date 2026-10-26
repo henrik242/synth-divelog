@@ -9,11 +9,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerDialog
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,7 +50,9 @@ import no.synth.divelog.core.model.Tag
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.core.model.UNSAVED_ID
 import no.synth.divelog.core.model.units.UnitSystem
+import no.synth.divelog.core.model.units.Units
 import no.synth.divelog.ui.components.CountryField
+import no.synth.divelog.ui.components.DecimalField
 import no.synth.divelog.ui.components.NameChipsField
 import no.synth.divelog.ui.components.NamedItem
 import no.synth.divelog.ui.components.SiteField
@@ -49,7 +63,9 @@ import kotlin.math.roundToLong
  * Edits a dive. Every change is written straight to the database, so there is no save
  * step; leaving the screen (via the breadcrumb or back) returns to the detail. While the
  * dive differs from how it was opened, an "Undo changes" action restores the original
- * number, notes, site and buddies. [onCancel] is used only when the dive is missing.
+ * number, notes, site and buddies. A dive without a computer record also has its time,
+ * duration, depths and water temperature here, as nothing else sets them.
+ * [onCancel] is used only when the dive is missing.
  */
 @Composable
 fun DiveEditScreen(
@@ -80,6 +96,10 @@ fun DiveEditScreen(
     var availableBuddies by remember(diveId) { mutableStateOf(container.buddies.all()) }
     var availableTags by remember(diveId) { mutableStateOf(container.tags.all()) }
     val siteOptions = availableSites.map { SiteOption(it.id, it.name, locationLabel(it.placeId)) }
+
+    val manual = remember(diveId) { container.dives.recordsForDive(diveId).isEmpty() }
+    val originalSummary = remember(diveId) { DiveSummaryDraft.of(dive, unitSystem) }
+    var summary by remember(diveId) { mutableStateOf(originalSummary) }
 
     val originalNumber = remember(diveId) { dive.number?.toString() ?: "" }
     val originalNotes = remember(diveId) { dive.notes ?: "" }
@@ -121,15 +141,19 @@ fun DiveEditScreen(
         }
     }
 
+    // The dive as last written. A field typed into an invalid state keeps its last saved
+    // value rather than the one the screen opened with; Undo goes back to [dive].
+    var saved by remember(diveId) { mutableStateOf(dive) }
+
     // Write the dive's own fields; buddy links are written as they are toggled.
     fun persistDive() {
-        container.dives.updateDive(
-            dive.copy(
-                number = number.trim().toIntOrNull(),
-                notes = notes.ifBlank { null },
-                siteId = selectedSiteId,
-            ),
+        val base = if (manual) summary.applyTo(saved, unitSystem) else saved
+        saved = base.copy(
+            number = number.trim().toIntOrNull(),
+            notes = notes.ifBlank { null },
+            siteId = selectedSiteId,
         )
+        container.dives.updateDive(saved)
     }
 
     fun toggleBuddy(id: Long) {
@@ -153,6 +177,7 @@ fun DiveEditScreen(
     }
 
     val hasEdits = number != originalNumber ||
+        summary != originalSummary ||
         notes != originalNotes ||
         selectedSiteId != dive.siteId ||
         buddySelection != originalBuddyIds ||
@@ -161,7 +186,9 @@ fun DiveEditScreen(
 
     fun undo() {
         number = originalNumber
+        summary = originalSummary
         notes = originalNotes
+        saved = dive
         selectedSiteId = dive.siteId
         (buddySelection - originalBuddyIds).forEach { container.buddies.unlinkFromDive(diveId, it) }
         (originalBuddyIds - buddySelection).forEach { container.buddies.linkToDive(diveId, it) }
@@ -207,6 +234,10 @@ fun DiveEditScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            if (manual) {
+                SummaryFields(summary, unitSystem) { summary = it; persistDive() }
+            }
 
             OutlinedTextField(
                 notes,
@@ -306,6 +337,121 @@ fun DiveEditScreen(
                 onAdd = { tankDrafts = tankDrafts + saveTank(tankDrafts.size, TankDraft.blank()) },
             )
         }
+    }
+}
+
+/** Time, duration, depths and water temperature of a dive with no computer to give them. */
+@Composable
+private fun SummaryFields(draft: DiveSummaryDraft, unitSystem: UnitSystem, onChange: (DiveSummaryDraft) -> Unit) {
+    val depthUnit = Units.depth(0, unitSystem).unit
+    val tempUnit = Units.temperature(0, unitSystem).unit
+    var picking by remember { mutableStateOf(false) }
+    if (picking) {
+        DatePickerFor(draft.dateMillis(), onPick = { onChange(draft.withDateMillis(it)); picking = false }, onDismiss = { picking = false })
+    }
+    var pickingTime by remember { mutableStateOf(false) }
+    if (pickingTime) {
+        val current = draft.timeOfDay()
+        TimePickerFor(
+            current?.hour ?: 0,
+            current?.minute ?: 0,
+            onPick = { h, m -> onChange(draft.withTime(h, m)); pickingTime = false },
+            onDismiss = { pickingTime = false },
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                draft.date,
+                { onChange(draft.copy(date = it.filter { c -> c.isDigit() || c == '-' })) },
+                label = { Text("Date (YYYY-MM-DD)") },
+                singleLine = true,
+                isError = !draft.dateValid(),
+                trailingIcon = {
+                    IconButton(onClick = { picking = true }) { Icon(Icons.Filled.CalendarMonth, contentDescription = "Pick a date") }
+                },
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedTextField(
+                draft.time,
+                { onChange(draft.copy(time = it.filter { c -> c.isDigit() || c == ':' })) },
+                label = { Text("Time (HH:MM)") },
+                singleLine = true,
+                isError = !draft.timeValid(),
+                trailingIcon = {
+                    IconButton(onClick = { pickingTime = true }) { Icon(Icons.Filled.Schedule, contentDescription = "Pick a time") }
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                draft.duration,
+                { onChange(draft.copy(duration = it.filter { c -> c.isDigit() || c == ':' })) },
+                label = { Text("Duration (min)") },
+                singleLine = true,
+                isError = !draft.durationValid(),
+                modifier = Modifier.weight(1f),
+            )
+            DecimalField(
+                draft.waterTemp,
+                { onChange(draft.copy(waterTemp = it)) },
+                "Water ($tempUnit)",
+                Modifier.weight(1f),
+                isError = !draft.waterTempValid(),
+                signed = true,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DecimalField(
+                draft.maxDepth,
+                { onChange(draft.copy(maxDepth = it)) },
+                "Max depth ($depthUnit)",
+                Modifier.weight(1f),
+                isError = !draft.maxDepthValid(),
+            )
+            DecimalField(
+                draft.meanDepth,
+                { onChange(draft.copy(meanDepth = it)) },
+                "Avg depth ($depthUnit)",
+                Modifier.weight(1f),
+                isError = !draft.meanDepthValid(),
+            )
+        }
+    }
+}
+
+/** A calendar for the dive's date; dates are UTC midnight in epoch milliseconds, as the picker uses. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DatePickerFor(selectedMillis: Long?, onPick: (Long) -> Unit, onDismiss: () -> Unit) {
+    val state = rememberDatePickerState(initialSelectedDateMillis = selectedMillis)
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = { state.selectedDateMillis?.let(onPick) ?: onDismiss() },
+                enabled = state.selectedDateMillis != null,
+            ) { Text("OK") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    ) {
+        DatePicker(state)
+    }
+}
+
+/** A 24-hour clock for the dive's start time. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimePickerFor(hour: Int, minute: Int, onPick: (hour: Int, minute: Int) -> Unit, onDismiss: () -> Unit) {
+    val state = rememberTimePickerState(initialHour = hour, initialMinute = minute, is24Hour = true)
+    TimePickerDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Start time") },
+        confirmButton = { TextButton(onClick = { onPick(state.hour, state.minute) }) { Text("OK") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    ) {
+        TimePicker(state)
     }
 }
 

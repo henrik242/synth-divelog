@@ -89,7 +89,9 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
     var unitSystem by remember { mutableStateOf(settings.unitSystem) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val addDives = rememberAddDivesFlow(services, hooks, snackbar)
+    val addDives = rememberAddDivesFlow(services, hooks, snackbar) { id ->
+        nav.open(Section.DIVES, listOf(Screen.DiveDetail(id), Screen.DiveEdit(id)))
+    }
     // The dive detail's previous/next and menu; it sets them while shown.
     var topBarActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     val buddies = remember(container) { LabelKind.buddies(container) }
