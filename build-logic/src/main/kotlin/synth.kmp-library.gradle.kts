@@ -1,6 +1,8 @@
 // A shared Kotlin Multiplatform library: JVM (desktop and common tests) and Android, with
 // a jvmAndAndroidMain source set for JDK code both use. A module adds its iOS targets.
 
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
     id("com.android.kotlin.multiplatform.library")
@@ -10,6 +12,7 @@ val libs = extensions.getByType<VersionCatalogsExtension>().named("libs")
 fun sdk(name: String) = libs.findVersion(name).get().requiredVersion.toInt()
 
 kotlin {
+    @OptIn(ExperimentalKotlinGradlePluginApi::class)
     applyDefaultHierarchyTemplate {
         common {
             group("jvmAndAndroid") {

@@ -3,6 +3,9 @@
 agp = "9.4.1"
 kotlin = "2.4.20"
 composeMultiplatform = "1.12.1"
+# Released separately from Compose Multiplatform since 1.8
+composeMaterial3 = "1.9.0"
+composeMaterialIcons = "1.7.3"
 sqldelight = "2.4.1"
 
 # Android SDK levels
@@ -43,6 +46,13 @@ googleServicesPlugin = "4.5.0"
 crashlyticsPlugin = "3.0.8"
 
 [libraries]
+# Compose Multiplatform artifacts no longer exposed by the plugin
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "composeMaterial3" }
+compose-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "composeMaterialIcons" }
+
 # kotlinx
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }

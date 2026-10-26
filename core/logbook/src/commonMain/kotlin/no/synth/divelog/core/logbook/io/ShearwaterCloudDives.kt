@@ -188,7 +188,7 @@ internal object ShearwaterCloudDives {
                 startPressureMbar = t?.string("StartPressurePSI")?.let(::psiToMbar),
                 endPressureMbar = t?.string("EndPressurePSI")?.let(::psiToMbar),
                 o2Permille = o2?.let { (it * 10).toInt() },
-                hePermille = o2?.let { ((gas?.long("HePercent") ?: 0) * 10).toInt() },
+                hePermille = o2?.let { ((gas.long("HePercent") ?: 0) * 10).toInt() },
             )
             tank.takeIf { it.volumeMl != null || it.startPressureMbar != null || it.endPressureMbar != null || it.o2Permille != null }
         }

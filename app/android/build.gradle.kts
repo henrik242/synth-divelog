@@ -9,8 +9,10 @@ plugins {
     alias(libs.plugins.firebase.crashlytics)
 }
 
-val gitCommitCount: Provider<String> by rootProject.extra
-val gitShortSha: Provider<String> by rootProject.extra
+@Suppress("UNCHECKED_CAST")
+val gitCommitCount = rootProject.extra["gitCommitCount"] as Provider<String>
+@Suppress("UNCHECKED_CAST")
+val gitShortSha = rootProject.extra["gitShortSha"] as Provider<String>
 
 // Release signing comes from the environment (CI) or local.properties. A build without it
 // produces an unsigned release bundle, which is fine for anything but a store upload.
@@ -90,8 +92,8 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
 
-    implementation(compose.runtime)
-    implementation(compose.ui)
+    implementation(libs.compose.runtime)
+    implementation(libs.compose.ui)
 
     implementation(libs.kotlinx.coroutines.android)
 

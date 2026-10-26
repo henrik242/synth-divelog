@@ -14,8 +14,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CallMerge
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -352,7 +352,7 @@ private fun SelectionBar(
             }
             TextButton(onClick = onToggleAll) { Text(if (allShownPicked) "Deselect all" else "Select all") }
             if (onExport != null) TextButton(onClick = onExport, enabled = count > 0) { Text("Export") }
-            IconButton(onClick = onMerge, enabled = count > 1) { Icon(Icons.Filled.CallMerge, contentDescription = "Merge") }
+            IconButton(onClick = onMerge, enabled = count > 1) { Icon(Icons.AutoMirrored.Filled.CallMerge, contentDescription = "Merge") }
             IconButton(onClick = onDelete, enabled = count > 0) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
         }
     }

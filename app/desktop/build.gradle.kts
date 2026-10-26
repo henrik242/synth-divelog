@@ -7,7 +7,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-val gitCommitCount: Provider<String> by rootProject.extra
+@Suppress("UNCHECKED_CAST")
+val gitCommitCount = rootProject.extra["gitCommitCount"] as Provider<String>
 
 kotlin {
     jvm()
@@ -18,7 +19,7 @@ kotlin {
     sourceSets {
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
-            implementation(compose.material3)
+            implementation(libs.compose.material3)
             implementation(project(":core:model"))
             implementation(project(":core:db"))
             implementation(project(":core:formats"))
@@ -125,14 +126,14 @@ fun Exec.macHelper(output: File, command: () -> String) {
     }
 }
 
-val buildRfcommBridge by tasks.registering(Exec::class) {
+val buildRfcommBridge = tasks.register<Exec>("buildRfcommBridge") {
     description = "Compile the macOS Bluetooth serial bridge"
     val source = file("native/rfcomm-bridge.swift")
     val output = rfcommBridge.get().asFile
     inputs.file(source)
     macHelper(output) { "swiftc -O -framework IOBluetooth '${source.absolutePath}' -o '${output.absolutePath}'" }
 }
-val buildBleBridge by tasks.registering(Exec::class) {
+val buildBleBridge = tasks.register<Exec>("buildBleBridge") {
     description = "Bundle the macOS Bluetooth LE bridge"
     val linked = bleBridgeRelease
     val output = bleBridge.get().asFile

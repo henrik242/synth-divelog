@@ -139,7 +139,7 @@ class DownloadControllerTest {
             listOf(DiveAction.REFRESH, DiveAction.SKIP)
         }
         assertEquals(listOf(DiveAction.SKIP, DiveAction.SKIP), reviewed.map { it.status.default })
-        assertTrue(reviewed.all { it.status is DiveStatus.Stored && !(it.status as DiveStatus.Stored).secondComputer })
+        assertTrue(reviewed.all { it.status is DiveStatus.Stored && !it.status.secondComputer })
         assertEquals("Refreshed 1 from the computer, skipped 1 already in the logbook", message)
         assertEquals(2, container.dives.allDives().size)
     }
