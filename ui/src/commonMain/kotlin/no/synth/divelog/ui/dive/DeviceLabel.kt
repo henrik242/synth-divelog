@@ -3,9 +3,9 @@ package no.synth.divelog.ui.dive
 import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
 
-/** Short source name: nickname if set, else "vendor model". Null means no device (file import). */
+/** Short source name: nickname if set, else "vendor model". Null means a record with no device. */
 fun deviceName(device: Device?): String {
-    if (device == null) return "Imported from file"
+    if (device == null) return ComputerNames.UNKNOWN
     val nick = device.nickname?.takeIf { it.isNotBlank() }
     return nick ?: ComputerNames.fullName(device)
 }

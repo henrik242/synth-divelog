@@ -73,7 +73,7 @@ internal object ShearwaterCloudDives {
     }
 
     private fun raw(log: ShearwaterCloudLog, data: ByteArray, formatId: String, details: Map<String, String>, logSerial: String?): CloudDive {
-        val parsed = PredatorParser().parse(RawDive("shearwater-cloud:${log.id}", data, formatId))
+        val parsed = PredatorParser().parse(RawDive("${LogbookIo.SHEARWATER_CLOUD_FINGERPRINT}${log.id}", data, formatId))
         val entry = DiveEntry(
             number = parsed.number,
             startEpochSeconds = parsed.startEpochSeconds,

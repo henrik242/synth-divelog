@@ -149,7 +149,7 @@ class LogbookIo(private val container: AppContainer) {
     ): String {
         val read = ShearwaterCloudDives.read(export)
         if (read.dives.isEmpty()) return "No dives found in the Shearwater Cloud export"
-        val counts = importItems(read.dives.map { ImportItem(it.entry, it.parsed) }, "shearwater-cloud", autoMerge = true, onProgress)
+        val counts = importItems(read.dives.map { ImportItem(it.entry, it.parsed) }, SHEARWATER_CLOUD_IMPORT, autoMerge = true, onProgress)
         val unreadable = if (read.unreadable > 0) ", ${read.unreadable} unreadable" else ""
         return "Imported ${counts.imported}, merged ${counts.merged}, skipped ${counts.skipped}$unreadable (Shearwater Cloud)"
     }
@@ -171,7 +171,7 @@ class LogbookIo(private val container: AppContainer) {
     ): String {
         val log = GitLogFormat().read(files)
         if (log.dives.isEmpty()) return "No dives found in the cloud logbook (${files.size} files)"
-        val counts = importLog(log, "subsurface-cloud", onProgress = onProgress)
+        val counts = importLog(log, SUBSURFACE_CLOUD_IMPORT, onProgress = onProgress)
         return "Pulled: imported ${counts.imported}, skipped ${counts.skipped}"
     }
 
@@ -270,13 +270,13 @@ class LogbookIo(private val container: AppContainer) {
             }
             is ImportResult.CreatedDive -> {
                 merger.applyMetadata(result.diveId, entry)
-                attachExtraComputers(result.diveId, entry, extras, skipKnownDevices = false)
+                attachExtraComputers(result.diveId, entry, extras, formatId, skipKnownDevices = false)
                 Outcome.IMPORTED
             }
             is ImportResult.AttachedToDive -> {
                 // Fill any metadata the existing dive was missing from this copy.
                 merger.applyMetadata(result.diveId, entry)
-                attachExtraComputers(result.diveId, entry, extras, skipKnownDevices = true)
+                attachExtraComputers(result.diveId, entry, extras, formatId, skipKnownDevices = true)
                 Outcome.MERGED
             }
         }
@@ -330,7 +330,13 @@ class LogbookIo(private val container: AppContainer) {
      * Attach a dive's other computers as extra records. On a merge the dive may already
      * hold one of them (the same dive imported before), which is then left out.
      */
-    private fun attachExtraComputers(diveId: Long, entry: DiveEntry, extras: List<ComputerEntry>, skipKnownDevices: Boolean) {
+    private fun attachExtraComputers(
+        diveId: Long,
+        entry: DiveEntry,
+        extras: List<ComputerEntry>,
+        formatId: String,
+        skipKnownDevices: Boolean,
+    ) {
         extras.forEachIndexed { i, computer ->
             val deviceId = importDeviceId(computer.model, computer.serial)
             if (skipKnownDevices && container.dives.hasRecordFromDevice(diveId, deviceId)) return@forEachIndexed
@@ -342,7 +348,7 @@ class LogbookIo(private val container: AppContainer) {
                     durationSeconds = computer.durationSeconds ?: entry.durationSeconds,
                     maxDepthMm = computer.maxDepthMm,
                     rawData = ByteArray(0),
-                    rawFormatId = "import-extra",
+                    rawFormatId = formatId,
                     fingerprint = "import-extra:$diveId:$i",
                     samples = computer.samples,
                     events = computer.events,
@@ -410,6 +416,13 @@ class LogbookIo(private val container: AppContainer) {
         fun formats(): List<DiveFormat> = listOf(SubsurfaceXml(), UddfFormat(), MacDiveXml())
 
         private const val SHEARWATER_CLOUD = "shearwater-cloud-db"
+
+        /** Format ids of records from a cloud import; a file import uses its [DiveFormat.id]. */
+        const val SHEARWATER_CLOUD_IMPORT = "shearwater-cloud"
+        const val SUBSURFACE_CLOUD_IMPORT = "subsurface-cloud"
+
+        /** Leads the fingerprint of a Shearwater Cloud dive kept as the computer's raw log. */
+        const val SHEARWATER_CLOUD_FINGERPRINT = "shearwater-cloud:"
 
         /** Dives (or records) per transaction on import and re-parse. */
         private const val IMPORT_BATCH = 100

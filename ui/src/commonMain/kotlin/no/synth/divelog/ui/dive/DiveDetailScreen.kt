@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.db.DiveRepository
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.logbook.format.Format
+import no.synth.divelog.core.logbook.io.RecordOrigin
 import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.GasMix
@@ -292,12 +293,15 @@ fun DiveDetailScreen(
                 SummaryRow("Avg depth", Format.depth(dive.meanDepthMm, unitSystem))
                 SummaryRow("Water temp", Format.temperature(dive.waterTempMk, unitSystem))
                 SummaryRow("Gases", if (gases.isEmpty()) "-" else gases.joinToString("\n"))
-                // Source shows the selected computer and links to it in Settings so its
-                // nickname can be edited. Imported-from-file records have no device to open.
+                // Source shows the selected computer and how its log got here, and links to the
+                // computer in Settings so its nickname can be edited. A record with no device has
+                // nothing to open; a dive with no record was entered by hand.
                 val sourceDeviceId = selectedRecord?.deviceId
                 SummaryRow(
                     "Source",
-                    deviceDescription(devices[sourceDeviceId]),
+                    selectedRecord?.let { rec ->
+                        listOfNotNull(deviceDescription(devices[rec.deviceId]), RecordOrigin.describe(rec)).joinToString("\n")
+                    } ?: "Entered manually",
                     onClick = sourceDeviceId?.let { { onOpenDevice(it) } },
                 )
                 // How the selected computer logged the dive, when it says.
