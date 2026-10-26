@@ -5,10 +5,12 @@ import no.synth.divelog.core.divecomputer.suunto.SuuntoVyperDump
 import no.synth.divelog.core.formats.ComputerEntry
 import no.synth.divelog.core.formats.DiveEntry
 import no.synth.divelog.core.formats.DiveLog
+import no.synth.divelog.core.formats.GitLogFormat
 import no.synth.divelog.core.formats.SubsurfaceXml
 import no.synth.divelog.core.formats.UddfFormat
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.Device
+import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.IncomingDive
 import no.synth.divelog.core.model.Sample
 import kotlin.test.Test
@@ -25,6 +27,42 @@ class LogbookIoImportTest {
 
     private fun deviceNames(diveId: Long) = container.dives.recordsForDive(diveId)
         .mapNotNull { r -> r.deviceId?.let { container.devices.get(it) }?.model }.sorted()
+
+    @Test
+    fun aDiveEnteredByHandComesBackWithoutARecord() {
+        val manual = Dive(
+            number = 7,
+            startEpochSeconds = start,
+            utcOffsetSeconds = 3_600,
+            durationSeconds = 2_700,
+            maxDepthMm = 18_300,
+            waterTempMk = 284_150,
+            notes = "Shore dive",
+        )
+        container.dives.insertDive(manual)
+        val xml = io.exportAll(SubsurfaceXml())
+        val tree = io.exportCloudTree()
+
+        for ((name, load) in listOf<Pair<String, (LogbookIo) -> Unit>>(
+            "Subsurface XML" to { it.importMessage(xml) },
+            "cloud tree" to { it.cloudImportMessage(tree) },
+        )) {
+            val fresh = AppContainer(createDatabase())
+            val freshIo = LogbookIo(fresh)
+            load(freshIo)
+            load(freshIo) // a second import finds the dive already there
+            val stored = fresh.dives.allDives().single()
+            assertEquals(emptyList(), fresh.dives.recordsForDive(stored.id), name)
+            assertEquals(manual.copy(id = stored.id), stored, name)
+        }
+    }
+
+    @Test
+    fun aDiveWithoutADurationIsFoundAgain() {
+        container.dives.insertDive(Dive(startEpochSeconds = start, utcOffsetSeconds = 0, durationSeconds = 0))
+        io.importMessage(io.exportAll(SubsurfaceXml()))
+        assertEquals(1, container.dives.allDives().size)
+    }
 
     @Test
     fun aFirstComputerWithoutAProfileIsKeptAlongsideTheOneWithIt() {

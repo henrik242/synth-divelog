@@ -219,9 +219,9 @@ fun DivesScreen(
             if (dives.isEmpty()) {
                 EmptyState(
                     if (canDownload) {
-                        "No dives yet. Tap Add dives to download from a computer or import a file."
+                        "No dives yet. Tap Add dives to download from a computer, import a file or enter a dive by hand."
                     } else {
-                        "No dives yet. Tap Add dives to import a file."
+                        "No dives yet. Tap Add dives to import a file or enter a dive by hand."
                     },
                     Icons.Outlined.Waves,
                 )

@@ -24,6 +24,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.offsetAt
 import no.synth.divelog.core.logbook.AppServices
 import no.synth.divelog.core.logbook.download.DiveAction
 import no.synth.divelog.core.logbook.download.DiveComputerType
@@ -32,16 +34,18 @@ import no.synth.divelog.core.logbook.download.DownloadController
 import no.synth.divelog.core.logbook.download.KnownComputer
 import no.synth.divelog.core.logbook.download.SerialPortInfo
 import no.synth.divelog.core.logbook.sync.CloudSync
+import no.synth.divelog.core.model.Dive
 import no.synth.divelog.ui.components.CloudCredentialsDialog
 import no.synth.divelog.ui.download.DownloadPickerDialog
 import no.synth.divelog.ui.download.DownloadProgressDialog
 import no.synth.divelog.ui.download.DownloadReviewDialog
 import no.synth.divelog.ui.download.DownloadUiState
 import no.synth.divelog.ui.download.connectHint
+import kotlin.time.Clock
 
 /**
  * Everything behind the Add dives button: the chooser, the dive-computer download, file
- * import and cloud import, with their dialogs. The platform only supplies the hooks (ports,
+ * import, cloud import and a dive entered by hand, with their dialogs. The platform only supplies the hooks (ports,
  * file picker); the work and progress live here.
  */
 internal class AddDivesFlow(
@@ -49,6 +53,7 @@ internal class AddDivesFlow(
     private val hooks: PlatformHooks,
     private val scope: CoroutineScope,
     private val snackbar: SnackbarHostState,
+    private val onManualDive: (diveId: Long) -> Unit,
 ) {
     private val controller = DownloadController(services.container, hooks.serialPorts, services.settings)
     private val downloadTypes = DiveComputerType.entries.filter { it.reachableOver(hooks.serialPorts.linkKinds) }
@@ -63,6 +68,21 @@ internal class AddDivesFlow(
 
     fun open() {
         chooserOpen = true
+    }
+
+    // Starts now on this device's clock; the edit screen it opens sets the rest.
+    private fun addManualDive() {
+        val now = Clock.System.now()
+        val dives = services.container.dives
+        val id = dives.insertDive(
+            Dive(
+                number = dives.nextDiveNumber(),
+                startEpochSeconds = now.epochSeconds / 60 * 60,
+                utcOffsetSeconds = TimeZone.currentSystemDefault().offsetAt(now).totalSeconds,
+                durationSeconds = 0,
+            ),
+        )
+        onManualDive(id)
     }
 
     private fun openDownloadPicker() {
@@ -172,6 +192,7 @@ internal class AddDivesFlow(
                 },
                 onImportFile = pick?.let { { chooserOpen = false; importFromFile(it) } },
                 onSubsurfaceCloud = services.cloud?.let { { chooserOpen = false; cloudDialogOpen = true } },
+                onManual = { chooserOpen = false; addManualDive() },
                 onDismiss = { chooserOpen = false },
             )
         }
@@ -203,17 +224,19 @@ internal fun rememberAddDivesFlow(
     services: AppServices,
     hooks: PlatformHooks,
     snackbar: SnackbarHostState,
+    onManualDive: (diveId: Long) -> Unit,
 ): AddDivesFlow {
     val scope = rememberCoroutineScope()
-    return remember(services, hooks) { AddDivesFlow(services, hooks, scope, snackbar) }
+    return remember(services, hooks) { AddDivesFlow(services, hooks, scope, snackbar, onManualDive) }
 }
 
-/** One place to get dives in. A null action hides its option. */
+/** One place to get dives in. A null action hides its option; entering a dive by hand is always there. */
 @Composable
 private fun AddDivesChooser(
     onDiveComputer: (() -> Unit)?,
     onImportFile: (() -> Unit)?,
     onSubsurfaceCloud: (() -> Unit)?,
+    onManual: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -240,6 +263,9 @@ private fun AddDivesChooser(
                     OutlinedButton(onClick = onSubsurfaceCloud, modifier = Modifier.fillMaxWidth()) {
                         Text("Import from Subsurface cloud")
                     }
+                }
+                OutlinedButton(onClick = onManual, modifier = Modifier.fillMaxWidth()) {
+                    Text("Enter manually")
                 }
             }
         },

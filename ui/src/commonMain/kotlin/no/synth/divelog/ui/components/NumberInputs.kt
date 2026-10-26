@@ -48,7 +48,10 @@ fun twoDecimals(v: Double): String {
     return "$sign${units / 100}.${(units % 100).toString().padStart(2, '0')}"
 }
 
-/** A text field that takes digits and a decimal separator only. */
+/**
+ * A text field that takes digits and a decimal separator only, and a leading minus when
+ * [signed]. A signed field gets the full keyboard: the iOS decimal pad has no minus key.
+ */
 @Composable
 fun DecimalField(
     value: String,
@@ -56,14 +59,18 @@ fun DecimalField(
     label: String,
     modifier: Modifier = Modifier,
     isError: Boolean = false,
+    signed: Boolean = false,
 ) {
     OutlinedTextField(
         value,
-        { onChange(it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
+        { text ->
+            val minus = if (signed && text.trimStart().startsWith('-')) "-" else ""
+            onChange(minus + text.filter { c -> c.isDigit() || c == '.' || c == ',' })
+        },
         label = { Text(label) },
         singleLine = true,
         isError = isError,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        keyboardOptions = KeyboardOptions(keyboardType = if (signed) KeyboardType.Text else KeyboardType.Decimal),
         modifier = modifier,
     )
 }
