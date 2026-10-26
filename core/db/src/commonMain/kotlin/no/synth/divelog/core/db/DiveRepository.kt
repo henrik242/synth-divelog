@@ -94,6 +94,15 @@ class DiveRepository(private val db: DiveDatabase) {
 
     fun deleteDives(ids: Collection<Long>) = db.transaction { ids.forEach(::deleteDive) }
 
+    /**
+     * Delete every dive with its records, and forget the deleted ones too, so the next
+     * download brings all of a computer's dives back. Devices, sites, buddies and tags stay.
+     */
+    fun forgetAllDives() = db.transaction {
+        dives.deleteAllDives()
+        deleted.forgetAll()
+    }
+
     fun setSite(diveId: Long, siteId: Long?) = dives.setDiveSite(siteId, diveId)
 
     /** Run [body] in one transaction; transactions nest, so repository calls inside join it. */

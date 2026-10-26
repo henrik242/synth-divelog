@@ -166,6 +166,12 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
             "Re-parsed $count dives"
         }
     }
+    val onForgetAllDives: () -> Unit = {
+        runReported("Forgetting dives failed") {
+            withContext(Dispatchers.Default) { container.dives.forgetAllDives() }
+            "Forgot all dives"
+        }
+    }
     val onCloudPush = services.cloud?.let { cloud ->
         { email: String, pass: String ->
             runReported("Push failed") {
@@ -282,6 +288,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
                         exportActions = exportActions,
                         onReparse = onReparse,
+                        onForgetAllDives = onForgetAllDives,
                         onCloudPush = onCloudPush,
                         onOpenComputers = { nav.push(Screen.Computers(null)) },
                         onOpenAttributions = { nav.push(Screen.Attributions) },

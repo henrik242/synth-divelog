@@ -27,6 +27,9 @@ SELECT count(*) > 0 FROM deletedRecord WHERE deviceId = ? AND fingerprint = ?;
 forget:
 DELETE FROM deletedRecord WHERE deviceId = ? AND fingerprint = ?;
 
+forgetAll:
+DELETE FROM deletedRecord;
+
 -- A device merge: the target keeps its own entry where both have one; the source's go with it.
 reassignFromDevice:
 UPDATE OR IGNORE deletedRecord SET deviceId = :toId WHERE deviceId = :fromId;

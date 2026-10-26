@@ -55,6 +55,9 @@ UPDATE dive SET siteId = ? WHERE id = ?;
 deleteDive:
 DELETE FROM dive WHERE id = ?;
 
+deleteAllDives:
+DELETE FROM dive;
+
 maxDiveNumber:
 SELECT max(number) AS maxNumber FROM dive;
 
