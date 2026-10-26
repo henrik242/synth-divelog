@@ -47,10 +47,12 @@ import no.synth.divelog.core.gas.TOLERANCE_PERMILLE
 import no.synth.divelog.core.gas.planBlend
 import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.ui.components.DecimalField
+import no.synth.divelog.ui.components.StandardGasChips
 import no.synth.divelog.ui.components.ToolCard
 import no.synth.divelog.ui.components.parseDecimal
 import no.synth.divelog.ui.components.trimmedDecimal
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** One source gas row. Fixed rows ([fixedName] set) have a name and a mix that cannot be edited. */
 @Stable
@@ -90,6 +92,18 @@ class GasBlenderState {
         startBar = "0"
         startO2 = "21"
         startHe = "0"
+    }
+
+    /** Whether the typed target is [gas]; a blank He counts as none. */
+    fun isTarget(gas: BreathingGas): Boolean {
+        val o2 = parseDecimal(targetO2) ?: return false
+        val he = if (targetHe.isBlank()) 0.0 else parseDecimal(targetHe) ?: return false
+        return (o2 * 10).roundToInt() == gas.o2 && (he * 10).roundToInt() == gas.he
+    }
+
+    fun setTarget(gas: BreathingGas) {
+        targetO2 = trimmedDecimal(gas.o2 / 10.0)
+        targetHe = trimmedDecimal(gas.he / 10.0)
     }
 
     /** The target O2 and He are numbers but add up to more than 100 %. */
@@ -149,6 +163,7 @@ fun GasBlenderScreen(state: GasBlenderState) {
                 DecimalField(state.targetO2, { state.targetO2 = it }, "O2 %", Modifier.weight(1f), isError = overLimit)
                 DecimalField(state.targetHe, { state.targetHe = it }, "He %", Modifier.weight(1f), isError = overLimit)
             }
+            StandardGasChips(isSelected = state::isTarget, onClick = state::setTarget)
             when (targetTone) {
                 Tone.GOOD -> StatusLine(Icons.Filled.CheckCircle, "Possible with the selected gases")
                 Tone.BAD -> StatusLine(

@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,7 +24,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,6 +67,7 @@ import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.components.CheckRow
 import no.synth.divelog.ui.components.DecimalField
 import no.synth.divelog.ui.components.OptionPicker
+import no.synth.divelog.ui.components.StandardGasChips
 import no.synth.divelog.ui.components.ToolCard
 import no.synth.divelog.ui.components.parseDecimal
 import no.synth.divelog.ui.components.trimmedDecimal
@@ -105,12 +104,6 @@ class PlannerGas(o2: String, he: String) {
         fun of(gas: BreathingGas) = PlannerGas("", "").apply { set(gas) }
     }
 }
-
-/** GUE's standard gases, from the leanest bottom gas to oxygen. */
-private val STANDARD_GASES = listOf(
-    BreathingGas(100, 700), BreathingGas(150, 550), BreathingGas(180, 450), BreathingGas(210, 350),
-    BreathingGas(320), BreathingGas(500), BreathingGas(1000),
-)
 
 /**
  * Planner inputs, as typed, in [units]: depths m or ft, rates per minute, SAC L or cuft per
@@ -291,7 +284,7 @@ fun DivePlannerScreen(
                 val label = if (i == bottomAt) "Bottom" else "Deco ${++decoNumber}"
                 GasFields(label, gas, onRemove = { state.gases.removeAt(i) })
             }
-            StandardGasChips(STANDARD_GASES, isSelected = { gas -> state.gases.any { it.parsed() == gas } }, onClick = { gas ->
+            StandardGasChips(isSelected = { gas -> state.gases.any { it.parsed() == gas } }, onClick = { gas ->
                 val present = state.gases.indexOfFirst { it.parsed() == gas }
                 if (present >= 0) state.gases.removeAt(present) else state.gases.add(PlannerGas.of(gas))
             }) {
@@ -460,29 +453,6 @@ private fun ModelNote() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-/** One-tap chips for standard [gases] after any [leading] content; [isSelected] marks the ones in use. */
-@Composable
-private fun StandardGasChips(
-    gases: List<BreathingGas>,
-    isSelected: (BreathingGas) -> Boolean,
-    onClick: (BreathingGas) -> Unit,
-    leading: @Composable () -> Unit = {},
-) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-        leading()
-        gases.forEach { gas ->
-            FilterChip(selected = isSelected(gas), onClick = { onClick(gas) }, label = { Text(gasLabel(gas)) })
-        }
-    }
-}
-
-/** "32 %", "21/35", "O2". */
-private fun gasLabel(gas: BreathingGas): String = when {
-    gas.o2 == 1000 -> "O2"
-    gas.he == 0 -> "${gas.o2 / 10} %"
-    else -> "${gas.o2 / 10}/${gas.he / 10}"
 }
 
 @Composable

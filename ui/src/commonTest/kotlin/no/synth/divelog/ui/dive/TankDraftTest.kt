@@ -1,5 +1,6 @@
 package no.synth.divelog.ui.dive
 
+import no.synth.divelog.core.gas.BreathingGas
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.core.model.units.UnitSystem
 import kotlin.test.Test
@@ -42,5 +43,12 @@ class TankDraftTest {
         assertEquals("12", draft.size)
         assertEquals("L", draft.sizeUnit(UnitSystem.IMPERIAL))
         assertEquals(11_000, draft.copy(size = "11").volumeMl(UnitSystem.IMPERIAL))
+    }
+
+    @Test
+    fun standardGasFillsTheMix() {
+        assertEquals(320 to 0, TankDraft.of(BreathingGas(320)).gas())
+        assertEquals("", TankDraft.of(BreathingGas(320)).he)
+        assertEquals(180 to 450, TankDraft.of(BreathingGas(180, 450)).gas())
     }
 }
