@@ -18,10 +18,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import no.synth.divelog.core.gas.BreathingGas
 import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.Tank
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.core.model.units.Units
+import no.synth.divelog.ui.components.StandardGasChips
 import kotlin.math.roundToInt
 
 /**
@@ -78,6 +80,12 @@ internal data class TankDraft(
 
         fun blank() = TankDraft(id = null, o2 = "", he = "", size = "", start = "", end = "")
 
+        /** A new tank of [gas], nothing else filled in. */
+        fun of(gas: BreathingGas) = blank().copy(
+            o2 = trimmed(gas.o2 / 10.0),
+            he = gas.he.takeIf { it > 0 }?.let { trimmed(it / 10.0) } ?: "",
+        )
+
         private fun parse(text: String): Double? = text.trim().replace(',', '.').toDoubleOrNull()
 
         private fun trimmed(v: Double) = Format.oneDecimal(v).removeSuffix(".0")
@@ -98,7 +106,7 @@ internal data class TankDraft(
     }
 }
 
-/** One row per tank: gas, size and pressures, each change handed to [onChange]. */
+/** One row per tank: gas, size and pressures, each change handed to [onChange]. [onAddGas] adds a tank of a standard gas. */
 @Composable
 internal fun TanksEditor(
     drafts: List<TankDraft>,
@@ -106,6 +114,7 @@ internal fun TanksEditor(
     onChange: (index: Int, TankDraft) -> Unit,
     onRemove: (index: Int) -> Unit,
     onAdd: () -> Unit,
+    onAddGas: (BreathingGas) -> Unit,
 ) {
     val pressureUnit = Units.pressure(0, unitSystem).unit
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -133,7 +142,9 @@ internal fun TanksEditor(
                 }
             }
         }
-        TextButton(onClick = onAdd) { Text("Add gas") }
+        StandardGasChips(isSelected = { false }, onClick = onAddGas) {
+            TextButton(onClick = onAdd) { Text("Add gas") }
+        }
     }
 }
 

@@ -335,6 +335,7 @@ fun DiveEditScreen(
                     tankDrafts = tankDrafts.filterIndexed { j, _ -> j != i }
                 },
                 onAdd = { tankDrafts = tankDrafts + saveTank(tankDrafts.size, TankDraft.blank()) },
+                onAddGas = { gas -> tankDrafts = tankDrafts + saveTank(tankDrafts.size, TankDraft.of(gas)) },
             )
         }
     }
