@@ -9,12 +9,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +45,7 @@ fun SettingsSection(
     onUnitSystemChange: (UnitSystem) -> Unit,
     exportActions: ExportActions,
     onReparse: () -> Unit,
+    onForgetAllDives: () -> Unit,
     onCloudPush: ((email: String, pass: String) -> Unit)?,
     onOpenComputers: () -> Unit,
     onOpenAttributions: () -> Unit,
@@ -126,6 +130,26 @@ fun SettingsSection(
         )
         OutlinedButton(onClick = onReparse) { Text("Re-parse all dives") }
 
+        var forgetOpen by remember { mutableStateOf(false) }
+        Text(
+            "Deletes every dive in the logbook with its profiles, tanks and notes. Dive computers, " +
+                "sites, buddies and tags are kept, and the next download fetches all dives again.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        OutlinedButton(
+            onClick = { forgetOpen = true },
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+        ) { Text("Forget all dives") }
+        if (forgetOpen) {
+            ForgetAllDivesDialog(
+                onForget = {
+                    forgetOpen = false
+                    onForgetAllDives()
+                },
+                onDismiss = { forgetOpen = false },
+            )
+        }
+
         HorizontalDivider()
 
         Text("Dive computers", style = MaterialTheme.typography.titleMedium)
@@ -177,4 +201,26 @@ fun SettingsSection(
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(16.dp),
         )
     }
+}
+
+/** Asks before forgetting every dive; this cannot be undone. */
+@Composable
+private fun ForgetAllDivesDialog(onForget: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Forget all dives?") },
+        text = {
+            Text(
+                "Are you really sure? This deletes every dive in the logbook and cannot be undone. " +
+                    "Export the logbook first if you may want it back.",
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onForget,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Forget all dives") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

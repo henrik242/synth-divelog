@@ -45,6 +45,17 @@ class DeletedDiveTest {
     }
 
     @Test
+    fun forgettingAllDivesForgetsTheDeletedOnesToo() {
+        dives.deleteDive(dives.importAsNewDive(incoming(deviceId = petrel, start = 1_000_000, fingerprint = "a")).diveId)
+        dives.importAsNewDive(incoming(deviceId = petrel, start = 2_000_000, fingerprint = "b"))
+        dives.forgetAllDives()
+        assertTrue(dives.allDives().isEmpty())
+        assertFalse(dives.isDeleted(petrel, "a"))
+        assertEquals(null, dives.newestFingerprint(petrel))
+        assertEquals(1, devices.all().size)
+    }
+
+    @Test
     fun deletingSeveralDivesRemembersEach() {
         val a = dives.importAsNewDive(incoming(deviceId = petrel, start = 1_000_000, fingerprint = "a")).diveId
         val b = dives.importAsNewDive(incoming(deviceId = petrel, start = 2_000_000, fingerprint = "b")).diveId
