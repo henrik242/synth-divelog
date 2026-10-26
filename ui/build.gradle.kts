@@ -6,8 +6,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-val gitCommitCount: Provider<String> by rootProject.extra
-val gitShortSha: Provider<String> by rootProject.extra
+@Suppress("UNCHECKED_CAST")
+val gitCommitCount = rootProject.extra["gitCommitCount"] as Provider<String>
+@Suppress("UNCHECKED_CAST")
+val gitShortSha = rootProject.extra["gitShortSha"] as Provider<String>
 
 /** Writes `BuildInfo`: the version string shown in Settings, "<commit count>.<sha> <date>". */
 abstract class GenerateBuildInfoTask : DefaultTask() {
@@ -69,12 +71,12 @@ kotlin {
             kotlin.srcDir(generateBuildInfo.map { it.outputDir })
         }
         commonMain.dependencies {
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material3)
-            implementation(compose.ui)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.foundation)
+            implementation(libs.compose.material3)
+            implementation(libs.compose.ui)
             implementation(libs.androidx.navigationevent.compose)
-            implementation(compose.materialIconsExtended)
+            implementation(libs.compose.material.icons.extended)
             implementation(project(":core:model"))
             implementation(project(":core:db"))
             implementation(project(":core:divecomputer"))
