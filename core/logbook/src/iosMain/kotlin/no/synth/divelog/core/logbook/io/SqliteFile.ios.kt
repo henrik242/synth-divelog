@@ -8,12 +8,7 @@ import co.touchlab.sqliter.withStatement
 import co.touchlab.sqliter.withTransaction
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.alloc
 import kotlinx.cinterop.convert
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
-import kotlinx.cinterop.reinterpret
-import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.usePinned
 import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
@@ -23,22 +18,6 @@ import platform.Foundation.create
 import platform.Foundation.dataWithContentsOfFile
 import platform.Foundation.writeToFile
 import platform.posix.memcpy
-import platform.zlib.ZLIB_VERSION
-import platform.zlib.Z_BUF_ERROR
-import platform.zlib.Z_DEFAULT_COMPRESSION
-import platform.zlib.Z_DEFAULT_STRATEGY
-import platform.zlib.Z_DEFLATED
-import platform.zlib.Z_FINISH
-import platform.zlib.Z_NO_FLUSH
-import platform.zlib.Z_OK
-import platform.zlib.Z_STREAM_END
-import platform.zlib.deflate
-import platform.zlib.deflateEnd
-import platform.zlib.deflateInit2_
-import platform.zlib.inflate
-import platform.zlib.inflateEnd
-import platform.zlib.inflateInit2_
-import platform.zlib.z_stream
 
 /**
  * Through the SQLite library under the database driver. The rollback journal keeps the
@@ -131,69 +110,4 @@ fun NSData.toByteArray(): ByteArray {
     val out = ByteArray(length.toInt())
     if (out.isNotEmpty()) out.usePinned { memcpy(it.addressOf(0), bytes, length) }
     return out
-}
-
-/** zlib with a gzip wrapper (window bits 15 + 16). */
-private const val GZIP_WINDOW_BITS = 31
-private const val CHUNK = 64 * 1024
-
-@OptIn(ExperimentalForeignApi::class)
-internal actual fun gunzip(data: ByteArray): ByteArray = memScoped {
-    val strm = alloc<z_stream>()
-    check(inflateInit2_(strm.ptr, GZIP_WINDOW_BITS, ZLIB_VERSION, sizeOf<z_stream>().convert()) == Z_OK) { "inflate init failed" }
-    val out = ArrayList<ByteArray>()
-    try {
-        data.usePinned { input ->
-            strm.next_in = if (data.isEmpty()) null else input.addressOf(0).reinterpret()
-            strm.avail_in = data.size.convert()
-            val chunk = ByteArray(CHUNK)
-            var rc: Int
-            do {
-                rc = chunk.usePinned { c ->
-                    strm.next_out = c.addressOf(0).reinterpret()
-                    strm.avail_out = CHUNK.convert()
-                    inflate(strm.ptr, Z_NO_FLUSH)
-                }
-                check(rc == Z_OK || rc == Z_STREAM_END || rc == Z_BUF_ERROR) { "inflate failed: $rc" }
-                val produced = CHUNK - strm.avail_out.toInt()
-                if (produced > 0) out += chunk.copyOf(produced)
-                if (rc == Z_BUF_ERROR && produced == 0) break
-            } while (rc != Z_STREAM_END)
-        }
-    } finally {
-        inflateEnd(strm.ptr)
-    }
-    out.fold(ByteArray(0)) { acc, b -> acc + b }
-}
-
-@OptIn(ExperimentalForeignApi::class)
-internal actual fun gzip(data: ByteArray): ByteArray = memScoped {
-    val strm = alloc<z_stream>()
-    val init = deflateInit2_(
-        strm.ptr, Z_DEFAULT_COMPRESSION, Z_DEFLATED, GZIP_WINDOW_BITS, 8, Z_DEFAULT_STRATEGY,
-        ZLIB_VERSION, sizeOf<z_stream>().convert(),
-    )
-    check(init == Z_OK) { "deflate init failed" }
-    val out = ArrayList<ByteArray>()
-    try {
-        data.usePinned { input ->
-            strm.next_in = if (data.isEmpty()) null else input.addressOf(0).reinterpret()
-            strm.avail_in = data.size.convert()
-            val chunk = ByteArray(CHUNK)
-            var rc: Int
-            do {
-                rc = chunk.usePinned { c ->
-                    strm.next_out = c.addressOf(0).reinterpret()
-                    strm.avail_out = CHUNK.convert()
-                    deflate(strm.ptr, Z_FINISH)
-                }
-                check(rc == Z_OK || rc == Z_STREAM_END || rc == Z_BUF_ERROR) { "deflate failed: $rc" }
-                val produced = CHUNK - strm.avail_out.toInt()
-                if (produced > 0) out += chunk.copyOf(produced)
-            } while (rc != Z_STREAM_END)
-        }
-    } finally {
-        deflateEnd(strm.ptr)
-    }
-    out.fold(ByteArray(0)) { acc, b -> acc + b }
 }

@@ -2,10 +2,7 @@ package no.synth.divelog.core.logbook.io
 
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.util.zip.GZIPInputStream
-import java.util.zip.GZIPOutputStream
 
 /**
  * Through the platform SQLite. NO_LOCALIZED_COLLATORS keeps Android from adding its
@@ -61,8 +58,3 @@ private class AndroidRow(private val c: Cursor) : SqliteRow {
 
     override fun bytes(index: Int): ByteArray? = if (c.isNull(index)) null else c.getBlob(index)
 }
-
-internal actual fun gzip(data: ByteArray): ByteArray =
-    ByteArrayOutputStream().also { out -> GZIPOutputStream(out).use { it.write(data) } }.toByteArray()
-
-internal actual fun gunzip(data: ByteArray): ByteArray = GZIPInputStream(data.inputStream()).use { it.readBytes() }
