@@ -5,6 +5,7 @@ import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import no.synth.divelog.core.db.sql.DiveDatabase
+import java.util.Properties
 
 /**
  * Opens the database file at [databasePath], creating or migrating it; null opens an
@@ -16,7 +17,10 @@ import no.synth.divelog.core.db.sql.DiveDatabase
  * change and the version stamp commit together.
  */
 fun createDatabase(databasePath: String? = null): AppDatabase {
-    val driver = JdbcSqliteDriver(if (databasePath == null) JdbcSqliteDriver.IN_MEMORY else "jdbc:sqlite:$databasePath")
+    // A file database gets a new connection per statement outside a transaction, so foreign keys
+    // go on as a connection property: a PRAGMA would only hold for the one connection it ran on.
+    val url = if (databasePath == null) JdbcSqliteDriver.IN_MEMORY else "jdbc:sqlite:$databasePath"
+    val driver = JdbcSqliteDriver(url, Properties().apply { setProperty("foreign_keys", "true") })
     val schema = DiveDatabase.Schema
     val current = userVersion(driver)
     if (current < schema.version) {
@@ -30,9 +34,8 @@ fun createDatabase(databasePath: String? = null): AppDatabase {
             driver.execute(null, "PRAGMA user_version = ${schema.version}", 0)
         }
     }
-    // Outside the transaction: SQLite ignores this pragma inside one.
-    driver.execute(null, "PRAGMA foreign_keys=ON", 0)
-    return AppDatabase(driver)
+    // Before foreign keys were enforced, a deleted dive could leave its records, samples and tanks behind.
+    return AppDatabase(driver).also { it.repairForeignKeys() }
 }
 
 private fun userVersion(driver: SqlDriver): Long =

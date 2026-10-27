@@ -30,6 +30,18 @@ class AppDatabaseTest {
     }
 
     @Test
+    fun aFileDatabaseOnTheDesktopEnforcesForeignKeys() = withFile { path ->
+        val db = createDatabase(path)
+        val dives = DiveRepository(db)
+        val diveId = dives.importAsNewDive(incoming(samples = listOf(sampleAt(0, 0), sampleAt(10, 5_000)))).diveId
+
+        dives.deleteDive(diveId)
+
+        // Each statement runs on a connection of its own, so this holds only if every connection has them on.
+        assertEquals(mapOf("dives" to 0, "records" to 0, "samples" to 0), db.counts())
+    }
+
+    @Test
     fun repairGivesRowsWithoutAParentWhatTheirForeignKeySays() {
         // No foreign keys, as on the desktop before they were enforced.
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { DiveDatabase.Schema.create(it) }

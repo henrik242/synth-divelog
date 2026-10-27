@@ -45,6 +45,7 @@ per-target entry point.
 - **Apple klibs on Linux:** `-Pkotlin.native.enableKlibsCrossCompilation=true` compiles (not links) the iOS and macOS targets, e.g. `./gradlew :ui:compileKotlinIosSimulatorArm64 :core:transport:compileKotlinMacosArm64 -Pkotlin.native.enableKlibsCrossCompilation=true`.
 - **Suunto HelO2 (Vyper2 family)** ignores a command sent less than ~500 ms after its previous reply; `txIdleMs = 600` handles it. When a serial download is flaky, check per-command timing before blaming the cable. Details in `docs/protocol/suunto-helo2.md`.
 - **DB migrations:** SQLDelight `.sqm` files bump `Schema.version`; Android/iOS drivers auto-migrate, the jvm `createDatabase` (`DriverFactory.jvm.kt`) tracks `PRAGMA user_version` by hand. Add a `.sqm` when changing the schema.
+- **Desktop SQLite connections:** the JDBC driver opens a connection per statement outside a transaction, so a connection-level `PRAGMA` (like `foreign_keys`) holds for one statement only; set it as a connection property in `DriverFactory.jvm.kt`. In-memory test databases keep one connection and hide this, so test such things on a file database.
 - The Android debug build's application id is `no.synth.divelog.debug`.
 
 ## Build and test
