@@ -28,6 +28,7 @@ class BuddyRepositoryTest {
 
         assertEquals(listOf("Alex"), buddies.buddiesForDive(dive1).map { it.name })
         assertEquals(setOf(dive1, dive2), buddies.divesForBuddy(alex).map { it.id }.toSet())
+        assertEquals(mapOf(dive1 to setOf(alex), dive2 to setOf(alex)), buddies.buddyIdsByDive())
     }
 
     @Test

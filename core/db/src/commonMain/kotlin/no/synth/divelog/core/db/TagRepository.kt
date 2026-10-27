@@ -1,6 +1,7 @@
 package no.synth.divelog.core.db
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.Tag
@@ -43,6 +44,11 @@ class TagRepository(private val db: DiveDatabase) {
     /** Tag names per dive id, for the whole log in one query. */
     fun tagNamesByDive(): Map<Long, List<String>> =
         q.selectAllDiveTagNames().executeAsList().groupBy({ it.diveId }) { it.name }
+
+    /** The tag ids on each dive that has any. */
+    fun tagIdsByDive(): Map<Long, Set<Long>> = byDive(q.selectDiveTagLinks().executeAsList().map { it.diveId to it.tagId })
+
+    fun tagIdsByDiveFlow(): Flow<Map<Long, Set<Long>>> = q.selectDiveTagLinks().listFlow { it.diveId to it.tagId }.map(::byDive)
 
     fun divesForTag(tagId: Long): List<Dive> {
         val diveIds = q.selectDiveIdsForTag(tagId).executeAsList()

@@ -51,6 +51,9 @@ ORDER BY diveTag.diveId, tag.name;
 copyDiveTags:
 INSERT OR IGNORE INTO diveTag(diveId, tagId) SELECT :targetDiveId, tagId FROM diveTag WHERE diveId = :sourceDiveId;
 
+selectDiveTagLinks:
+SELECT diveId, tagId FROM diveTag;
+
 selectDiveIdsForTag:
 SELECT diveId FROM diveTag WHERE tagId = ?;
 

@@ -63,6 +63,8 @@ class GearRepositoryTest {
         gear.linkToDive(dive, fins)
         gear.linkToDive(dive, wing)
         assertEquals(listOf("fins", "Wing"), gear.gearForDive(dive).map { it.name })
+        assertEquals(listOf(dive), gear.diveIdsForGear(wing))
+        assertEquals(mapOf(dive to setOf(wing, fins)), gear.gearIdsByDive())
 
         gear.unlinkFromDive(dive, fins)
         assertEquals(listOf("Wing"), gear.gearForDive(dive).map { it.name })

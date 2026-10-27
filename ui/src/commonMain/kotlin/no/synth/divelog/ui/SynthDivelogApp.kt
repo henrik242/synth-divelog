@@ -46,6 +46,8 @@ import no.synth.divelog.ui.components.Breadcrumb
 import no.synth.divelog.ui.components.Crumb
 import no.synth.divelog.ui.components.ExportAction
 import no.synth.divelog.ui.components.ExportActions
+import no.synth.divelog.ui.dive.DiveFilter
+import no.synth.divelog.ui.dive.FacetKind
 import no.synth.divelog.ui.dive.DivesScreen
 import no.synth.divelog.ui.labels.LabelDetail
 import no.synth.divelog.ui.labels.LabelKind
@@ -118,6 +120,9 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
             }
     }
     val pageState = rememberSaveableStateHolder()
+    // The dive list's search and filter; a piece of gear's page clears the search and filters to that gear.
+    var diveQuery by rememberSaveable { mutableStateOf("") }
+    var diveFilter by rememberSaveable(stateSaver = DiveFilter.Saver) { mutableStateOf(DiveFilter()) }
 
     fun goTo(depth: Int) = nav.popTo(depth)
 
@@ -261,6 +266,10 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         onOpenDevice = { nav.push(Screen.Computers(it)) },
                         onOpenSite = ::openSite,
                         onOpenGear = ::openGear,
+                        query = diveQuery,
+                        onQuery = { diveQuery = it },
+                        filter = diveFilter,
+                        onFilter = { diveFilter = it },
                         onDeleted = ::back,
                         onAddDives = addDives::open,
                         canDownload = hooks.serialPorts.downloadSupported,
@@ -298,7 +307,15 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                     }
                     Section.STATS -> StatisticsSection(container, unitSystem)
                     Section.TOOLS -> if (top is Screen.Gear) {
-                        GearItemScreen(container, top.gearId, onDeleted = ::back)
+                        GearItemScreen(
+                            container, top.gearId,
+                            onDeleted = ::back,
+                            onShowDives = {
+                                diveQuery = ""
+                                diveFilter = DiveFilter().with(FacetKind.GEAR, setOf(top.gearId))
+                                nav.open(Section.DIVES, emptyList())
+                            },
+                        )
                     } else {
                         ToolsSection(
                             (top as? Screen.ToolPage)?.tool,

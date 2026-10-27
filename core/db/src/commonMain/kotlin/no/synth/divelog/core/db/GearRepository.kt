@@ -2,6 +2,7 @@ package no.synth.divelog.core.db
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.GearItem
 import no.synth.divelog.core.model.GearService
@@ -28,6 +29,8 @@ class GearRepository(private val db: DiveDatabase) {
 
     fun all(): List<GearItem> = q.selectAllGear().executeAsList().map { it.toDomain() }
 
+    fun allFlow(): Flow<List<GearItem>> = q.selectAllGear().listFlow { it.toDomain() }
+
     fun get(id: Long): GearItem? = q.selectGearById(id).executeAsOneOrNull()?.toDomain()
 
     fun getFlow(id: Long): Flow<GearItem?> = q.selectGearById(id).oneOrNullFlow { it.toDomain() }
@@ -39,6 +42,15 @@ class GearRepository(private val db: DiveDatabase) {
     fun gearForDive(diveId: Long): List<GearItem> = q.selectGearForDive(diveId).executeAsList().map { it.toDomain() }
 
     fun gearForDiveFlow(diveId: Long): Flow<List<GearItem>> = q.selectGearForDive(diveId).listFlow { it.toDomain() }
+
+    /** The gear ids on each dive that has any. */
+    fun gearIdsByDive(): Map<Long, Set<Long>> = byDive(q.selectDiveGearLinks().executeAsList().map { it.diveId to it.gearId })
+
+    fun gearIdsByDiveFlow(): Flow<Map<Long, Set<Long>>> = q.selectDiveGearLinks().listFlow { it.diveId to it.gearId }.map(::byDive)
+
+    fun diveIdsForGear(gearId: Long): List<Long> = q.selectDiveIdsForGear(gearId).executeAsList()
+
+    fun diveIdsForGearFlow(gearId: Long): Flow<List<Long>> = q.selectDiveIdsForGear(gearId).listFlow { it }
 
     /** Every piece of gear with the day of its latest service, or null if never serviced. */
     fun allWithLastService(): List<Pair<GearItem, Int?>> = withLastService(
