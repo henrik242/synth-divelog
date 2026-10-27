@@ -1,22 +1,23 @@
 package no.synth.divelog.ui.tools
 
-import no.synth.divelog.core.model.GearItem
-import no.synth.divelog.core.model.GearKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import no.synth.divelog.core.model.GearItem
+import no.synth.divelog.core.model.GearKind
+import no.synth.divelog.core.model.GearWithLastService
 
 class GearTableTest {
-    private val rows: List<GearRow> = listOf(
-        GearItem(id = 1, name = "MK25", kind = GearKind.FIRST_STAGE, brand = "Scubapro", serialNumber = "0707") to 19_000,
-        GearItem(id = 2, name = "S600", kind = GearKind.SECOND_STAGE, brand = "Scubapro") to 19_500,
-        GearItem(id = 3, name = "e. motion", kind = GearKind.DRYSUIT, brand = "Santi", purchasedEpochDay = 16_000) to null,
-        GearItem(id = 5, name = "Vyper", kind = GearKind.COMPUTER, retired = true) to null,
-        GearItem(id = 4, name = "Petrel", kind = GearKind.COMPUTER, brand = "Shearwater", notes = "Bought at Narked") to null,
+    private val rows: List<GearWithLastService> = listOf(
+        GearWithLastService(GearItem(id = 1, name = "MK25", kind = GearKind.FIRST_STAGE, brand = "Scubapro", serialNumber = "0707"), 19_000),
+        GearWithLastService(GearItem(id = 2, name = "S600", kind = GearKind.SECOND_STAGE, brand = "Scubapro"), 19_500),
+        GearWithLastService(GearItem(id = 3, name = "e. motion", kind = GearKind.DRYSUIT, brand = "Santi", purchasedEpochDay = 16_000), null),
+        GearWithLastService(GearItem(id = 5, name = "Vyper", kind = GearKind.COMPUTER, retired = true), null),
+        GearWithLastService(GearItem(id = 4, name = "Petrel", kind = GearKind.COMPUTER, brand = "Shearwater", notes = "Bought at Narked"), null),
     )
 
-    private val inUse = rows.filterNot { it.first.retired }
+    private val inUse = rows.filterNot { it.item.retired }
 
-    private fun ids(list: List<GearRow>) = list.map { it.first.id }
+    private fun ids(list: List<GearWithLastService>) = list.map { it.item.id }
 
     @Test
     fun filtersByEveryWordAndKind() {

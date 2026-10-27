@@ -19,6 +19,12 @@ data class GearItem(
     val retired: Boolean = false,
 )
 
+/** A piece of gear with the day of its latest service, null if it has none. */
+data class GearWithLastService(val item: GearItem, val lastServiceDay: Int?)
+
+/** A piece of gear read from a file, with the services the file gave it. */
+data class ImportedGear(val item: GearItem, val services: List<GearService> = emptyList())
+
 /** One service of a [GearItem]. */
 data class GearService(
     val id: Long = UNSAVED_ID,

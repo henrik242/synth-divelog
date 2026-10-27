@@ -48,7 +48,7 @@ internal data class GearDraft(
             model = item.model.orEmpty(),
             serialNumber = item.serialNumber.orEmpty(),
             purchased = item.purchasedEpochDay?.let { dateOf(it).toString() }.orEmpty(),
-            price = item.purchasePriceCents?.let(::twoDecimals)?.removeSuffix(".00").orEmpty(),
+            price = item.purchasePriceCents?.let(::priceText).orEmpty(),
             shop = item.shop.orEmpty(),
             notes = item.notes.orEmpty(),
             retired = item.retired,
@@ -56,7 +56,7 @@ internal data class GearDraft(
 
         private fun parsePrice(text: String): Long? = parseDecimal(text)?.takeIf { it >= 0 }?.let { (it * 100).roundToLong() }
 
-        private fun twoDecimals(cents: Long) = twoDecimals(cents / 100.0)
+        private fun priceText(cents: Long) = twoDecimals(cents / 100.0).removeSuffix(".00")
     }
 }
 

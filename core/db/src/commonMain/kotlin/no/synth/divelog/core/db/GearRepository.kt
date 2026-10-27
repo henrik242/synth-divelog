@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.map
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.GearItem
 import no.synth.divelog.core.model.GearService
+import no.synth.divelog.core.model.GearWithLastService
+import no.synth.divelog.core.model.ImportedGear
 
 /** The diver's equipment and the services of each piece. */
 class GearRepository(private val db: DiveDatabase) {
@@ -53,36 +55,36 @@ class GearRepository(private val db: DiveDatabase) {
     fun diveIdsForGearFlow(gearId: Long): Flow<List<Long>> = q.selectDiveIdsForGear(gearId).listFlow { it }
 
     /** Every piece of gear with the day of its latest service, or null if never serviced. */
-    fun allWithLastService(): List<Pair<GearItem, Int?>> = withLastService(
+    fun allWithLastService(): List<GearWithLastService> = withLastService(
         all(),
         q.selectLastServices().executeAsList().map { it.gearId to it.epochDay.toInt() },
     )
 
     /** [allWithLastService] as it changes. */
-    fun allWithLastServiceFlow(): Flow<List<Pair<GearItem, Int?>>> =
+    fun allWithLastServiceFlow(): Flow<List<GearWithLastService>> =
         combine(
             q.selectAllGear().listFlow { it.toDomain() },
             q.selectLastServices().listFlow { it.gearId to it.epochDay.toInt() },
             ::withLastService,
         )
 
-    private fun withLastService(items: List<GearItem>, last: List<Pair<Long, Int>>): List<Pair<GearItem, Int?>> {
+    private fun withLastService(items: List<GearItem>, last: List<Pair<Long, Int>>): List<GearWithLastService> {
         val byGear = last.toMap()
-        return items.map { it to byGear[it.id] }
+        return items.map { GearWithLastService(it, byGear[it.id]) }
     }
 
     /**
-     * Adds each of [gear] with its services, skipping any that matches a piece already
-     * here by brand, name and serial number. Returns how many were added.
+     * Adds each of [gear] with its services, skipping any that matches a piece already here
+     * by brand, name and serial number; alike pieces in [gear] itself are all added. Returns
+     * how many were added.
      */
-    fun import(gear: List<Pair<GearItem, List<GearService>>>): Int = db.transactionWithResult {
+    fun import(gear: List<ImportedGear>): Int = db.transactionWithResult {
         val known = all().mapTo(mutableSetOf(), ::identity)
         gear.count { (item, services) ->
-            known.add(identity(item)) && run {
-                val id = add(item)
-                services.forEach { addService(it.copy(gearId = id)) }
-                true
-            }
+            if (identity(item) in known) return@count false
+            val id = add(item)
+            services.forEach { addService(it.copy(gearId = id)) }
+            true
         }
     }
 

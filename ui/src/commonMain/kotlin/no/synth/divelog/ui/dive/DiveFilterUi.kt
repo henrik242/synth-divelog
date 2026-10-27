@@ -57,6 +57,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -172,7 +173,8 @@ private fun PickerChip(
             trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null, Modifier.size(FilterChipDefaults.IconSize)) },
             modifier = Modifier.semantics {
                 role = Role.DropdownList
-                stateDescription = if (pickedCount == 0) "Any ${noun.lowercase()}" else "$pickedCount selected"
+                // The chip says it is selected; this says how much.
+                stateDescription = if (pickedCount == 0) "Any ${noun.lowercase()}" else "$pickedCount picked"
             },
         )
         if (isOpen && wide) {
@@ -241,7 +243,7 @@ private fun RowScope.NameAndCount(name: String, count: Int, on: Boolean) {
         "$count",
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 12.dp),
+        modifier = Modifier.padding(start = 12.dp).semantics { contentDescription = if (count == 1) "1 dive" else "$count dives" },
     )
 }
 
@@ -356,6 +358,13 @@ private fun ColumnScope.LocationPicker(
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .triStateToggleable(state = state, role = Role.Checkbox, onClick = { onFilter(filter.toggleLocation(row.path)) })
+                    .semantics {
+                        stateDescription = when (state) {
+                            ToggleableState.On -> "Picked"
+                            ToggleableState.Indeterminate -> "Partly picked"
+                            ToggleableState.Off -> "Not picked"
+                        }
+                    }
                     .padding(start = 4.dp + 20.dp * (row.path.size - 1), end = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
