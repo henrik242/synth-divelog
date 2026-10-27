@@ -63,6 +63,7 @@ import no.synth.divelog.ui.tools.DivePlannerState
 import no.synth.divelog.ui.tools.GasBlenderState
 import no.synth.divelog.ui.tools.GearItemScreen
 import no.synth.divelog.ui.tools.ModEndState
+import no.synth.divelog.ui.tools.Tool
 import no.synth.divelog.ui.tools.TankBuoyancyState
 import no.synth.divelog.ui.tools.ToolsSection
 import no.synth.divelog.ui.tools.decodePlannerInputs
@@ -131,6 +132,9 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
         val parents = place?.let { listOf(Screen.Country(it.countryId), Screen.Place(it.id)) }.orEmpty()
         nav.open(Section.SITES, parents + Screen.Site(id))
     }
+
+    // Straight to a piece of gear, with the gear list below it.
+    fun openGear(id: Long) = nav.open(Section.TOOLS, listOf(Screen.ToolPage(Tool.GEAR), Screen.Gear(id)))
 
     // Runs [work] in the background and shows its message, or the failure, in the snackbar.
     fun runReported(failure: String, work: suspend () -> String?) {
@@ -256,6 +260,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         onClose = ::back,
                         onOpenDevice = { nav.push(Screen.Computers(it)) },
                         onOpenSite = ::openSite,
+                        onOpenGear = ::openGear,
                         onDeleted = ::back,
                         onAddDives = addDives::open,
                         canDownload = hooks.serialPorts.downloadSupported,

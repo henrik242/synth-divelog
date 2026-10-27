@@ -24,6 +24,15 @@ CREATE TABLE gearService (
 
 CREATE INDEX gearService_gear ON gearService(gearId);
 
+-- The gear used on a dive.
+CREATE TABLE diveGear (
+    diveId INTEGER NOT NULL REFERENCES dive(id) ON DELETE CASCADE,
+    gearId INTEGER NOT NULL REFERENCES gear(id) ON DELETE CASCADE,
+    PRIMARY KEY (diveId, gearId)
+);
+
+CREATE INDEX diveGear_gear ON diveGear(gearId);
+
 insertGear:
 INSERT INTO gear(name, kind, brand, model, serialNumber, purchasedEpochDay, purchasePriceCents, shop, notes, retired)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
@@ -58,6 +67,22 @@ SELECT * FROM gearService WHERE gearId = ? ORDER BY epochDay DESC, id DESC;
 -- The latest service per piece of gear.
 selectLastServices:
 SELECT gearId, max(epochDay) AS epochDay FROM gearService GROUP BY gearId;
+
+linkDiveGear:
+INSERT OR IGNORE INTO diveGear(diveId, gearId) VALUES (?, ?);
+
+unlinkDiveGear:
+DELETE FROM diveGear WHERE diveId = ? AND gearId = ?;
+
+selectGearForDive:
+SELECT gear.* FROM gear
+JOIN diveGear ON diveGear.gearId = gear.id
+WHERE diveGear.diveId = ?
+ORDER BY gear.name COLLATE NOCASE, gear.id;
+
+-- Copies one dive's gear onto another, skipping what it already has.
+copyDiveGear:
+INSERT OR IGNORE INTO diveGear(diveId, gearId) SELECT :targetDiveId, gearId FROM diveGear WHERE diveId = :sourceDiveId;
 
 lastInsertRowId:
 SELECT last_insert_rowid();

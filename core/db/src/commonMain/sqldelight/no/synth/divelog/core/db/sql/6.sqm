@@ -1,0 +1,8 @@
+-- The gear used on a dive.
+CREATE TABLE diveGear (
+    diveId INTEGER NOT NULL REFERENCES dive(id) ON DELETE CASCADE,
+    gearId INTEGER NOT NULL REFERENCES gear(id) ON DELETE CASCADE,
+    PRIMARY KEY (diveId, gearId)
+);
+
+CREATE INDEX diveGear_gear ON diveGear(gearId);

@@ -493,6 +493,7 @@ class DiveRepository(private val db: DiveDatabase) {
             )
             db.peopleQueries.copyDiveBuddies(targetDiveId = targetDiveId, sourceDiveId = sourceDiveId)
             db.tagsQueries.copyDiveTags(targetDiveId = targetDiveId, sourceDiveId = sourceDiveId)
+            db.gearQueries.copyDiveGear(targetDiveId = targetDiveId, sourceDiveId = sourceDiveId)
             val filled = target.copy(
                 number = target.number ?: source.number,
                 maxDepthMm = target.maxDepthMm ?: source.maxDepthMm,
