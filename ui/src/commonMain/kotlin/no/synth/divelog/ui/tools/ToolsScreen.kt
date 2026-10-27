@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.units.UnitSystem
 
-/** The calculators under the Tools tab. */
+/** The tools under the Tools tab: calculators, the dive planner and the gear list. */
 enum class Tool(val label: String, val description: String, val icon: ImageVector) {
     GAS_BLENDER("Gas blender", "Partial-pressure fill plan for nitrox and trimix", Icons.Outlined.Science),
     TANK_BUOYANCY("Tank buoyancy", "How much a cylinder floats or sinks, full and empty", Icons.Outlined.Scale),

@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,9 +41,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToLong
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.Buddy
 import no.synth.divelog.core.model.GearItem
+import no.synth.divelog.core.model.GearKind
 import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Tag
 import no.synth.divelog.core.model.Tank
@@ -54,9 +57,10 @@ import no.synth.divelog.ui.components.DatePickerFor
 import no.synth.divelog.ui.components.DecimalField
 import no.synth.divelog.ui.components.NameChipsField
 import no.synth.divelog.ui.components.NamedItem
+import no.synth.divelog.ui.components.SelectField
 import no.synth.divelog.ui.components.SiteField
 import no.synth.divelog.ui.components.SiteOption
-import kotlin.math.roundToLong
+import no.synth.divelog.ui.tools.label
 
 /**
  * Edits a dive. Every change is written straight to the database, so there is no save
@@ -77,9 +81,15 @@ fun DiveEditScreen(
         LaunchedEffect(diveId) { onCancel() }
         return
     }
-    val originalBuddyIds = remember(diveId) { container.buddies.buddiesForDive(diveId).map { it.id }.toSet() }
-    val originalTagIds = remember(diveId) { container.tags.tagsForDive(diveId).map { it.id }.toSet() }
-    val originalGearIds = remember(diveId) { container.gear.gearForDive(diveId).map { it.id }.toSet() }
+    val buddyLinks = remember(diveId) {
+        LinkedIds(container.buddies.buddiesForDive(diveId).map { it.id }.toSet(), { container.buddies.linkToDive(diveId, it) }, { container.buddies.unlinkFromDive(diveId, it) })
+    }
+    val tagLinks = remember(diveId) {
+        LinkedIds(container.tags.tagsForDive(diveId).map { it.id }.toSet(), { container.tags.linkToDive(diveId, it) }, { container.tags.unlinkFromDive(diveId, it) })
+    }
+    val gearLinks = remember(diveId) {
+        LinkedIds(container.gear.gearForDive(diveId).map { it.id }.toSet(), { container.gear.linkToDive(diveId, it) }, { container.gear.unlinkFromDive(diveId, it) })
+    }
     val originalTanks = remember(diveId) { container.gases.tanksForDive(diveId) }
 
     // Resolve a site's place and country for the picker detail line and the selected-site card.
@@ -96,6 +106,8 @@ fun DiveEditScreen(
     var availableBuddies by remember(diveId) { mutableStateOf(container.buddies.all()) }
     var availableTags by remember(diveId) { mutableStateOf(container.tags.all()) }
     var availableGear by remember(diveId) { mutableStateOf(container.gear.all()) }
+    // A new piece of gear typed in, waiting for its kind.
+    var newGearName by remember(diveId) { mutableStateOf<String?>(null) }
     val siteOptions = availableSites.map { SiteOption(it.id, it.name, locationLabel(it.placeId)) }
 
     val manual = remember(diveId) { container.dives.recordsForDive(diveId).isEmpty() }
@@ -108,9 +120,6 @@ fun DiveEditScreen(
     var number by remember(diveId) { mutableStateOf(originalNumber) }
     var notes by remember(diveId) { mutableStateOf(originalNotes) }
     var selectedSiteId by remember(diveId) { mutableStateOf(dive.siteId) }
-    var buddySelection by remember(diveId) { mutableStateOf(originalBuddyIds) }
-    var tagSelection by remember(diveId) { mutableStateOf(originalTagIds) }
-    var gearSelection by remember(diveId) { mutableStateOf(originalGearIds) }
     var newCountry by remember(diveId) { mutableStateOf("") }
     var newPlace by remember(diveId) { mutableStateOf("") }
     var newSite by remember(diveId) { mutableStateOf("") }
@@ -158,43 +167,13 @@ fun DiveEditScreen(
         container.dives.updateDive(saved)
     }
 
-    fun toggleBuddy(id: Long) {
-        if (id in buddySelection) {
-            buddySelection = buddySelection - id
-            container.buddies.unlinkFromDive(diveId, id)
-        } else {
-            buddySelection = buddySelection + id
-            container.buddies.linkToDive(diveId, id)
-        }
-    }
-
-    fun toggleTag(id: Long) {
-        if (id in tagSelection) {
-            tagSelection = tagSelection - id
-            container.tags.unlinkFromDive(diveId, id)
-        } else {
-            tagSelection = tagSelection + id
-            container.tags.linkToDive(diveId, id)
-        }
-    }
-
-    fun toggleGear(id: Long) {
-        if (id in gearSelection) {
-            gearSelection = gearSelection - id
-            container.gear.unlinkFromDive(diveId, id)
-        } else {
-            gearSelection = gearSelection + id
-            container.gear.linkToDive(diveId, id)
-        }
-    }
-
     val hasEdits = number != originalNumber ||
         summary != originalSummary ||
         notes != originalNotes ||
         selectedSiteId != dive.siteId ||
-        buddySelection != originalBuddyIds ||
-        tagSelection != originalTagIds ||
-        gearSelection != originalGearIds ||
+        buddyLinks.changed ||
+        tagLinks.changed ||
+        gearLinks.changed ||
         tankDrafts.map { it.copy(id = null) } != originalDrafts.map { it.copy(id = null) }
 
     fun undo() {
@@ -203,15 +182,9 @@ fun DiveEditScreen(
         notes = originalNotes
         saved = dive
         selectedSiteId = dive.siteId
-        (buddySelection - originalBuddyIds).forEach { container.buddies.unlinkFromDive(diveId, it) }
-        (originalBuddyIds - buddySelection).forEach { container.buddies.linkToDive(diveId, it) }
-        buddySelection = originalBuddyIds
-        (tagSelection - originalTagIds).forEach { container.tags.unlinkFromDive(diveId, it) }
-        (originalTagIds - tagSelection).forEach { container.tags.linkToDive(diveId, it) }
-        tagSelection = originalTagIds
-        (gearSelection - originalGearIds).forEach { container.gear.unlinkFromDive(diveId, it) }
-        (originalGearIds - gearSelection).forEach { container.gear.linkToDive(diveId, it) }
-        gearSelection = originalGearIds
+        buddyLinks.undo()
+        tagLinks.undo()
+        gearLinks.undo()
         // Put the tanks back as they were: drop the current ones, re-add the originals.
         tankDrafts.mapNotNull { it.id }.forEach { container.gases.deleteTank(it) }
         val restored = originalTanks.map { it.copy(id = container.gases.addTank(it.copy(id = UNSAVED_ID))) }
@@ -315,48 +288,53 @@ fun DiveEditScreen(
             NameChipsField(
                 title = "Buddies",
                 fieldLabel = "Add buddy",
-                selected = availableBuddies.filter { it.id in buddySelection }.map { NamedItem(it.id, it.name) },
+                selected = availableBuddies.filter { it.id in buddyLinks.ids }.map { NamedItem(it.id, it.name) },
                 all = availableBuddies.map { NamedItem(it.id, it.name) },
-                onAdd = { toggleBuddy(it.id) },
+                onAdd = { buddyLinks.toggle(it.id) },
                 onAddNew = { name ->
                     val id = container.buddies.add(name)
-                    container.buddies.linkToDive(diveId, id)
                     availableBuddies = availableBuddies + Buddy(id, name)
-                    buddySelection = buddySelection + id
+                    buddyLinks.toggle(id)
                 },
-                onRemove = { toggleBuddy(it.id) },
+                onRemove = { buddyLinks.toggle(it.id) },
             )
 
             NameChipsField(
                 title = "Tags",
                 fieldLabel = "Add tag",
-                selected = availableTags.filter { it.id in tagSelection }.map { NamedItem(it.id, it.name) },
+                selected = availableTags.filter { it.id in tagLinks.ids }.map { NamedItem(it.id, it.name) },
                 all = availableTags.map { NamedItem(it.id, it.name) },
-                onAdd = { toggleTag(it.id) },
+                onAdd = { tagLinks.toggle(it.id) },
                 onAddNew = { name ->
                     val id = container.tags.getOrCreate(name)
-                    container.tags.linkToDive(diveId, id)
                     if (availableTags.none { it.id == id }) availableTags = availableTags + Tag(id, name)
-                    tagSelection = tagSelection + id
+                    if (id !in tagLinks.ids) tagLinks.toggle(id)
                 },
-                onRemove = { toggleTag(it.id) },
+                onRemove = { tagLinks.toggle(it.id) },
             )
 
             NameChipsField(
                 title = "Gear",
                 fieldLabel = "Add gear",
-                selected = availableGear.filter { it.id in gearSelection }.map { NamedItem(it.id, it.name) },
+                selected = availableGear.filter { it.id in gearLinks.ids }.map { NamedItem(it.id, it.name) },
                 all = availableGear.map { NamedItem(it.id, it.name) },
-                onAdd = { toggleGear(it.id) },
-                onAddNew = { name ->
-                    val item = GearItem(name = name)
-                    val id = container.gear.add(item)
-                    container.gear.linkToDive(diveId, id)
-                    availableGear = availableGear + item.copy(id = id)
-                    gearSelection = gearSelection + id
-                },
-                onRemove = { toggleGear(it.id) },
+                onAdd = { gearLinks.toggle(it.id) },
+                onAddNew = { newGearName = it },
+                onRemove = { gearLinks.toggle(it.id) },
             )
+            newGearName?.let { name ->
+                NewGearDialog(
+                    name = name,
+                    onAdd = { kind ->
+                        val item = GearItem(name = name, kind = kind)
+                        val id = container.gear.add(item)
+                        availableGear = availableGear + item.copy(id = id)
+                        gearLinks.toggle(id)
+                        newGearName = null
+                    },
+                    onDismiss = { newGearName = null },
+                )
+            }
 
             TanksEditor(
                 drafts = tankDrafts,
@@ -476,3 +454,47 @@ private fun coordinateLabel(latitude: Double?, longitude: Double?): String? {
 }
 
 private fun round5(value: Double): Double = (value * 100_000).roundToLong() / 100_000.0
+
+/**
+ * The buddies, tags or gear on a dive: [ids], linked and unlinked as they are toggled, and
+ * [undo] back to [original].
+ */
+private class LinkedIds(val original: Set<Long>, private val link: (Long) -> Unit, private val unlink: (Long) -> Unit) {
+    var ids by mutableStateOf(original)
+        private set
+
+    val changed: Boolean get() = ids != original
+
+    fun toggle(id: Long) {
+        if (id in ids) unlink(id) else link(id)
+        ids = if (id in ids) ids - id else ids + id
+    }
+
+    fun undo() {
+        (ids - original).forEach(unlink)
+        (original - ids).forEach(link)
+        ids = original
+    }
+}
+
+/** Adds [name] to the gear list, with the kind picked here, if any. */
+@Composable
+private fun NewGearDialog(name: String, onAdd: (GearKind?) -> Unit, onDismiss: () -> Unit) {
+    var kind by remember { mutableStateOf<GearKind?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add “$name” to your gear") },
+        text = {
+            SelectField(
+                label = "Kind",
+                value = kind?.label ?: "",
+                options = listOf<GearKind?>(null) + GearKind.entries,
+                optionLabel = { it?.label ?: "None" },
+                onSelect = { kind = it },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = { TextButton(onClick = { onAdd(kind) }) { Text("Add") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,20 +34,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
@@ -95,9 +100,9 @@ internal fun GearListScreen(
     var sortColumn by rememberSaveable { mutableStateOf(GearColumn.NAME) }
     var descending by rememberSaveable { mutableStateOf(false) }
     var withRetired by rememberSaveable { mutableStateOf(false) }
-    val anyRetired = gear.any { it.first.retired }
+    val anyRetired = gear.any { it.item.retired }
     val kinds = remember(gear, withRetired) {
-        gear.filter { withRetired || !it.first.retired }.mapNotNull { it.first.kind }.distinct().sorted()
+        gear.filter { withRetired || !it.item.retired }.mapNotNull { it.item.kind }.distinct().sorted()
     }
     val shown = remember(gear, query, kindNames, withRetired, sortColumn, descending) {
         sortGear(filterGear(gear, query, selectedKinds, withRetired), sortColumn, descending)
@@ -112,7 +117,11 @@ internal fun GearListScreen(
         val wide = maxWidth >= 600.dp
         Column(Modifier.fillMaxSize()) {
             if (gear.isEmpty()) {
-                EmptyState("No gear yet. Tap + to add your regulators, suits and the rest, or import a MacDive gear list.", Icons.Outlined.Backpack)
+                EmptyState(
+                    "No gear yet. Add your regulators, suits and the rest with +" +
+                        if (canImport) ", or import a MacDive gear list from the import menu." else ".",
+                    Icons.Outlined.Backpack,
+                )
                 return@Column
             }
             Row(
@@ -133,14 +142,17 @@ internal fun GearListScreen(
                 if (column == sortColumn) descending = !descending else { sortColumn = column; descending = false }
             }
             if (shown.isEmpty()) {
-                Text(
-                    "No gear matches the filter.",
-                    Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(Modifier.padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "No gear matches.",
+                        Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = { query = ""; kindNames = emptyList(); withRetired = false }) { Text("Clear search and filters") }
+                }
             }
             LazyColumn(Modifier.fillMaxSize()) {
-                items(shown, key = { it.first.id }) { (item, lastService) ->
+                items(shown, key = { it.item.id }) { (item, lastService) ->
                     Row(
                         Modifier.fillMaxWidth().clickable { onOpen(item.id) }.padding(horizontal = 16.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -234,8 +246,11 @@ private fun HeaderRow(columns: List<GearColumn>, sortColumn: GearColumn, descend
     Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant) {
         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             columns.forEach { column ->
+                val sorted = column == sortColumn
                 Row(
-                    Modifier.weight(column.weight).clickable { onSort(column) }.padding(vertical = 8.dp),
+                    Modifier.weight(column.weight).heightIn(min = 48.dp)
+                        .clickable(role = Role.Button) { onSort(column) }
+                        .semantics { if (sorted) stateDescription = if (descending) "Sorted descending" else "Sorted ascending" },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -246,10 +261,10 @@ private fun HeaderRow(columns: List<GearColumn>, sortColumn: GearColumn, descend
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    if (column == sortColumn) {
+                    if (sorted) {
                         Icon(
                             if (descending) Icons.Filled.ArrowDownward else Icons.Filled.ArrowUpward,
-                            contentDescription = if (descending) "Descending" else "Ascending",
+                            contentDescription = null,
                             modifier = Modifier.padding(start = 4.dp).size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

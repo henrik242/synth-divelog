@@ -43,7 +43,7 @@ class MacDiveGearCsvTest {
         assertEquals("Weight: 18.2 kg", tank.notes)
         assertTrue(tankServices.isEmpty())
 
-        val adapter = MacDiveGearCsv.parse(csv)[2].first
+        val adapter = MacDiveGearCsv.parse(csv)[2].item
         assertEquals("Tank adapter \"STA\"", adapter.name)
         assertEquals(GearKind.OTHER, adapter.kind)
         assertEquals("A friend\non the forum", adapter.shop)
@@ -53,7 +53,7 @@ class MacDiveGearCsvTest {
     @Test
     fun anOctopusIsASecondStage() {
         val octopus = "Manufacturer, Name, Type\n\"Scubapro\", \"S600\", \"Octopus\""
-        assertEquals(GearKind.SECOND_STAGE, MacDiveGearCsv.parse(octopus).single().first.kind)
+        assertEquals(GearKind.SECOND_STAGE, MacDiveGearCsv.parse(octopus).single().item.kind)
     }
 
     @Test

@@ -67,6 +67,7 @@ internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: ()
     val diveCount = observe(gearId, read = { container.gear.diveIdsForGear(gearId).size }, flow = { container.gear.diveIdsForGearFlow(gearId).map { it.size } })
     var editingService by remember(gearId) { mutableStateOf<GearService?>(null) }
     var confirmDelete by remember(gearId) { mutableStateOf(false) }
+    var deletingService by remember(gearId) { mutableStateOf<GearService?>(null) }
 
     fun change(next: GearDraft) {
         draft = next
@@ -82,6 +83,18 @@ internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: ()
                 editingService = null
             },
             onDismiss = { editingService = null },
+        )
+    }
+    deletingService?.let { service ->
+        AlertDialog(
+            onDismissRequest = { deletingService = null },
+            title = { Text("Delete the service on ${dateOf(service.epochDay)}?") },
+            confirmButton = {
+                TextButton(onClick = { deletingService = null; container.gear.deleteService(service.id) }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deletingService = null }) { Text("Cancel") } },
         )
     }
     if (confirmDelete) {
@@ -194,7 +207,7 @@ internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: ()
                 headlineContent = { Text(dateOf(service.epochDay).toString()) },
                 supportingContent = service.notes?.let { { Text(it) } },
                 trailingContent = {
-                    IconButton(onClick = { container.gear.deleteService(service.id) }) {
+                    IconButton(onClick = { deletingService = service }) {
                         Icon(Icons.Filled.Delete, contentDescription = "Delete service")
                     }
                 },

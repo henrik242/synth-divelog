@@ -1,21 +1,22 @@
 package no.synth.divelog.core.formats
 
+import kotlin.math.roundToLong
 import kotlinx.datetime.LocalDate
 import no.synth.divelog.core.model.GearItem
 import no.synth.divelog.core.model.GearKind
 import no.synth.divelog.core.model.GearService
+import no.synth.divelog.core.model.ImportedGear
 import no.synth.divelog.core.model.UNSAVED_ID
-import kotlin.math.roundToLong
 
 /**
  * MacDive's gear list as exported to CSV: a header row, then one row per piece with
- * Manufacturer, Name, Type, Serial, Weight (kg), Purchase Date, Purchase Price, Shop,
+ * Manufacturer, Name, Type, Serial, Weight (in kilograms), Purchase Date, Purchase Price, Shop,
  * Warranty and Last Service. Columns are found by their header.
  */
 object MacDiveGearCsv {
     /** Each piece of gear with its last service, if MacDive had one; the services' gearId is unset. */
-    fun parse(text: String): List<Pair<GearItem, List<GearService>>> {
-        val rows = csvRows(text.removePrefix("﻿")).filter { row -> row.any { it.isNotBlank() } }
+    fun parse(text: String): List<ImportedGear> {
+        val rows = csvRows(text.removePrefix("\uFEFF")).filter { row -> row.any { it.isNotBlank() } }
         val at = rows.firstOrNull().orEmpty().withIndex().associate { (i, name) -> name.trim().lowercase() to i }
         if (listOf("manufacturer", "name", "type").any { it !in at }) throw FormatException("Not a MacDive gear list")
         return rows.drop(1).map { row ->
@@ -39,7 +40,7 @@ object MacDiveGearCsv {
                 notes = notes,
             )
             val services = listOfNotNull(field("last service")?.let(::epochDay)?.let { GearService(gearId = UNSAVED_ID, epochDay = it) })
-            item to services
+            ImportedGear(item, services)
         }
     }
 

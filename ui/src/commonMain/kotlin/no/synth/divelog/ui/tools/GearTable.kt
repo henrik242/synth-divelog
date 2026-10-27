@@ -2,9 +2,9 @@ package no.synth.divelog.ui.tools
 
 import no.synth.divelog.core.model.GearItem
 import no.synth.divelog.core.model.GearKind
+import no.synth.divelog.core.model.GearWithLastService
 
 /** A piece of gear and the day of its latest service, as the gear list shows it. */
-internal typealias GearRow = Pair<GearItem, Int?>
 
 /** The gear list's columns, in the order shown; a narrow screen shows only some. */
 internal enum class GearColumn(val label: String, val weight: Float) {
@@ -20,7 +20,7 @@ internal enum class GearColumn(val label: String, val weight: Float) {
  * The rows whose text holds every word of [query] and that are of one of [kinds] (any kind
  * when empty); retired gear only [withRetired].
  */
-internal fun filterGear(rows: List<GearRow>, query: String, kinds: Set<GearKind>, withRetired: Boolean = false): List<GearRow> {
+internal fun filterGear(rows: List<GearWithLastService>, query: String, kinds: Set<GearKind>, withRetired: Boolean = false): List<GearWithLastService> {
     val words = query.lowercase().split(' ').filter { it.isNotBlank() }
     return rows.filter { (item, _) ->
         val text = listOfNotNull(item.name, item.kind?.label, item.brand, item.model, item.serialNumber, item.shop, item.notes)
@@ -30,15 +30,15 @@ internal fun filterGear(rows: List<GearRow>, query: String, kinds: Set<GearKind>
 }
 
 /** [rows] by [column], [descending] or not; rows without a value go last either way, then by name. */
-internal fun sortGear(rows: List<GearRow>, column: GearColumn, descending: Boolean): List<GearRow> {
-    val byName = compareBy<GearRow> { it.first.name.lowercase() }
-    val key: (GearRow) -> Comparable<*>? = when (column) {
-        GearColumn.NAME -> { row -> row.first.name.lowercase() }
-        GearColumn.KIND -> { row -> row.first.kind?.ordinal }
-        GearColumn.BRAND -> { row -> brandModel(row.first)?.lowercase() }
-        GearColumn.SERIAL -> { row -> row.first.serialNumber?.lowercase() }
-        GearColumn.PURCHASED -> { row -> row.first.purchasedEpochDay }
-        GearColumn.SERVICED -> { row -> row.second }
+internal fun sortGear(rows: List<GearWithLastService>, column: GearColumn, descending: Boolean): List<GearWithLastService> {
+    val byName = compareBy<GearWithLastService> { it.item.name.lowercase() }
+    val key: (GearWithLastService) -> Comparable<*>? = when (column) {
+        GearColumn.NAME -> { row -> row.item.name.lowercase() }
+        GearColumn.KIND -> { row -> row.item.kind?.ordinal }
+        GearColumn.BRAND -> { row -> brandModel(row.item)?.lowercase() }
+        GearColumn.SERIAL -> { row -> row.item.serialNumber?.lowercase() }
+        GearColumn.PURCHASED -> { row -> row.item.purchasedEpochDay }
+        GearColumn.SERVICED -> { row -> row.lastServiceDay }
     }
     val present = rows.filter { key(it) != null }
     val missing = rows.filter { key(it) == null }

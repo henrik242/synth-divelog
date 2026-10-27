@@ -434,7 +434,7 @@ private fun SortButton(sort: DiveSort, onSort: (DiveSort) -> Unit) {
     Box {
         IconButton(onClick = { expanded = true }) {
             BadgedBox(badge = { if (sort != DiveSort.DATE) Badge() }) {
-                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort, by ${sort.label.lowercase()}")
+                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort: ${sort.label}")
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
