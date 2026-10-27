@@ -1,7 +1,9 @@
 package no.synth.divelog.core.db
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.ComputerNames
@@ -60,7 +62,7 @@ class GearRepository(private val db: DiveDatabase) {
     /** The gear ids on each dive that has any. */
     fun gearIdsByDive(): Map<Long, Set<Long>> = byDive(q.selectDiveGearLinks().executeAsList().map { it.diveId to it.gearId })
 
-    fun gearIdsByDiveFlow(): Flow<Map<Long, Set<Long>>> = q.selectDiveGearLinks().listFlow { it.diveId to it.gearId }.map(::byDive)
+    fun gearIdsByDiveFlow(): Flow<Map<Long, Set<Long>>> = q.selectDiveGearLinks().listFlow { it.diveId to it.gearId }.map(::byDive).flowOn(Dispatchers.Default)
 
     fun diveIdsForGear(gearId: Long): List<Long> = q.selectDiveIdsForGear(gearId).executeAsList()
 

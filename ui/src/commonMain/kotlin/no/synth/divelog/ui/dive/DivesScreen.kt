@@ -43,11 +43,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -55,6 +58,8 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.Dive
@@ -118,30 +123,39 @@ fun DivesScreen(
             site.id to listOfNotNull(place?.name, place?.let { countryNames[it.countryId] }).joinToString(", ")
         }
     }
-    val links = DiveLinks(
-        buddies = observe(container, read = container.buddies::buddyIdsByDive, flow = container.buddies::buddyIdsByDiveFlow),
-        tags = observe(container, read = container.tags::tagIdsByDive, flow = container.tags::tagIdsByDiveFlow),
-        gear = observe(container, read = container.gear::gearIdsByDive, flow = container.gear::gearIdsByDiveFlow),
-        sitePlaces = remember(sites) { sites.associate { it.id to it.placeId } },
-        placeCountries = remember(places) { places.mapValues { it.value.countryId } },
-    )
-    // The search narrows first; the facets count within what it leaves.
-    val searched = remember(dives, query, siteNames, siteDetails) {
-        val q = query.trim().lowercase()
-        dives.filter { d ->
-            if (q.isEmpty()) true
-            else {
-                val site = d.siteId?.let { siteNames[it] } ?: ""
-                d.number?.toString()?.contains(q) == true ||
-                    site.lowercase().contains(q) ||
-                    d.siteId?.let { siteDetails[it] }?.lowercase()?.contains(q) == true ||
-                    Format.date(d.startEpochSeconds, d.utcOffsetSeconds).lowercase().contains(q) ||
-                    (d.notes?.lowercase()?.contains(q) == true)
-            }
+    val buddyLinks = observe(container, read = container.buddies::buddyIdsByDive, flow = container.buddies::buddyIdsByDiveFlow)
+    val tagLinks = observe(container, read = container.tags::tagIdsByDive, flow = container.tags::tagIdsByDiveFlow)
+    val gearLinks = observe(container, read = container.gear::gearIdsByDive, flow = container.gear::gearIdsByDiveFlow)
+    val years = remember(dives) { dives.associate { it.id to yearOf(it) } }
+    val links = remember(buddyLinks, tagLinks, gearLinks, sites, places, years) {
+        DiveLinks(
+            buddies = buddyLinks,
+            tags = tagLinks,
+            gear = gearLinks,
+            sitePlaces = sites.associate { it.id to it.placeId },
+            placeCountries = places.mapValues { it.value.countryId },
+            years = years,
+        )
+    }
+    // What the search looks in, per dive, worked out once rather than on every keystroke.
+    val searchText = remember(dives, siteNames, siteDetails) {
+        dives.associate { d ->
+            d.id to listOfNotNull(
+                d.number?.toString(),
+                d.siteId?.let { siteNames[it] },
+                d.siteId?.let { siteDetails[it] },
+                Format.date(d.startEpochSeconds, d.utcOffsetSeconds),
+                d.notes,
+            ).joinToString("\n").lowercase()
         }
     }
-    val (facets, locations) = remember(filter, dives, searched, siteNames, places, countryNames, buddies, tags, gear, links) {
-        val names = mapOf(
+    // The search narrows first; the facets count within what it leaves.
+    val searched = remember(dives, query, searchText) {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) dives else dives.filter { searchText[it.id]?.contains(q) == true }
+    }
+    val names = remember(countryNames, places, siteNames, buddies, tags, gear) {
+        mapOf(
             FacetKind.COUNTRY to countryNames,
             FacetKind.PLACE to places.mapValues { it.value.name },
             FacetKind.SITE to siteNames,
@@ -149,8 +163,12 @@ fun DivesScreen(
             FacetKind.TAG to tags.associate { it.id to it.name },
             FacetKind.GEAR to gear.associate { it.id to it.name },
         )
-        filter.facets(searched, links, names) to filter.locations(dives, searched, links, names)
     }
+    // Counting runs over every dive per kind, so off the main thread; the first frame counts in place.
+    fun countFacets() = filter.facets(searched, links, names) to filter.locations(dives, searched, links, names)
+    val (facets, locations) = produceState(remember { countFacets() }, filter, dives, searched, links, names) {
+        value = withContext(Dispatchers.Default) { countFacets() }
+    }.value
 
     val shown = remember(searched, sort, filter, links) {
         searched
@@ -281,8 +299,10 @@ fun DivesScreen(
                     )
                     SortButton(sort) { sort = it }
                 }
+                // Pickers drop down under their chip where there is room for it, also in height.
+                val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
                 BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    FacetChipRow(facets, locations, filter, onFilter, wide = maxWidth >= 600.dp)
+                    FacetChipRow(facets, locations, filter, onFilter, shown.size, wide = maxWidth >= 600.dp && windowHeight >= 480.dp)
                 }
                 LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 88.dp)) {
                     if (grouped != null) {

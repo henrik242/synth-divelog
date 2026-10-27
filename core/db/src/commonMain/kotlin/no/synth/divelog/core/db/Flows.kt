@@ -16,6 +16,6 @@ internal fun <T : Any, R> Query<T>.listFlow(map: (T) -> R): Flow<List<R>> =
 internal fun <T : Any, R> Query<T>.oneOrNullFlow(map: (T) -> R): Flow<R?> =
     asFlow().mapToOneOrNull(Dispatchers.Default).map { it?.let(map) }
 
-/** (dive id, other id) links grouped by dive. */
+/** (dive id, other id) links grouped by dive; collect with flowOn(Dispatchers.Default), as it runs over every link. */
 internal fun byDive(links: List<Pair<Long, Long>>): Map<Long, Set<Long>> =
     links.groupBy({ it.first }, { it.second }).mapValues { it.value.toSet() }
