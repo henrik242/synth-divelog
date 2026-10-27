@@ -24,6 +24,7 @@ androidx-navigationevent = "1.2.0"
 # kotlinx -- first referenced in M1; versions re-verified when used
 kotlinx-coroutines = "1.11.0"
 kotlinx-datetime = "0.8.0"
+kmp-zip = "1.0.1"
 kotlinx-serialization = "1.11.0"
 xmlutil = "1.0.2.1"
 
@@ -58,6 +59,7 @@ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-c
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
+kmp-zip = { module = "no.synth:kmp-zip", version.ref = "kmp-zip" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 
 # XML (formats)

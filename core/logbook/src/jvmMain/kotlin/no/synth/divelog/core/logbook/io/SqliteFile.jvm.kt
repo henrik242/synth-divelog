@@ -1,13 +1,10 @@
 package no.synth.divelog.core.logbook.io
 
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSet
-import java.util.zip.GZIPInputStream
-import java.util.zip.GZIPOutputStream
 
 /** Through the SQLite JDBC driver the desktop app already ships. */
 internal actual fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) -> T): Pair<T, ByteArray> {
@@ -71,8 +68,3 @@ private class JdbcRow(private val rs: ResultSet) : SqliteRow {
 
     override fun bytes(index: Int): ByteArray? = rs.getBytes(index + 1)
 }
-
-internal actual fun gzip(data: ByteArray): ByteArray =
-    ByteArrayOutputStream().also { out -> GZIPOutputStream(out).use { it.write(data) } }.toByteArray()
-
-internal actual fun gunzip(data: ByteArray): ByteArray = GZIPInputStream(data.inputStream()).use { it.readBytes() }

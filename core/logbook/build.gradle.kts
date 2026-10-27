@@ -20,6 +20,8 @@ kotlin {
             implementation(libs.kotlinx.datetime)
             // Shearwater Cloud exports carry JSON blobs.
             implementation(libs.kotlinx.serialization.json)
+            // Gzip for Shearwater Cloud blobs.
+            implementation(libs.kmp.zip)
         }
         getByName("jvmAndAndroidMain").dependencies {
             // The cloud sync client.

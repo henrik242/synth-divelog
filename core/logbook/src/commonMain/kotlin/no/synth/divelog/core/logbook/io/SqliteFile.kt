@@ -27,7 +27,3 @@ interface SqliteRow {
  * on it, and returns the result together with the file's bytes afterwards.
  */
 internal expect fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) -> T): Pair<T, ByteArray>
-
-internal expect fun gzip(data: ByteArray): ByteArray
-
-internal expect fun gunzip(data: ByteArray): ByteArray
