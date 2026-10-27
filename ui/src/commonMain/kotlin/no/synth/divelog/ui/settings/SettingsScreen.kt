@@ -47,7 +47,6 @@ fun SettingsSection(
     onReparse: () -> Unit,
     onForgetAllDives: () -> Unit,
     onCloudPush: ((email: String, pass: String) -> Unit)?,
-    onOpenComputers: () -> Unit,
     onOpenAttributions: () -> Unit,
     onCrashReportingChange: ((Boolean) -> Unit)?,
 ) {
@@ -148,13 +147,6 @@ fun SettingsSection(
                 },
                 onDismiss = { forgetOpen = false },
             )
-        }
-
-        HorizontalDivider()
-
-        Text("Dive computers", style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(onClick = onOpenComputers, modifier = Modifier.fillMaxWidth()) {
-            Text("Dive computers")
         }
 
         HorizontalDivider()

@@ -51,18 +51,21 @@ import kotlin.time.Clock
 internal fun today(): LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault())
 
 /**
- * One piece of gear, saved as it is edited, and its services. [onDeleted] runs after a
- * delete; [onShowDives] shows the dives it was used on.
+ * One piece of gear, saved as it is edited, and its services; for a dive computer also the
+ * computer it is linked to. [onDeleted] runs after a delete, also by merging or forgetting
+ * its computer; [onShowDives] shows the dives it was used on.
  */
 @Composable
 internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: () -> Unit, onShowDives: () -> Unit) {
-    val item = remember(gearId) { container.gear.get(gearId) } ?: run {
+    // What Undo goes back to: as opened, or as linked or unlinked to a computer since.
+    var item by remember(gearId) { mutableStateOf(container.gear.get(gearId)) }
+    val opened = item ?: run {
         Text("Gear not found", Modifier.padding(16.dp)); return
     }
-    val original = remember(gearId) { GearDraft.of(item) }
+    var original by remember(gearId) { mutableStateOf(GearDraft.of(opened)) }
     var draft by remember(gearId) { mutableStateOf(original) }
     // As last saved, so a half-typed date or price keeps the saved value.
-    var saved by remember(gearId) { mutableStateOf(item) }
+    var saved by remember(gearId) { mutableStateOf(opened) }
     val services = observe(gearId, read = { container.gear.services(gearId) }, flow = { container.gear.servicesFlow(gearId) })
     val diveCount = observe(gearId, read = { container.gear.diveIdsForGear(gearId).size }, flow = { container.gear.diveIdsForGearFlow(gearId).map { it.size } })
     var editingService by remember(gearId) { mutableStateOf<GearService?>(null) }
@@ -120,8 +123,13 @@ internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: ()
                 Text(if (diveCount == 1) "Used in 1 dive" else "Used in $diveCount dives")
             }
             Spacer(Modifier.weight(1f))
-            if (draft != original) TextButton(onClick = { draft = original; saved = item; container.gear.update(item) }) { Text("Undo changes") }
-            TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            if (draft != original) {
+                TextButton(onClick = { draft = original; saved = opened; container.gear.update(opened) }) { Text("Undo changes") }
+            }
+            // A downloaded computer's item can be deleted once Forget has unlinked it.
+            if (saved.deviceId == null) {
+                TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            }
         }
         OutlinedTextField(
             draft.name,
@@ -175,6 +183,20 @@ internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: ()
             }
             Switch(checked = !draft.retired, onCheckedChange = null)
         }
+        ComputerSection(
+            container,
+            saved,
+            onRelinked = {
+                // Linking fills in fields and unlinking drops the computer: start over from here.
+                container.gear.get(gearId)?.let { now ->
+                    item = now
+                    saved = now
+                    original = GearDraft.of(now)
+                    draft = original
+                }
+            },
+            onGone = onDeleted,
+        )
         OutlinedTextField(
             draft.notes,
             { change(draft.copy(notes = it)) },

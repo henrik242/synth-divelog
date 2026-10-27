@@ -17,6 +17,8 @@ data class GearItem(
     val notes: String? = null,
     /** No longer in use, sold or lost; kept for its history. */
     val retired: Boolean = false,
+    /** The downloaded dive computer this is, if it is one; its name is this one's. */
+    val deviceId: Long? = null,
 )
 
 /** A piece of gear with the day of its latest service, null if it has none. */

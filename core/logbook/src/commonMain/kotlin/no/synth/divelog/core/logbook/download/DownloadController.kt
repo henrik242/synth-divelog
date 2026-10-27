@@ -207,7 +207,7 @@ data class KnownComputer(
     /** The device identity, the key its connection is remembered under. */
     val key: String get() = device.bluetoothAddress.orEmpty()
 
-    val title: String get() = device.nickname?.takeIf { it.isNotBlank() } ?: device.model
+    val title: String get() = ComputerNames.displayName(device)
 
     val subtitle: String get() = ComputerNames.fullName(device) + (device.serial?.let { " #$it" } ?: "")
 }
@@ -565,7 +565,7 @@ class DownloadController(
             candidate != null -> {
                 val computer = container.dives.recordsForDive(candidate)
                     .firstNotNullOfOrNull { r -> r.deviceId?.let { container.devices.get(it) } }
-                DiveStatus.Overlaps(refTo(candidate, incoming), computer?.let { it.nickname?.takeIf(String::isNotBlank) ?: it.model })
+                DiveStatus.Overlaps(refTo(candidate, incoming), computer?.let(ComputerNames::displayName))
             }
             else -> DiveStatus.New
         }

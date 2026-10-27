@@ -53,7 +53,6 @@ import no.synth.divelog.ui.labels.LabelDetail
 import no.synth.divelog.ui.labels.LabelKind
 import no.synth.divelog.ui.labels.LabelList
 import no.synth.divelog.ui.settings.AttributionsScreen
-import no.synth.divelog.ui.settings.ComputersScreen
 import no.synth.divelog.ui.settings.SettingsSection
 import no.synth.divelog.ui.sites.CountryPlaces
 import no.synth.divelog.ui.sites.PlaceSites
@@ -238,22 +237,11 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
             }
             val top = nav.top
             // Keyed per page, so a section keeps its list position and filters while another
-            // section or the dive computers page is shown.
-            // A page shown over a list gets its own key, so the list keeps its state while it is away.
-            val page = when (top) {
-                is Screen.Computers -> "/computers"
-                is Screen.Gear -> "/gear"
-                else -> ""
-            }
+            // section is shown. A page shown over a list gets its own key, so the list keeps its
+            // state while it is away.
+            val page = if (top is Screen.Gear) "/gear" else ""
             pageState.SaveableStateProvider(nav.section.name + page) {
-                if (top is Screen.Computers) {
-                    ComputersScreen(
-                        container = container,
-                        onBack = ::back,
-                        focusDeviceId = top.focusDeviceId,
-                        onFocusConsumed = { nav.replaceTop(Screen.Computers(null)) },
-                    )
-                } else when (nav.section) {
+                when (nav.section) {
                     Section.DIVES -> DivesScreen(
                         container = container,
                         unitSystem = unitSystem,
@@ -263,7 +251,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         onNavigate = { nav.replaceTop(Screen.DiveDetail(it)) },
                         onEdit = { nav.push(Screen.DiveEdit(it)) },
                         onClose = ::back,
-                        onOpenDevice = { nav.push(Screen.Computers(it)) },
+                        onOpenDevice = { id -> container.gear.forDevice(id)?.let { openGear(it.id) } },
                         onOpenSite = ::openSite,
                         onOpenGear = ::openGear,
                         query = diveQuery,
@@ -334,7 +322,6 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                         onReparse = onReparse,
                         onForgetAllDives = onForgetAllDives,
                         onCloudPush = onCloudPush,
-                        onOpenComputers = { nav.push(Screen.Computers(null)) },
                         onOpenAttributions = { nav.push(Screen.Attributions) },
                         onCrashReportingChange = hooks.setCrashReporting?.let { apply ->
                             { enabled: Boolean ->
@@ -379,7 +366,6 @@ private fun diveLabel(dive: Dive?): String = dive?.number?.let { "Dive #$it" } ?
 
 private fun fixedLabel(screen: Screen): String = when (screen) {
     is Screen.ToolPage -> screen.tool.label
-    is Screen.Computers -> "Dive computers"
     Screen.Attributions -> "Attributions"
     else -> "Edit"
 }

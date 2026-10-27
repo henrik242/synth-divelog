@@ -3,6 +3,7 @@ package no.synth.divelog.core.db
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.GearItem
+import no.synth.divelog.core.model.GearKind
 import no.synth.divelog.core.model.GearService
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -12,11 +13,11 @@ import kotlin.test.assertTrue
 
 class MigrationTest {
     @Test
-    fun schemaVersionBumpedForDiveGear() {
+    fun schemaVersionBumpedForComputerGear() {
         // 1.sqm (tags) takes the schema to version 2, 2.sqm (visibility stars) to 3,
         // 3.sqm (dive settings, time to surface) to 4, 4.sqm (deleted dives) to 5, 5.sqm (gear) to 6,
-        // 6.sqm (gear on dives) to 7.
-        assertEquals(7L, DiveDatabase.Schema.version)
+        // 6.sqm (gear on dives) to 7, 7.sqm (computers as gear) to 8.
+        assertEquals(8L, DiveDatabase.Schema.version)
     }
 
     @Test
@@ -95,6 +96,73 @@ class MigrationTest {
     }
 
     @Test
+    fun version7MakesComputersGear() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        DiveDatabase.Schema.create(driver)
+        undo7Sqm(driver)
+        driver.execute(null, "INSERT INTO device(vendor, model, serial, nickname) VALUES ('Shearwater', 'Perdix', 'ABC', NULL)", 0)
+        driver.execute(null, "INSERT INTO device(vendor, model, serial, nickname) VALUES ('Suunto', 'Vyper', NULL, 'Old yellow')", 0)
+        driver.execute(null, "INSERT INTO gear(name, kind, serialNumber) VALUES ('My Perdix', 'COMPUTER', 'ABC')", 0)
+        driver.execute(null, "INSERT INTO gear(name, kind) VALUES ('Fins', 'FINS')", 0)
+
+        DiveDatabase.Schema.migrate(driver, 7, DiveDatabase.Schema.version)
+
+        val db = DiveDatabase(driver)
+        val gear = GearRepository(db)
+        val devices = DeviceRepository(db)
+        // The Perdix takes the gear item with its serial; the Vyper gets one named by its nickname.
+        assertEquals(1L, gear.forDevice(1)?.id)
+        assertEquals("Old yellow", gear.forDevice(2)?.name)
+        assertEquals(GearKind.COMPUTER, gear.forDevice(2)?.kind)
+        assertEquals(3, gear.all().size)
+        assertEquals("My Perdix", devices.get(1)?.nickname)
+    }
+
+    @Test
+    fun version7LinksBySerialOnlyWithinTheMaker() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        DiveDatabase.Schema.create(driver)
+        undo7Sqm(driver)
+        driver.execute(null, "INSERT INTO device(vendor, model, serial) VALUES ('Suunto', 'Zoop', '123')", 0)
+        driver.execute(null, "INSERT INTO device(vendor, model, serial) VALUES ('Shearwater', 'Perdix', 'ABC')", 0)
+        driver.execute(null, "INSERT INTO device(vendor, model, serial) VALUES ('Mares', 'Puck', '7')", 0)
+        driver.execute(null, "INSERT INTO device(vendor, model, serial) VALUES ('Mares', 'Quad', '7')", 0)
+        driver.execute(null, "INSERT INTO gear(name, kind, brand, serialNumber) VALUES ('Puck', 'COMPUTER', 'Mares', '123')", 0)
+        driver.execute(null, "INSERT INTO gear(name, kind, brand, serialNumber) VALUES ('Perdix', 'COMPUTER', 'Shearwater Research', 'ABC')", 0)
+        driver.execute(null, "INSERT INTO gear(name, kind, brand, serialNumber) VALUES ('Which', 'COMPUTER', 'Mares', '7')", 0)
+
+        DiveDatabase.Schema.migrate(driver, 7, DiveDatabase.Schema.version)
+
+        val db = DiveDatabase(driver)
+        val gear = GearRepository(db)
+        // Another maker's serial does not link; MacDive's longer maker name does; two Mares with one serial link neither.
+        assertEquals("Suunto Zoop", gear.forDevice(1)?.name)
+        assertEquals(2L, gear.forDevice(2)?.id)
+        assertEquals("Mares Puck", gear.forDevice(3)?.name)
+        assertEquals("Mares Quad", gear.forDevice(4)?.name)
+        assertEquals(listOf("Puck", "Which"), gear.all().filter { it.deviceId == null }.map { it.name })
+    }
+
+    @Test
+    fun version7KeepsTheUsersNicknameAndNamesBlankComputers() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        DiveDatabase.Schema.create(driver)
+        undo7Sqm(driver)
+        driver.execute(null, "INSERT INTO device(vendor, model, serial, nickname) VALUES ('Shearwater', 'Perdix', 'ABC', 'Blue')", 0)
+        driver.execute(null, "INSERT INTO device(vendor, model) VALUES ('', '')", 0)
+        driver.execute(null, "INSERT INTO gear(name, kind, serialNumber) VALUES ('My Perdix', 'COMPUTER', 'ABC')", 0)
+
+        DiveDatabase.Schema.migrate(driver, 7, DiveDatabase.Schema.version)
+
+        val db = DiveDatabase(driver)
+        val gear = GearRepository(db)
+        assertEquals("Blue", gear.forDevice(1)?.name)
+        assertEquals("Blue", DeviceRepository(db).get(1)?.nickname)
+        assertEquals("Dive computer", gear.forDevice(2)?.name)
+        assertEquals(null, gear.forDevice(2)?.brand)
+    }
+
+    @Test
     fun version3AddsDiveSettingsAndTimeToSurface() {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         DiveDatabase.Schema.create(driver)
@@ -146,7 +214,26 @@ internal fun undo5Sqm(driver: JdbcSqliteDriver) {
     driver.execute(null, "DROP TABLE gear", 0)
 }
 
-/** Undo what 6.sqm adds (gear on dives), back to schema version 6. */
+/** Undo what 6.sqm adds (gear on dives) and what 7.sqm adds ([undo7Sqm]), back to schema version 6. */
 internal fun undo6Sqm(driver: JdbcSqliteDriver) {
+    undo7Sqm(driver)
     driver.execute(null, "DROP TABLE diveGear", 0)
+}
+
+/** Undo what 7.sqm adds (computers as gear), back to schema version 7. SQLite cannot drop a column with a foreign key, so the table is rebuilt. */
+internal fun undo7Sqm(driver: JdbcSqliteDriver) {
+    driver.execute(null, "DROP INDEX gear_device", 0)
+    driver.execute(
+        null,
+        """
+        CREATE TABLE gear_v7 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT, brand TEXT, model TEXT,
+            serialNumber TEXT, purchasedEpochDay INTEGER, purchasePriceCents INTEGER, shop TEXT, notes TEXT,
+            retired INTEGER NOT NULL DEFAULT 0
+        )
+        """.trimIndent(),
+        0,
+    )
+    driver.execute(null, "DROP TABLE gear", 0)
+    driver.execute(null, "ALTER TABLE gear_v7 RENAME TO gear", 0)
 }

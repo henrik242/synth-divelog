@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.outlined.Backpack
+import androidx.compose.material.icons.outlined.Watch
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
@@ -282,12 +283,18 @@ private fun Cell(column: GearColumn, item: GearItem, lastService: Int?, today: L
     val small = MaterialTheme.typography.bodySmall
     when (column) {
         GearColumn.NAME -> {
-            Text(
-                if (item.retired) "${item.name} (retired)" else item.name,
-                color = if (item.retired) muted else Color.Unspecified,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    if (item.retired) "${item.name} (retired)" else item.name,
+                    color = if (item.retired) muted else Color.Unspecified,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (item.deviceId != null) {
+                    Icon(Icons.Outlined.Watch, contentDescription = "Downloaded computer", Modifier.size(16.dp), tint = muted)
+                }
+            }
             if (!wide) {
                 listOfNotNull(item.kind?.label, brandModel(item)).joinToString(" - ").ifBlank { null }?.let {
                     Text(it, style = small, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)

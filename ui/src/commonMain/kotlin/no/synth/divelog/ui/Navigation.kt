@@ -47,9 +47,6 @@ internal sealed interface Screen {
     data class ToolPage(val tool: Tool) : Screen
     data class Gear(val gearId: Long) : Screen
 
-    /** The dive computers page; [focusDeviceId] scrolls to and highlights that device. */
-    data class Computers(val focusDeviceId: Long?) : Screen
-
     data object Attributions : Screen
 }
 
@@ -114,7 +111,6 @@ private fun Screen.encode(): String = when (this) {
     is Screen.Tag -> "Tag:$tagId"
     is Screen.ToolPage -> "Tool:${tool.name}"
     is Screen.Gear -> "Gear:$gearId"
-    is Screen.Computers -> "Computers:${focusDeviceId ?: ""}"
     Screen.Attributions -> "Attributions"
 }
 
@@ -133,7 +129,6 @@ private fun decodeScreen(text: String): Screen? {
         "Tag" -> id?.let(Screen::Tag)
         "Tool" -> Tool.entries.firstOrNull { it.name == arg }?.let(Screen::ToolPage)
         "Gear" -> id?.let(Screen::Gear)
-        "Computers" -> Screen.Computers(id)
         "Attributions" -> Screen.Attributions
         else -> null
     }

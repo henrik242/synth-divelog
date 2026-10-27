@@ -64,7 +64,10 @@ class GearRepositoryTest {
         gear.linkToDive(dive, wing)
         assertEquals(listOf("fins", "Wing"), gear.gearForDive(dive).map { it.name })
         assertEquals(listOf(dive), gear.diveIdsForGear(wing))
-        assertEquals(mapOf(dive to setOf(wing, fins)), gear.gearIdsByDive())
+        // The Petrel logged the dive, so its gear item is on it too.
+        val petrel = gear.forDevice(device)?.id
+        assertEquals(mapOf(dive to setOf(wing, fins, petrel)), gear.gearIdsByDive())
+        assertEquals(listOf(dive), petrel?.let(gear::diveIdsForGear))
 
         gear.unlinkFromDive(dive, fins)
         assertEquals(listOf("Wing"), gear.gearForDive(dive).map { it.name })
