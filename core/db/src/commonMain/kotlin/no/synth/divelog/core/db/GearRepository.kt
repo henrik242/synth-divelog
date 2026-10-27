@@ -32,6 +32,14 @@ class GearRepository(private val db: DiveDatabase) {
 
     fun getFlow(id: Long): Flow<GearItem?> = q.selectGearById(id).oneOrNullFlow { it.toDomain() }
 
+    fun linkToDive(diveId: Long, gearId: Long) = q.linkDiveGear(diveId, gearId)
+
+    fun unlinkFromDive(diveId: Long, gearId: Long) = q.unlinkDiveGear(diveId, gearId)
+
+    fun gearForDive(diveId: Long): List<GearItem> = q.selectGearForDive(diveId).executeAsList().map { it.toDomain() }
+
+    fun gearForDiveFlow(diveId: Long): Flow<List<GearItem>> = q.selectGearForDive(diveId).listFlow { it.toDomain() }
+
     /** Every piece of gear with the day of its latest service, or null if never serviced. */
     fun allWithLastService(): List<Pair<GearItem, Int?>> = withLastService(
         all(),

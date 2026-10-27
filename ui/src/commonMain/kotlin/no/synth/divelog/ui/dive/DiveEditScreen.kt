@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.Buddy
+import no.synth.divelog.core.model.GearItem
 import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Tag
 import no.synth.divelog.core.model.Tank
@@ -78,6 +79,7 @@ fun DiveEditScreen(
     }
     val originalBuddyIds = remember(diveId) { container.buddies.buddiesForDive(diveId).map { it.id }.toSet() }
     val originalTagIds = remember(diveId) { container.tags.tagsForDive(diveId).map { it.id }.toSet() }
+    val originalGearIds = remember(diveId) { container.gear.gearForDive(diveId).map { it.id }.toSet() }
     val originalTanks = remember(diveId) { container.gases.tanksForDive(diveId) }
 
     // Resolve a site's place and country for the picker detail line and the selected-site card.
@@ -93,6 +95,7 @@ fun DiveEditScreen(
     var availableSites by remember(diveId) { mutableStateOf(container.sites.allSites()) }
     var availableBuddies by remember(diveId) { mutableStateOf(container.buddies.all()) }
     var availableTags by remember(diveId) { mutableStateOf(container.tags.all()) }
+    var availableGear by remember(diveId) { mutableStateOf(container.gear.all()) }
     val siteOptions = availableSites.map { SiteOption(it.id, it.name, locationLabel(it.placeId)) }
 
     val manual = remember(diveId) { container.dives.recordsForDive(diveId).isEmpty() }
@@ -107,6 +110,7 @@ fun DiveEditScreen(
     var selectedSiteId by remember(diveId) { mutableStateOf(dive.siteId) }
     var buddySelection by remember(diveId) { mutableStateOf(originalBuddyIds) }
     var tagSelection by remember(diveId) { mutableStateOf(originalTagIds) }
+    var gearSelection by remember(diveId) { mutableStateOf(originalGearIds) }
     var newCountry by remember(diveId) { mutableStateOf("") }
     var newPlace by remember(diveId) { mutableStateOf("") }
     var newSite by remember(diveId) { mutableStateOf("") }
@@ -174,12 +178,23 @@ fun DiveEditScreen(
         }
     }
 
+    fun toggleGear(id: Long) {
+        if (id in gearSelection) {
+            gearSelection = gearSelection - id
+            container.gear.unlinkFromDive(diveId, id)
+        } else {
+            gearSelection = gearSelection + id
+            container.gear.linkToDive(diveId, id)
+        }
+    }
+
     val hasEdits = number != originalNumber ||
         summary != originalSummary ||
         notes != originalNotes ||
         selectedSiteId != dive.siteId ||
         buddySelection != originalBuddyIds ||
         tagSelection != originalTagIds ||
+        gearSelection != originalGearIds ||
         tankDrafts.map { it.copy(id = null) } != originalDrafts.map { it.copy(id = null) }
 
     fun undo() {
@@ -194,6 +209,9 @@ fun DiveEditScreen(
         (tagSelection - originalTagIds).forEach { container.tags.unlinkFromDive(diveId, it) }
         (originalTagIds - tagSelection).forEach { container.tags.linkToDive(diveId, it) }
         tagSelection = originalTagIds
+        (gearSelection - originalGearIds).forEach { container.gear.unlinkFromDive(diveId, it) }
+        (originalGearIds - gearSelection).forEach { container.gear.linkToDive(diveId, it) }
+        gearSelection = originalGearIds
         // Put the tanks back as they were: drop the current ones, re-add the originals.
         tankDrafts.mapNotNull { it.id }.forEach { container.gases.deleteTank(it) }
         val restored = originalTanks.map { it.copy(id = container.gases.addTank(it.copy(id = UNSAVED_ID))) }
@@ -322,6 +340,22 @@ fun DiveEditScreen(
                     tagSelection = tagSelection + id
                 },
                 onRemove = { toggleTag(it.id) },
+            )
+
+            NameChipsField(
+                title = "Gear",
+                fieldLabel = "Add gear",
+                selected = availableGear.filter { it.id in gearSelection }.map { NamedItem(it.id, it.name) },
+                all = availableGear.map { NamedItem(it.id, it.name) },
+                onAdd = { toggleGear(it.id) },
+                onAddNew = { name ->
+                    val item = GearItem(name = name)
+                    val id = container.gear.add(item)
+                    container.gear.linkToDive(diveId, id)
+                    availableGear = availableGear + item.copy(id = id)
+                    gearSelection = gearSelection + id
+                },
+                onRemove = { toggleGear(it.id) },
             )
 
             TanksEditor(

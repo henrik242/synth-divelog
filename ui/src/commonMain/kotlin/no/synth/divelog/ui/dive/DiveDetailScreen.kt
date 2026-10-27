@@ -81,6 +81,7 @@ fun DiveDetailScreen(
     onNavigate: (Long) -> Unit = {},
     onOpenDevice: (Long) -> Unit = {},
     onOpenSite: (Long) -> Unit = {},
+    onOpenGear: (Long) -> Unit = {},
     onEdit: () -> Unit = {},
     onDeleted: () -> Unit = {},
     onTopBarActions: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
@@ -95,6 +96,7 @@ fun DiveDetailScreen(
     val site = dive.siteId?.let { id -> observe(id, read = { container.sites.site(id) }, flow = { container.sites.siteFlow(id) }) }
     val buddies = observe(diveId, read = { container.buddies.buddiesForDive(diveId) }, flow = { container.buddies.buddiesForDiveFlow(diveId) })
     val tags = observe(diveId, read = { container.tags.tagsForDive(diveId) }, flow = { container.tags.tagsForDiveFlow(diveId) })
+    val gear = observe(diveId, read = { container.gear.gearForDive(diveId) }, flow = { container.gear.gearForDiveFlow(diveId) })
     val tanks = observe(diveId, read = { container.gases.tanksForDive(diveId) }, flow = { container.gases.tanksForDiveFlow(diveId) })
     val gases = remember(tanks, unitSystem) {
         tanks.mapNotNull { t -> tankLabel(t, t.gasMixId?.let { container.gases.gasMix(it) }, unitSystem) }
@@ -314,6 +316,7 @@ fun DiveDetailScreen(
                 )
                 SummaryRow("Buddies", if (buddies.isEmpty()) "-" else buddies.joinToString { it.name })
                 SummaryRow("Tags", if (tags.isEmpty()) "-" else tags.joinToString { it.name })
+                if (gear.isEmpty()) SummaryRow("Gear", "-") else LinksRow("Gear", gear.map { it.name to { onOpenGear(it.id) } })
                 // Notes can be long and multi-line, so lay them out full-width and
                 // left-aligned under the label instead of in the right-aligned value column.
                 dive.notes?.takeIf { it.isNotBlank() }?.let { notes ->
@@ -365,6 +368,27 @@ private fun SummaryRow(label: String, value: String, onClick: (() -> Unit)? = nu
             color = if (onClick != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(start = 16.dp),
         )
+    }
+}
+
+/** A [SummaryRow] whose value is one link per line. */
+@Composable
+private fun LinksRow(label: String, links: List<Pair<String, () -> Unit>>) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.padding(start = 16.dp), horizontalAlignment = Alignment.End) {
+            links.forEach { (text, onClick) ->
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable(onClick = onClick),
+                )
+            }
+        }
     }
 }
 

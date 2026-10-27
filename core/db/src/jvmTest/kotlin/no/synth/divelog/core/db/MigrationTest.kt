@@ -12,10 +12,11 @@ import kotlin.test.assertTrue
 
 class MigrationTest {
     @Test
-    fun schemaVersionBumpedForGear() {
+    fun schemaVersionBumpedForDiveGear() {
         // 1.sqm (tags) takes the schema to version 2, 2.sqm (visibility stars) to 3,
-        // 3.sqm (dive settings, time to surface) to 4, 4.sqm (deleted dives) to 5, 5.sqm (gear) to 6.
-        assertEquals(6L, DiveDatabase.Schema.version)
+        // 3.sqm (dive settings, time to surface) to 4, 4.sqm (deleted dives) to 5, 5.sqm (gear) to 6,
+        // 6.sqm (gear on dives) to 7.
+        assertEquals(7L, DiveDatabase.Schema.version)
     }
 
     @Test
@@ -77,6 +78,23 @@ class MigrationTest {
     }
 
     @Test
+    fun version6AddsGearToDives() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        DiveDatabase.Schema.create(driver)
+        undo6Sqm(driver)
+        driver.execute(null, "INSERT INTO device(vendor, model) VALUES ('Shearwater', 'Petrel')", 0)
+
+        DiveDatabase.Schema.migrate(driver, 6, DiveDatabase.Schema.version)
+
+        val db = DiveDatabase(driver)
+        val diveId = DiveRepository(db).importAsNewDive(incoming(deviceId = 1, fingerprint = "a")).diveId
+        val gear = GearRepository(db)
+        val id = gear.add(GearItem(name = "Wing"))
+        gear.linkToDive(diveId, id)
+        assertEquals(listOf("Wing"), gear.gearForDive(diveId).map { it.name })
+    }
+
+    @Test
     fun version3AddsDiveSettingsAndTimeToSurface() {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         DiveDatabase.Schema.create(driver)
@@ -121,8 +139,14 @@ internal fun undo4Sqm(driver: JdbcSqliteDriver) {
     driver.execute(null, "DROP TABLE deletedRecord", 0)
 }
 
-/** Undo what 5.sqm adds (gear), back to schema version 5. */
+/** Undo what 5.sqm adds (gear) and what 6.sqm adds ([undo6Sqm]), back to schema version 5. */
 internal fun undo5Sqm(driver: JdbcSqliteDriver) {
+    undo6Sqm(driver)
     driver.execute(null, "DROP TABLE gearService", 0)
     driver.execute(null, "DROP TABLE gear", 0)
+}
+
+/** Undo what 6.sqm adds (gear on dives), back to schema version 6. */
+internal fun undo6Sqm(driver: JdbcSqliteDriver) {
+    driver.execute(null, "DROP TABLE diveGear", 0)
 }

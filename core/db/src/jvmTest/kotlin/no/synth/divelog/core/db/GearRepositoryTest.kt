@@ -2,6 +2,7 @@ package no.synth.divelog.core.db
 
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import no.synth.divelog.core.model.Device
 import no.synth.divelog.core.model.GearItem
 import no.synth.divelog.core.model.GearKind
 import no.synth.divelog.core.model.GearService
@@ -11,7 +12,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class GearRepositoryTest {
-    private val gear = GearRepository(testDatabase())
+    private val db = testDatabase()
+    private val gear = GearRepository(db)
 
     @Test
     fun addUpdateAndRead() {
@@ -48,5 +50,24 @@ class GearRepositoryTest {
         gear.delete(id)
         assertTrue(gear.all().isEmpty())
         assertTrue(gear.services(id).isEmpty())
+    }
+
+    @Test
+    fun gearOnDives() {
+        val dives = DiveRepository(db)
+        val device = DeviceRepository(db).add(Device(vendor = "Shearwater", model = "Petrel"))
+        val dive = dives.importAsNewDive(incoming(deviceId = device, fingerprint = "a")).diveId
+        val wing = gear.add(GearItem(name = "Wing"))
+        val fins = gear.add(GearItem(name = "fins"))
+        gear.linkToDive(dive, wing)
+        gear.linkToDive(dive, fins)
+        gear.linkToDive(dive, wing)
+        assertEquals(listOf("fins", "Wing"), gear.gearForDive(dive).map { it.name })
+
+        gear.unlinkFromDive(dive, fins)
+        assertEquals(listOf("Wing"), gear.gearForDive(dive).map { it.name })
+
+        gear.delete(wing)
+        assertTrue(gear.gearForDive(dive).isEmpty())
     }
 }

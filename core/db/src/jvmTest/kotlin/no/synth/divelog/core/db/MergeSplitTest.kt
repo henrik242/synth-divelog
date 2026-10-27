@@ -1,6 +1,7 @@
 package no.synth.divelog.core.db
 
 import no.synth.divelog.core.model.Device
+import no.synth.divelog.core.model.GearItem
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.Tank
@@ -19,6 +20,7 @@ class MergeSplitTest {
     private val tags = TagRepository(db)
     private val gases = GasRepository(db)
     private val sites = SiteRepository(db)
+    private val gear = GearRepository(db)
 
     private fun twoComputerDive(): Long {
         val predator = devices.add(Device(vendor = "Shearwater", model = "Predator", bluetoothAddress = "1"))
@@ -109,12 +111,14 @@ class MergeSplitTest {
         gases.addTank(Tank(diveId = b, index = 1, volumeMl = 3_000, gasMixId = oxygen))
         tags.linkToDive(b, tags.getOrCreate("wreck"))
         tags.linkToDive(b, tags.getOrCreate("deep"))
+        gear.linkToDive(b, gear.add(GearItem(name = "Wing")))
         val site = sites.getOrCreateSite("Norway", "Gulen", "Blue Hole")
         dives.updateDive(assertNotNull(dives.getDive(b)).copy(notes = "Great viz", rating = 2, visibility = 15_000, siteId = site))
 
         dives.mergeDives(sourceDiveId = b, targetDiveId = a)
 
         assertEquals(listOf("deep", "wreck"), tags.tagsForDive(a).map { it.name })
+        assertEquals(listOf("Wing"), gear.gearForDive(a).map { it.name })
         val tanks = gases.tanksForDive(a)
         assertEquals(2, tanks.size)
         assertEquals(12_000, tanks.single { it.gasMixId == ean32 }.volumeMl)
