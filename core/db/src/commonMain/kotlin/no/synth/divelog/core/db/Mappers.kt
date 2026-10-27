@@ -67,6 +67,7 @@ internal fun GearRow.toDomain() = GearItem(
     shop = shop,
     notes = notes,
     retired = retired != 0L,
+    deviceId = deviceId,
 )
 
 internal fun GearServiceRow.toDomain() = GearService(id = id, gearId = gearId, epochDay = epochDay.toInt(), notes = notes)

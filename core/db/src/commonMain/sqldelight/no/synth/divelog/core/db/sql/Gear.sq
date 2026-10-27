@@ -11,8 +11,12 @@ CREATE TABLE gear (
     shop TEXT,
     notes TEXT,
     -- 1 when no longer in use.
-    retired INTEGER NOT NULL DEFAULT 0
+    retired INTEGER NOT NULL DEFAULT 0,
+    -- The downloaded dive computer this is, if it is one.
+    deviceId INTEGER REFERENCES device(id) ON DELETE SET NULL
 );
+
+CREATE UNIQUE INDEX gear_device ON gear(deviceId);
 
 -- One service of a piece of gear.
 CREATE TABLE gearService (
@@ -34,12 +38,12 @@ CREATE TABLE diveGear (
 CREATE INDEX diveGear_gear ON diveGear(gearId);
 
 insertGear:
-INSERT INTO gear(name, kind, brand, model, serialNumber, purchasedEpochDay, purchasePriceCents, shop, notes, retired)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO gear(name, kind, brand, model, serialNumber, purchasedEpochDay, purchasePriceCents, shop, notes, retired, deviceId)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateGear:
 UPDATE gear SET name = ?, kind = ?, brand = ?, model = ?, serialNumber = ?, purchasedEpochDay = ?,
-    purchasePriceCents = ?, shop = ?, notes = ?, retired = ?
+    purchasePriceCents = ?, shop = ?, notes = ?, retired = ?, deviceId = ?
 WHERE id = ?;
 
 deleteGear:
@@ -50,6 +54,17 @@ SELECT * FROM gear ORDER BY name COLLATE NOCASE, id;
 
 selectGearById:
 SELECT * FROM gear WHERE id = ?;
+
+selectGearByDevice:
+SELECT * FROM gear WHERE deviceId = ?;
+
+-- Moves one piece's services and dives to another, for when they turn out to be one. The
+-- dives are copied; deleting the first piece then drops its own links.
+moveServices:
+UPDATE gearService SET gearId = :toGearId WHERE gearId = :fromGearId;
+
+copyGearDives:
+INSERT OR IGNORE INTO diveGear(diveId, gearId) SELECT diveId, :toGearId FROM diveGear WHERE gearId = :fromGearId;
 
 insertService:
 INSERT INTO gearService(gearId, epochDay, notes) VALUES (?, ?, ?);
@@ -80,11 +95,20 @@ JOIN diveGear ON diveGear.gearId = gear.id
 WHERE diveGear.diveId = ?
 ORDER BY gear.name COLLATE NOCASE, gear.id;
 
+-- Gear on dives: linked by hand, and a dive computer on the dives it logged.
 selectDiveGearLinks:
-SELECT diveId, gearId FROM diveGear;
+SELECT diveId, gearId FROM diveGear
+UNION
+SELECT diveComputerRecord.diveId, gear.id FROM diveComputerRecord JOIN gear ON gear.deviceId = diveComputerRecord.deviceId;
 
 selectDiveIdsForGear:
-SELECT diveId FROM diveGear WHERE gearId = ?;
+SELECT diveId FROM diveGear WHERE gearId = :gearId
+UNION
+SELECT diveComputerRecord.diveId FROM diveComputerRecord JOIN gear ON gear.deviceId = diveComputerRecord.deviceId WHERE gear.id = :gearId;
+
+-- Dive computers not linked to a downloaded one yet, by serial.
+selectUnlinkedComputersBySerial:
+SELECT * FROM gear WHERE kind = 'COMPUTER' AND deviceId IS NULL AND serialNumber = ? ORDER BY id;
 
 -- Copies one dive's gear onto another, skipping what it already has.
 copyDiveGear:

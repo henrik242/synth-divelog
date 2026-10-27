@@ -6,20 +6,19 @@ import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.ComputerNames
 import no.synth.divelog.core.model.Device
 
-/** Dive computers the user has downloaded from. */
+/**
+ * Dive computers the user has downloaded from. Each has a gear item, made with it, whose
+ * name is the computer's nickname.
+ */
 class DeviceRepository(private val db: DiveDatabase) {
     private val q = db.deviceQueries
 
+    /** Stores [device] with its gear item, see [gearForNewComputer]; the item's name becomes its nickname. */
     fun add(device: Device): Long = db.transactionWithResult {
-        q.insertDevice(
-            device.vendor,
-            device.model,
-            device.serial,
-            device.firmware,
-            device.nickname,
-            device.bluetoothAddress,
-        )
-        q.lastInsertRowId().executeAsOne()
+        q.insertDevice(device.vendor, device.model, device.serial, device.firmware, device.nickname, device.bluetoothAddress)
+        val id = q.lastInsertRowId().executeAsOne()
+        q.setNickname(db.gearForNewComputer(device.copy(id = id)).name, id)
+        id
     }
 
     fun all(): List<Device> = q.selectAllDevices().executeAsList().map { it.toDomain() }
@@ -31,17 +30,18 @@ class DeviceRepository(private val db: DiveDatabase) {
     fun byAddress(address: String): Device? =
         q.selectDeviceByAddress(address).executeAsOneOrNull()?.toDomain()
 
+    /** Saves [device], all but its nickname, which follows its gear item's name. */
     fun update(device: Device) = q.updateDevice(
         device.vendor,
         device.model,
         device.serial,
         device.firmware,
-        device.nickname,
         device.bluetoothAddress,
         device.id,
     )
 
-    fun delete(id: Long) = q.deleteDevice(id)
+    /** Removes computer [id]. Its gear item stays, unlinked; its dives keep their logs, with no computer. */
+    fun forget(id: Long) = q.deleteDevice(id)
 
     /** Number of distinct dives recorded by each device, keyed by device id. */
     fun diveCounts(): Map<Long, Long> = db.recordQueries.countDivesByDevice().executeAsList()
@@ -54,12 +54,16 @@ class DeviceRepository(private val db: DiveDatabase) {
     fun newestDives(): Map<Long, Pair<Long, Int>> = db.recordQueries.newestDiveByDevice().executeAsList()
         .associate { row -> row.deviceId to (row.newest to row.utcOffsetSeconds.toInt()) }
 
-    /** Move every record of [fromId] to [toId], then delete [fromId]. The target's details are kept. */
+    /**
+     * Move every record of [fromId] to [toId], then delete [fromId]. The target's details are
+     * kept; [fromId]'s gear item goes into [toId]'s.
+     */
     fun merge(fromId: Long, toId: Long) {
         if (fromId == toId) return
         db.transaction {
             db.recordQueries.reassignRecordsFromDevice(toId, fromId)
             db.deletedRecordQueries.reassignFromDevice(toId = toId, fromId = fromId)
+            db.moveComputerGear(fromId, toId)
             q.deleteDevice(fromId)
         }
     }
@@ -105,15 +109,7 @@ class DeviceRepository(private val db: DiveDatabase) {
             if (learned != match) update(learned)
             match.id
         } else {
-            q.insertDevice(
-                device.vendor,
-                device.model,
-                device.serial,
-                device.firmware,
-                device.nickname,
-                device.bluetoothAddress,
-            )
-            q.lastInsertRowId().executeAsOne()
+            add(device)
         }
     }
 
@@ -131,7 +127,9 @@ class DeviceRepository(private val db: DiveDatabase) {
             } else {
                 d.vendor to d.model
             }
-            update(d.copy(vendor = vendor, model = model, bluetoothAddress = null))
+            val tidied = d.copy(vendor = vendor, model = model, bluetoothAddress = null)
+            update(tidied)
+            db.renameComputerGear(d, tidied)
         }
         for (group in all().groupBy { ComputerNames.key(it.vendor, it.model) }.values) {
             if (group.size < 2 || group.mapNotNull { it.serial }.distinct().size > 1) continue

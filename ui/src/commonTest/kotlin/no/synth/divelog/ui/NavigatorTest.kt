@@ -16,7 +16,7 @@ class NavigatorTest {
                 Section.TAGS to listOf(Screen.Tag(5)),
                 Section.TOOLS to listOf(Screen.ToolPage(Tool.GEAR), Screen.Gear(8)),
                 Section.SETTINGS to listOf(Screen.Attributions),
-                Section.BUDDIES to listOf(Screen.Buddy(6), Screen.Computers(7)),
+                Section.BUDDIES to listOf(Screen.Buddy(6)),
             ),
         )
         val saved = with(Navigator.Saver) { SaverScope { true }.save(nav) }

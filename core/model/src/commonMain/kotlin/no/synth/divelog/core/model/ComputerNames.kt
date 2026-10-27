@@ -42,6 +42,20 @@ object ComputerNames {
         return "" to trimmed
     }
 
+    /** What the app calls the computer: its nickname, the name of its gear item, else [fullName]. */
+    fun displayName(device: Device): String = device.nickname?.takeIf { it.isNotBlank() } ?: fullName(device)
+
+    /**
+     * Whether a gear item's [brand] can be a computer's [vendor]: either is unknown, or one
+     * holds the other ("Shearwater Research" is "Shearwater"), ignoring case. Serials alone
+     * are short and repeat across vendors.
+     */
+    fun sameMaker(brand: String?, vendor: String?): Boolean {
+        val a = brand?.trim()?.lowercase().orEmpty()
+        val b = vendor?.trim()?.lowercase().orEmpty()
+        return a.isEmpty() || b.isEmpty() || a in b || b in a
+    }
+
     /** "Shearwater Petrel": the name logbooks expect on export. */
     fun fullName(device: Device): String = listOf(device.vendor, device.model).filter { it.isNotBlank() }.joinToString(" ")
 

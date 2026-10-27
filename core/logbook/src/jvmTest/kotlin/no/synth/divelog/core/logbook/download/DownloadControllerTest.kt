@@ -261,6 +261,7 @@ class DownloadControllerTest {
 
         val petrels = container.devices.all().filter { it.model == "Petrel" }
         assertEquals(2, petrels.size)
+        assertEquals(petrels.map { it.id }.toSet(), container.gear.all().mapNotNull { it.deviceId }.toSet())
         assertEquals("serial-spp:shearwater-petrel@AA:BB:CC:DD:EE:01", container.devices.get(legacy)?.bluetoothAddress)
         assertTrue(petrels.any { it.bluetoothAddress == "serial-spp:shearwater-petrel@AA:BB:CC:DD:EE:02" })
     }
@@ -303,6 +304,10 @@ class DownloadControllerTest {
         assertEquals("Perdix", device.model)
         assertTrue(DiveComputerType.SHEARWATER.owns(device))
         assertFalse(DiveComputerType.SHEARWATER_PETREL.owns(device))
+        // The computer is in the gear list, linked, under the name the app calls it by.
+        val item = container.gear.all().single()
+        assertEquals(device.id, item.deviceId)
+        assertEquals("Shearwater Perdix", item.name)
     }
 
     @Test

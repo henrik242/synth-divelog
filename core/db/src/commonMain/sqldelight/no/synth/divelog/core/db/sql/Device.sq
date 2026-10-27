@@ -23,9 +23,13 @@ SELECT * FROM device WHERE id = ?;
 selectDeviceByAddress:
 SELECT * FROM device WHERE bluetoothAddress = ?;
 
+-- Not the nickname: that is the name of the computer's gear item, set with setNickname.
 updateDevice:
-UPDATE device SET vendor = ?, model = ?, serial = ?, firmware = ?, nickname = ?, bluetoothAddress = ?
+UPDATE device SET vendor = ?, model = ?, serial = ?, firmware = ?, bluetoothAddress = ?
 WHERE id = ?;
+
+setNickname:
+UPDATE device SET nickname = ? WHERE id = ?;
 
 deleteDevice:
 DELETE FROM device WHERE id = ?;

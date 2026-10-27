@@ -1,0 +1,36 @@
+-- Dive computers are gear: each device gets a gear item. A dive computer already in the gear
+-- list is used when it is the only one with the device's serial and a matching maker, and the
+-- device is the only one it matches; makers match when either is unknown or one holds the other
+-- (ComputerNames.sameMaker). Anything less certain stays apart, to be linked by hand.
+ALTER TABLE gear ADD COLUMN deviceId INTEGER REFERENCES device(id) ON DELETE SET NULL;
+
+CREATE UNIQUE INDEX gear_device ON gear(deviceId);
+
+CREATE TEMP TABLE computerMatch AS
+SELECT gear.id AS gearId, device.id AS deviceId FROM gear JOIN device ON device.serial = gear.serialNumber
+WHERE gear.kind = 'COMPUTER'
+    AND (trim(coalesce(gear.brand, '')) = '' OR trim(device.vendor) = ''
+        OR instr(lower(trim(gear.brand)), lower(trim(device.vendor))) > 0
+        OR instr(lower(trim(device.vendor)), lower(trim(gear.brand))) > 0);
+
+UPDATE gear SET deviceId = (SELECT deviceId FROM computerMatch WHERE computerMatch.gearId = gear.id)
+WHERE id IN (
+    SELECT gearId FROM computerMatch m
+    WHERE (SELECT count(*) FROM computerMatch WHERE gearId = m.gearId) = 1
+        AND (SELECT count(*) FROM computerMatch WHERE deviceId = m.deviceId) = 1
+);
+
+DROP TABLE computerMatch;
+
+INSERT INTO gear(name, kind, brand, model, serialNumber, deviceId)
+SELECT coalesce(nullif(trim(nickname), ''), nullif(trim(vendor || ' ' || model), ''), 'Dive computer'), 'COMPUTER',
+    nullif(trim(vendor), ''), nullif(trim(model), ''), serial, id
+FROM device
+WHERE id NOT IN (SELECT deviceId FROM gear WHERE deviceId IS NOT NULL);
+
+-- A nickname the user gave the computer wins over the gear item's name.
+UPDATE gear SET name = (SELECT trim(nickname) FROM device WHERE device.id = gear.deviceId)
+WHERE deviceId IN (SELECT id FROM device WHERE trim(coalesce(nickname, '')) != '');
+
+-- The gear name is the computer's name from now on.
+UPDATE device SET nickname = (SELECT name FROM gear WHERE gear.deviceId = device.id);

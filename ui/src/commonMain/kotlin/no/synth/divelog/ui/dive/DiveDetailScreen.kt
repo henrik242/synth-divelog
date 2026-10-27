@@ -56,6 +56,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import no.synth.divelog.core.db.DiveRepository
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.logbook.format.Format
@@ -68,7 +69,6 @@ import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.core.model.units.Units
 import no.synth.divelog.ui.common.observe
 import no.synth.divelog.ui.sites.SiteLocationMap
-import kotlin.math.roundToInt
 
 private fun diveLabel(dive: Dive): String =
     (dive.number?.let { "#$it  " } ?: "") + Format.dateTime(dive.startEpochSeconds, dive.utcOffsetSeconds)
@@ -298,8 +298,8 @@ fun DiveDetailScreen(
                 SummaryRow("Water temp", Format.temperature(dive.waterTempMk, unitSystem))
                 SummaryRow("Gases", if (gases.isEmpty()) "-" else gases.joinToString("\n"))
                 // Source shows the selected computer and how its log got here, and links to the
-                // computer in Settings so its nickname can be edited. A record with no device has
-                // nothing to open; a dive with no record was entered by hand.
+                // computer's gear item. A record with no device has nothing to open; a dive with
+                // no record was entered by hand.
                 val sourceDeviceId = selectedRecord?.deviceId
                 SummaryRow(
                     "Source",
