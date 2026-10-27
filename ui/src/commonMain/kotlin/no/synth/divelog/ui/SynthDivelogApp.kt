@@ -19,6 +19,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -129,6 +130,25 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
 
     fun openDive(id: Long) = nav.open(Section.DIVES, listOf(Screen.DiveDetail(id)))
 
+    // After the logbook is replaced or emptied: screens, filters and each page's saved state (list
+    // position, selection, open dialog) may name rows that are gone, so start over at the dive list.
+    fun startOver() {
+        diveQuery = ""
+        diveFilter = DiveFilter()
+        Section.entries.forEach { section -> PAGES.forEach { pageState.removeState(section.name + it) } }
+        nav.reset(Section.DIVES)
+    }
+    // Saved, so a restore that finished while the activity was being recreated still starts over.
+    var replacementsSeen by rememberSaveable { mutableStateOf(services.logbookReplacements.value) }
+    LaunchedEffect(services) {
+        services.logbookReplacements.collect {
+            if (it != replacementsSeen) {
+                replacementsSeen = it
+                startOver()
+            }
+        }
+    }
+
     // Straight to a site, with its country and place below it so back steps out level by level.
     fun openSite(id: Long) {
         val site = container.sites.site(id) ?: return
@@ -140,13 +160,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
     // Straight to a piece of gear, with the gear list below it.
     fun openGear(id: Long) = nav.open(Section.TOOLS, listOf(Screen.ToolPage(Tool.GEAR), Screen.Gear(id)))
 
-    // Runs [work] in the background and shows its message, or the failure, in the snackbar.
-    fun runReported(failure: String, work: suspend () -> String?) {
-        scope.launch {
-            val message = runCatching { work() }.getOrElse { "$failure: ${it.message ?: it::class.simpleName}" }
-            message?.let { snackbar.showSnackbar(it) }
-        }
-    }
+    fun runReported(failure: String, work: suspend () -> String?) = scope.launchReported(snackbar, failure, work)
 
     val logbook = services.logbook
     // An export built off the main thread and handed to [deliver]; once that reports the file went
@@ -171,6 +185,11 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
             lastFormatId = { settings.exportFormat },
         )
     }
+    val backup = rememberBackupFlow(
+        services, hooks, snackbar,
+        onOpenSettings = { nav.open(Section.SETTINGS, emptyList()) },
+    )
+    backup.Effects()
     val onReparse: () -> Unit = {
         runReported("Re-parse failed") {
             val count = withContext(Dispatchers.Default) { logbook.reparseAll() }
@@ -179,7 +198,7 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
     }
     val onForgetAllDives: () -> Unit = {
         runReported("Forgetting dives failed") {
-            withContext(Dispatchers.Default) { container.dives.forgetAllDives() }
+            services.replaceLogbook { container.dives.forgetAllDives() }
             "Forgot all dives"
         }
     }
@@ -239,104 +258,115 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
             // Keyed per page, so a section keeps its list position and filters while another
             // section is shown. A page shown over a list gets its own key, so the list keeps its
             // state while it is away.
-            val page = if (top is Screen.Gear) "/gear" else ""
-            pageState.SaveableStateProvider(nav.section.name + page) {
-                when (nav.section) {
-                    Section.DIVES -> DivesScreen(
-                        container = container,
-                        unitSystem = unitSystem,
-                        openDiveId = (top as? Screen.DiveDetail)?.diveId ?: (top as? Screen.DiveEdit)?.diveId,
-                        editing = top is Screen.DiveEdit,
-                        onOpenDive = { nav.push(Screen.DiveDetail(it)) },
-                        onNavigate = { nav.replaceTop(Screen.DiveDetail(it)) },
-                        onEdit = { nav.push(Screen.DiveEdit(it)) },
-                        onClose = ::back,
-                        onOpenDevice = { id -> container.gear.forDevice(id)?.let { openGear(it.id) } },
-                        onOpenSite = ::openSite,
-                        onOpenGear = ::openGear,
-                        query = diveQuery,
-                        onQuery = { diveQuery = it },
-                        filter = diveFilter,
-                        onFilter = { diveFilter = it },
-                        onDeleted = ::back,
-                        onAddDives = addDives::open,
-                        canDownload = hooks.serialPorts.downloadSupported,
-                        exportActions = exportActions,
-                        onTopBarActions = { topBarActions = it },
-                    )
-                    Section.SITES -> when (top) {
-                        is Screen.SiteEdit -> SiteEditScreen(container, top.siteId)
-                        is Screen.Site -> SiteDetail(
-                            container,
-                            top.siteId,
-                            unitSystem,
-                            onEdit = { nav.push(Screen.SiteEdit(top.siteId)) },
-                            onOpenDive = ::openDive,
-                        )
-                        is Screen.Place -> PlaceSites(container, top.placeId) { nav.push(Screen.Site(it)) }
-                        is Screen.Country -> CountryPlaces(container, top.countryId) { nav.push(Screen.Place(it)) }
-                        else -> SitesOverview(container, onOpenCountry = { nav.push(Screen.Country(it)) }, onOpenSite = ::openSite)
-                    }
-                    Section.BUDDIES -> when (top) {
-                        is Screen.Buddy -> LabelDetail(
-                            buddies, top.buddyId, unitSystem, container,
-                            onOpenDive = ::openDive,
+            val page = if (top is Screen.Gear) GEAR_PAGE else ""
+            // Rebuilt when the logbook is replaced: startOver's removeState does not reach the page on screen.
+            key(replacementsSeen) {
+                pageState.SaveableStateProvider(nav.section.name + page) {
+                    when (nav.section) {
+                        Section.DIVES -> DivesScreen(
+                            container = container,
+                            unitSystem = unitSystem,
+                            openDiveId = (top as? Screen.DiveDetail)?.diveId ?: (top as? Screen.DiveEdit)?.diveId,
+                            editing = top is Screen.DiveEdit,
+                            onOpenDive = { nav.push(Screen.DiveDetail(it)) },
+                            onNavigate = { nav.replaceTop(Screen.DiveDetail(it)) },
+                            onEdit = { nav.push(Screen.DiveEdit(it)) },
+                            onClose = ::back,
+                            onOpenDevice = { id -> container.gear.forDevice(id)?.let { openGear(it.id) } },
+                            onOpenSite = ::openSite,
+                            onOpenGear = ::openGear,
+                            query = diveQuery,
+                            onQuery = { diveQuery = it },
+                            filter = diveFilter,
+                            onFilter = { diveFilter = it },
                             onDeleted = ::back,
-                        )
-                        else -> LabelList(buddies) { nav.push(Screen.Buddy(it)) }
-                    }
-                    Section.TAGS -> when (top) {
-                        is Screen.Tag -> LabelDetail(
-                            tags, top.tagId, unitSystem, container,
-                            onOpenDive = ::openDive,
-                            onDeleted = ::back,
-                        )
-                        else -> LabelList(tags) { nav.push(Screen.Tag(it)) }
-                    }
-                    Section.STATS -> StatisticsSection(container, unitSystem)
-                    Section.TOOLS -> if (top is Screen.Gear) {
-                        GearItemScreen(
-                            container, top.gearId,
-                            onDeleted = ::back,
-                            onShowDives = {
-                                diveQuery = ""
-                                diveFilter = DiveFilter().with(FacetKind.GEAR, setOf(top.gearId))
-                                nav.open(Section.DIVES, emptyList())
-                            },
-                        )
-                    } else {
-                        ToolsSection(
-                            (top as? Screen.ToolPage)?.tool,
-                            { tool -> if (tool == null) back() else nav.push(Screen.ToolPage(tool)) },
-                            blender, tank, modEnd, planner, unitSystem, container,
-                            onOpenGear = { nav.push(Screen.Gear(it)) },
-                            onImportGear = onImportGear,
+                            onAddDives = addDives::open,
+                            canDownload = hooks.serialPorts.downloadSupported,
+                            exportActions = exportActions,
                             onTopBarActions = { topBarActions = it },
                         )
+                        Section.SITES -> when (top) {
+                            is Screen.SiteEdit -> SiteEditScreen(container, top.siteId)
+                            is Screen.Site -> SiteDetail(
+                                container,
+                                top.siteId,
+                                unitSystem,
+                                onEdit = { nav.push(Screen.SiteEdit(top.siteId)) },
+                                onOpenDive = ::openDive,
+                            )
+                            is Screen.Place -> PlaceSites(container, top.placeId) { nav.push(Screen.Site(it)) }
+                            is Screen.Country -> CountryPlaces(container, top.countryId) { nav.push(Screen.Place(it)) }
+                            else -> SitesOverview(container, onOpenCountry = { nav.push(Screen.Country(it)) }, onOpenSite = ::openSite)
+                        }
+                        Section.BUDDIES -> when (top) {
+                            is Screen.Buddy -> LabelDetail(
+                                buddies, top.buddyId, unitSystem, container,
+                                onOpenDive = ::openDive,
+                                onDeleted = ::back,
+                            )
+                            else -> LabelList(buddies) { nav.push(Screen.Buddy(it)) }
+                        }
+                        Section.TAGS -> when (top) {
+                            is Screen.Tag -> LabelDetail(
+                                tags, top.tagId, unitSystem, container,
+                                onOpenDive = ::openDive,
+                                onDeleted = ::back,
+                            )
+                            else -> LabelList(tags) { nav.push(Screen.Tag(it)) }
+                        }
+                        Section.STATS -> StatisticsSection(container, unitSystem)
+                        Section.TOOLS -> if (top is Screen.Gear) {
+                            GearItemScreen(
+                                container, top.gearId,
+                                onDeleted = ::back,
+                                onShowDives = {
+                                    diveQuery = ""
+                                    diveFilter = DiveFilter().with(FacetKind.GEAR, setOf(top.gearId))
+                                    nav.open(Section.DIVES, emptyList())
+                                },
+                            )
+                        } else {
+                            ToolsSection(
+                                (top as? Screen.ToolPage)?.tool,
+                                { tool -> if (tool == null) back() else nav.push(Screen.ToolPage(tool)) },
+                                blender, tank, modEnd, planner, unitSystem, container,
+                                onOpenGear = { nav.push(Screen.Gear(it)) },
+                                onImportGear = onImportGear,
+                                onTopBarActions = { topBarActions = it },
+                            )
+                        }
+                        Section.SETTINGS -> if (top == Screen.Attributions) AttributionsScreen() else SettingsSection(
+                            settings = settings,
+                            unitSystem = unitSystem,
+                            onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
+                            exportActions = exportActions,
+                            backup = backup,
+                            onReparse = onReparse,
+                            onForgetAllDives = onForgetAllDives,
+                            onCloudPush = onCloudPush,
+                            onOpenAttributions = { nav.push(Screen.Attributions) },
+                            onCrashReportingChange = hooks.setCrashReporting?.let { apply ->
+                                { enabled: Boolean ->
+                                    settings.crashReporting = enabled
+                                    apply(enabled)
+                                }
+                            },
+                        )
                     }
-                    Section.SETTINGS -> if (top == Screen.Attributions) AttributionsScreen() else SettingsSection(
-                        settings = settings,
-                        unitSystem = unitSystem,
-                        onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
-                        exportActions = exportActions,
-                        onReparse = onReparse,
-                        onForgetAllDives = onForgetAllDives,
-                        onCloudPush = onCloudPush,
-                        onOpenAttributions = { nav.push(Screen.Attributions) },
-                        onCrashReportingChange = hooks.setCrashReporting?.let { apply ->
-                            { enabled: Boolean ->
-                                settings.crashReporting = enabled
-                                apply(enabled)
-                            }
-                        },
-                    )
                 }
             }
 
             addDives.Dialogs()
+            backup.Dialogs()
         }
     }
 }
+
+/** The page a piece of gear is shown on, apart from the section's own; see [PAGES]. */
+private const val GEAR_PAGE = "/gear"
+
+/** Each section's pages, as keys for their saved state after the section's name. */
+private val PAGES = listOf("", GEAR_PAGE)
 
 /** The breadcrumb label for [screen]. */
 private fun screenLabel(screen: Screen, container: AppContainer): String = when (screen) {

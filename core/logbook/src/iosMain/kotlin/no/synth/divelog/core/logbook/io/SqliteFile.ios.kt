@@ -24,7 +24,7 @@ import platform.posix.memcpy
  * whole database in the one file.
  */
 @OptIn(ExperimentalForeignApi::class)
-internal actual fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) -> T): Pair<T, ByteArray> {
+internal actual fun <T> withSqliteFile(initial: ByteArray?, readBack: Boolean, block: (SqliteFile) -> T): Pair<T, ByteArray> {
     val dir = NSTemporaryDirectory()
     val name = "synth-sqlite-${NSUUID().UUIDString}.db"
     val path = dir.trimEnd('/') + "/" + name
@@ -50,7 +50,7 @@ internal actual fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) 
         } finally {
             connection.close()
         }
-        return result to (NSData.dataWithContentsOfFile(path)?.toByteArray() ?: ByteArray(0))
+        return result to (if (readBack) NSData.dataWithContentsOfFile(path)?.toByteArray() ?: ByteArray(0) else ByteArray(0))
     } finally {
         NSFileManager.defaultManager.removeItemAtPath(path, null)
     }

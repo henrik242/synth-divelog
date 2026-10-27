@@ -35,6 +35,7 @@ fun main() {
         serialPorts = DesktopSerialPorts().let { if (System.getenv("SYNTH_DIVELOG_SIMULATOR") == "1") SimulatedSerialPorts(it) else it },
         pickImportFile = { withContext(Dispatchers.IO) { chooseFile("Import logbook", FileDialog.LOAD)?.readBytes() } },
         saveExport = ::saveExport,
+        backupFolders = DirectoryBackupFolders(),
     )
     application {
         Window(onCloseRequest = ::exitApplication, title = "Synth Divelog") {

@@ -8,7 +8,7 @@ import java.io.File
  * Through the platform SQLite. NO_LOCALIZED_COLLATORS keeps Android from adding its
  * own metadata table to the file.
  */
-internal actual fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) -> T): Pair<T, ByteArray> {
+internal actual fun <T> withSqliteFile(initial: ByteArray?, readBack: Boolean, block: (SqliteFile) -> T): Pair<T, ByteArray> {
     val file = File.createTempFile("synth-sqlite", ".db")
     try {
         if (initial != null) file.writeBytes(initial) else file.delete()
@@ -19,7 +19,7 @@ internal actual fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) 
         } finally {
             db.close()
         }
-        return result to file.readBytes()
+        return result to (if (readBack) file.readBytes() else ByteArray(0))
     } finally {
         file.delete()
         File(file.path + "-journal").delete()

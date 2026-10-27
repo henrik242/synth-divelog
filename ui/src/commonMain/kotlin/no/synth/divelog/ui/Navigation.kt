@@ -75,6 +75,12 @@ internal class Navigator(section: Section = Section.DIVES, stacks: Map<Section, 
         stacks[section] = stack.take(depth)
     }
 
+    /** Drops every section's screens and shows [section]'s root. */
+    fun reset(section: Section) {
+        stacks.clear()
+        this.section = section
+    }
+
     /** Switches to [section] showing [stack]. */
     fun open(section: Section, stack: List<Screen>) {
         this.section = section

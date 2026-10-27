@@ -56,6 +56,8 @@ class DiveRepository(private val db: DiveDatabase) {
 
     fun allDives(): List<Dive> = dives.selectAllDives().executeAsList().map { it.toDomain() }
 
+    fun count(): Long = dives.countDives().executeAsOne()
+
     fun allDivesFlow(): Flow<List<Dive>> = dives.selectAllDives().listFlow { it.toDomain() }
 
     fun divesBySite(siteId: Long): List<Dive> =

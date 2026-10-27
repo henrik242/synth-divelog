@@ -24,6 +24,7 @@ interface SqliteRow {
 
 /**
  * Opens a temporary database file holding [initial] (an empty one when null), runs [block]
- * on it, and returns the result together with the file's bytes afterwards.
+ * on it, and returns the result together with the file's bytes afterwards, or no bytes
+ * unless [readBack].
  */
-internal expect fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) -> T): Pair<T, ByteArray>
+internal expect fun <T> withSqliteFile(initial: ByteArray?, readBack: Boolean = true, block: (SqliteFile) -> T): Pair<T, ByteArray>
