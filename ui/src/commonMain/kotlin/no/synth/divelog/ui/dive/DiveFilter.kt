@@ -51,6 +51,8 @@ data class DiveFilter(val picked: Map<FacetKind, Set<Long>> = emptyMap()) {
     /** How many countries, places and sites are picked. */
     val locationCount: Int get() = LOCATION.sumOf { this[it].size }
 
+    fun withoutLocation(): DiveFilter = DiveFilter(picked - LOCATION.toSet())
+
     /** Ticked when [path]'s last node or one above it is picked, partly when one below it is. */
     fun locationState(path: List<LocationNode>): ToggleableState = when {
         path.any { it.id in this[it.kind] } -> ToggleableState.On
@@ -97,8 +99,10 @@ data class DiveFilter(val picked: Map<FacetKind, Set<Long>> = emptyMap()) {
 }
 
 /**
- * The buddy, tag and gear ids on each dive that has any, and the place of each site
- * ([sitePlaces]) and the country of each place ([placeCountries]).
+ * The buddy, tag and gear ids on each dive that has any, the place of each site
+ * ([sitePlaces]) and the country of each place ([placeCountries]), and each dive's local
+ * [years], worked out once as they cost a date conversion; a dive missing there gets its
+ * year worked out.
  */
 data class DiveLinks(
     val buddies: Map<Long, Set<Long>> = emptyMap(),
@@ -106,10 +110,11 @@ data class DiveLinks(
     val gear: Map<Long, Set<Long>> = emptyMap(),
     val sitePlaces: Map<Long, Long> = emptyMap(),
     val placeCountries: Map<Long, Long> = emptyMap(),
+    val years: Map<Long, Long> = emptyMap(),
 ) {
     /** The ids [dive] has of [kind]. */
     fun of(kind: FacetKind, dive: Dive): Set<Long> = when (kind) {
-        FacetKind.YEAR -> setOf(Format.year(dive.startEpochSeconds, dive.utcOffsetSeconds).toLong())
+        FacetKind.YEAR -> setOf(years[dive.id] ?: yearOf(dive))
         FacetKind.COUNTRY -> dive.siteId?.let(sitePlaces::get)?.let(placeCountries::get)?.let(::setOf).orEmpty()
         FacetKind.PLACE -> dive.siteId?.let(sitePlaces::get)?.let(::setOf).orEmpty()
         FacetKind.SITE -> dive.siteId?.let(::setOf).orEmpty()
@@ -118,6 +123,8 @@ data class DiveLinks(
         FacetKind.GEAR -> gear[dive.id].orEmpty()
     }
 }
+
+fun yearOf(dive: Dive): Long = Format.year(dive.startEpochSeconds, dive.utcOffsetSeconds).toLong()
 
 /** One thing to pick in a facet, with how many dives it would give alongside the other kinds' picks. */
 data class FacetOption(val id: Long, val name: String, val count: Int)
@@ -135,6 +142,9 @@ data class LocationNode(
 ) {
     fun descendants(): List<LocationNode> = children.flatMap { listOf(it) + it.descendants() }
 }
+
+/** Every node of these trees, each before the nodes below it. */
+fun List<LocationNode>.allNodes(): List<LocationNode> = flatMap { listOf(it) + it.descendants() }
 
 private fun <T> List<T>.byCountThenName(count: (T) -> Int, name: (T) -> String) =
     sortedWith(compareByDescending(count).thenBy { name(it).lowercase() })

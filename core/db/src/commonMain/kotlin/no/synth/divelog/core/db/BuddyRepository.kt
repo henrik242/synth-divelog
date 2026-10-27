@@ -1,6 +1,8 @@
 package no.synth.divelog.core.db
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.Buddy
@@ -48,7 +50,7 @@ class BuddyRepository(private val db: DiveDatabase) {
     /** The buddy ids on each dive that has any. */
     fun buddyIdsByDive(): Map<Long, Set<Long>> = byDive(q.selectDiveBuddyLinks().executeAsList().map { it.diveId to it.buddyId })
 
-    fun buddyIdsByDiveFlow(): Flow<Map<Long, Set<Long>>> = q.selectDiveBuddyLinks().listFlow { it.diveId to it.buddyId }.map(::byDive)
+    fun buddyIdsByDiveFlow(): Flow<Map<Long, Set<Long>>> = q.selectDiveBuddyLinks().listFlow { it.diveId to it.buddyId }.map(::byDive).flowOn(Dispatchers.Default)
 
     fun divesForBuddy(buddyId: Long): List<Dive> {
         val diveIds = q.selectDiveIdsForBuddy(buddyId).executeAsList()

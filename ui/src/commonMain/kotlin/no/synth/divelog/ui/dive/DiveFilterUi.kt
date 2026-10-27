@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -41,21 +42,31 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -81,17 +92,47 @@ private const val SEARCH_FROM = 8
  * filter is on. The location ([locations]) comes after the year. [wide] wraps the chips and
  * opens pickers under them; otherwise the chips scroll sideways and pickers open as a bottom sheet.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun FacetChipRow(
-    facets: List<Facet>,
+    counted: List<Facet>,
     locations: List<LocationNode>,
     filter: DiveFilter,
     onFilter: (DiveFilter) -> Unit,
+    shownCount: Int,
     wide: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    var open by remember { mutableStateOf<String?>(null) }
+    // The counts may lag the filter while they are worked out; the ticks must not.
+    val facets = counted.map { it.copy(picked = filter[it.kind]) }
+    var open by rememberSaveable { mutableStateOf<String?>(null) }
+    val close = { open = null }
+    val picking = rememberSaveable(open, saver = PickerState.Saver) {
+        PickerState(
+            pickedAtOpen = facets.firstOrNull { it.kind.name == open }?.picked.orEmpty(),
+            opened = if (open == LOCATION) locations.allNodes().filter { n -> n.descendants().any { it.id in filter[it.kind] } }.map(::key).toSet() else emptySet(),
+        )
+    }
+    // Only with a keyboard in use; a touch screen would raise its own over the list.
+    val focusSearch = LocalInputModeManager.current.inputMode == InputMode.Keyboard
+    val content: (@Composable ColumnScope.() -> Unit)? = when (val key = open) {
+        null -> null
+        LOCATION -> locations.takeIf { it.isNotEmpty() }?.let { { LocationPicker(it, filter, onFilter, picking, focusSearch) } }
+        else -> facets.firstOrNull { it.kind.name == key }?.let { facet ->
+            { FacetPicker(facet, { onFilter(filter.with(facet.kind, it)) }, picking, focusSearch) }
+        }
+    }
+    // Under the list, what the picks come to, and the way back to the dives.
+    val picker: (@Composable ColumnScope.() -> Unit)? = content?.let { inner ->
+        {
+            inner()
+            Button(onClick = close, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(if (shownCount == 1) "Show 1 dive" else "Show $shownCount dives")
+            }
+        }
+    }
+    fun popupFor(key: String) = picker.takeIf { wide && open == key }
+
     val chips = buildList<Pair<String, @Composable () -> Unit>> {
         fun flat(facet: Facet) = add(facet.kind.name to @Composable {
             val picked = facet.options.filter { it.id in facet.picked }
@@ -103,29 +144,23 @@ internal fun FacetChipRow(
                 },
                 noun = facet.kind.noun,
                 pickedCount = picked.size,
-                wide = wide,
-                isOpen = open == facet.kind.name,
                 onOpen = { open = facet.kind.name },
-                onClose = { open = null },
-            ) { focusSearch -> FacetPicker(facet, { onFilter(filter.with(facet.kind, it)) }, focusSearch) }
+                popup = popupFor(facet.kind.name),
+                onClose = close,
+            )
         })
         facets.filter { it.kind == FacetKind.YEAR }.forEach(::flat)
         if (locations.isNotEmpty()) {
-            add("LOCATION" to @Composable {
+            add(LOCATION to @Composable {
                 val count = filter.locationCount
                 PickerChip(
-                    label = when (count) {
-                        0 -> "Location"
-                        1 -> locations.flatMap { listOf(it) + it.descendants() }.firstOrNull { it.id in filter[it.kind] }?.name ?: "Location"
-                        else -> "Location · $count"
-                    },
+                    label = locationLabel(locations, filter),
                     noun = "Location",
                     pickedCount = count,
-                    wide = wide,
-                    isOpen = open == "LOCATION",
-                    onOpen = { open = "LOCATION" },
-                    onClose = { open = null },
-                ) { focusSearch -> LocationPicker(locations, filter, onFilter, focusSearch) }
+                    onOpen = { open = LOCATION },
+                    popup = popupFor(LOCATION),
+                    onClose = close,
+                )
             })
         }
         facets.filter { it.kind != FacetKind.YEAR }.forEach(::flat)
@@ -146,26 +181,69 @@ internal fun FacetChipRow(
             items(chips, key = { it.first }) { it.second() }
             item { ClearAll() }
         }
+        // Outside the row, so the sheet stays while its chip scrolls away.
+        if (picker != null) {
+            ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) { picker() }
+        }
+    }
+}
+
+private const val LOCATION = "LOCATION"
+
+/**
+ * What an open picker shows beyond the filter: the search, the location tree's open nodes, and
+ * what was picked when it opened. The chip row holds it, so it outlasts the picker moving
+ * between sheet and popup when the window turns.
+ */
+private class PickerState(val pickedAtOpen: Set<Long>, opened: Set<String>, query: String = "") {
+    var query by mutableStateOf(query)
+    var opened by mutableStateOf(opened)
+
+    companion object {
+        val Saver: Saver<PickerState, Any> = listSaver(
+            save = { listOf(it.query, ArrayList(it.opened), it.pickedAtOpen.toLongArray()) },
+            restore = { saved ->
+                @Suppress("UNCHECKED_CAST")
+                PickerState(
+                    pickedAtOpen = (saved[2] as LongArray).toSet(),
+                    opened = (saved[1] as List<String>).toSet(),
+                    query = saved[0] as String,
+                )
+            },
+        )
     }
 }
 
 /**
- * A dropdown chip, and while [isOpen] its [picker]: under the chip when [wide], else in a
- * bottom sheet. The picker gets whether to focus its search field.
+ * "Location" with nothing picked, the one picked, "Gulen · 9 of 10" when the picks are all in
+ * one place or country (as unticking one of its sites leaves them), else "Location · 3".
  */
-@OptIn(ExperimentalMaterial3Api::class)
+internal fun locationLabel(locations: List<LocationNode>, filter: DiveFilter): String {
+    val nodes = locations.allNodes()
+    val picked = nodes.filter { it.id in filter[it.kind] }
+    return when (picked.size) {
+        0 -> "Location"
+        1 -> picked.single().name
+        else -> nodes.firstOrNull { n -> n.children.isNotEmpty() && n.children.containsAll(picked) }
+            ?.let { "${it.name} · ${picked.size} of ${it.children.size}" }
+            ?: "Location · ${picked.size}"
+    }
+}
+
+/** A dropdown chip, and while [popup] is set that picker under it, no taller than the room below. */
 @Composable
 private fun PickerChip(
     label: String,
     noun: String,
     pickedCount: Int,
-    wide: Boolean,
-    isOpen: Boolean,
     onOpen: () -> Unit,
+    popup: (@Composable ColumnScope.() -> Unit)?,
     onClose: () -> Unit,
-    picker: @Composable ColumnScope.(focusSearch: Boolean) -> Unit,
 ) {
-    Box {
+    var bottom by remember { mutableStateOf(0f) }
+    val windowHeight = LocalWindowInfo.current.containerSize.height
+    val density = LocalDensity.current
+    Box(Modifier.onGloballyPositioned { bottom = it.boundsInWindow().bottom }) {
         FilterChip(
             selected = pickedCount > 0,
             onClick = onOpen,
@@ -177,21 +255,19 @@ private fun PickerChip(
                 stateDescription = if (pickedCount == 0) "Any ${noun.lowercase()}" else "$pickedCount picked"
             },
         )
-        if (isOpen && wide) {
+        if (popup != null) {
+            val room = with(density) { (windowHeight - bottom).toDp() } - 16.dp
             Popup(popupPositionProvider = BelowAnchor, onDismissRequest = onClose, properties = PopupProperties(focusable = true)) {
                 Surface(
-                    Modifier.width(340.dp).heightIn(max = 460.dp),
+                    Modifier.width(340.dp).heightIn(max = room.coerceIn(200.dp, 460.dp)),
                     shape = MaterialTheme.shapes.medium,
                     tonalElevation = 3.dp,
                     shadowElevation = 6.dp,
                 ) {
-                    Column(Modifier.padding(vertical = 8.dp).closeOnEscape(onClose)) { picker(true) }
+                    Column(Modifier.padding(vertical = 8.dp).closeOnEscape(onClose)) { popup() }
                 }
             }
         }
-    }
-    if (isOpen && !wide) {
-        ModalBottomSheet(onDismissRequest = onClose) { picker(false) }
     }
 }
 
@@ -253,18 +329,16 @@ private fun RowScope.NameAndCount(name: String, count: Int, on: Boolean) {
  * opened stays on top, so rows do not jump while ticking.
  */
 @Composable
-private fun ColumnScope.FacetPicker(facet: Facet, onPick: (Set<Long>) -> Unit, focusSearch: Boolean) {
-    var query by remember { mutableStateOf("") }
-    val pickedAtOpen = remember { facet.picked }
-    val typed = query.trim()
+private fun ColumnScope.FacetPicker(facet: Facet, onPick: (Set<Long>) -> Unit, picking: PickerState, focusSearch: Boolean) {
+    val typed = picking.query.trim()
     val shown = facet.options
         .filter { typed.isEmpty() || it.name.contains(typed, ignoreCase = true) }
-        .sortedByDescending { it.id in pickedAtOpen }
+        .sortedByDescending { it.id in picking.pickedAtOpen }
     fun toggle(id: Long) = onPick(if (id in facet.picked) facet.picked - id else facet.picked + id)
 
     PickerHeader(facet.kind.title, facet.picked.isNotEmpty()) { onPick(emptySet()) }
     if (facet.options.size > SEARCH_FROM) {
-        PickerSearch(query, { query = it }, "Find a ${facet.kind.noun.lowercase()}", focusSearch) {
+        PickerSearch(picking.query, { picking.query = it }, "Find a ${facet.kind.noun.lowercase()}", focusSearch) {
             shown.firstOrNull()?.let { toggle(it.id) }
         }
     }
@@ -332,21 +406,18 @@ private fun ColumnScope.LocationPicker(
     locations: List<LocationNode>,
     filter: DiveFilter,
     onFilter: (DiveFilter) -> Unit,
+    picking: PickerState,
     focusSearch: Boolean,
 ) {
-    var query by remember { mutableStateOf("") }
-    var opened by remember {
-        mutableStateOf(locations.flatMap { listOf(it) + it.descendants() }.filter { n -> n.descendants().any { it.id in filter[it.kind] } }.map(::key).toSet())
-    }
-    val typed = query.trim()
-    val rows = treeRows(locations, typed, opened)
-    val total = locations.sumOf { 1 + it.descendants().size }
+    val typed = picking.query.trim()
+    val rows = treeRows(locations, typed, picking.opened)
+    val total = locations.allNodes().size
 
     PickerHeader("Locations", filter.locationCount > 0) {
-        onFilter(filter.with(FacetKind.COUNTRY, emptySet()).with(FacetKind.PLACE, emptySet()).with(FacetKind.SITE, emptySet()))
+        onFilter(filter.withoutLocation())
     }
     if (total > SEARCH_FROM) {
-        PickerSearch(query, { query = it }, "Find a country, place or site", focusSearch) {
+        PickerSearch(picking.query, { picking.query = it }, "Find a country, place or site", focusSearch) {
             rows.firstOrNull { it.path.last().name.contains(typed, ignoreCase = true) }?.let { onFilter(filter.toggleLocation(it.path)) }
         }
     }
@@ -369,7 +440,7 @@ private fun ColumnScope.LocationPicker(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (node.children.isNotEmpty()) {
-                    IconButton(onClick = { opened = if (row.open) opened - key(node) else opened + key(node) }) {
+                    IconButton(onClick = { picking.opened = if (row.open) picking.opened - key(node) else picking.opened + key(node) }) {
                         Icon(
                             if (row.open) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
                             contentDescription = if (row.open) "Close ${node.name}" else "Open ${node.name}",

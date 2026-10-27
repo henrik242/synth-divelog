@@ -154,12 +154,86 @@ class DiveFilterTest {
 
     @Test
     fun savesAndRestores() {
+        fun roundTrip(filter: DiveFilter): DiveFilter? =
+            with(DiveFilter.Saver) { SaverScope { true }.save(filter) }?.let(DiveFilter.Saver::restore)
+        fun picks(filter: DiveFilter?) = filter?.picked?.filterValues { it.isNotEmpty() }
+
         val filter = DiveFilter()
             .with(FacetKind.YEAR, setOf(2020))
             .with(FacetKind.SITE, setOf(1, 2))
             .with(FacetKind.GEAR, setOf(4, 5, 6))
-        val saved = with(DiveFilter.Saver) { SaverScope { true }.save(filter) }
-        val restored = saved?.let(DiveFilter.Saver::restore)
-        FacetKind.entries.forEach { assertEquals(filter[it], restored?.get(it)) }
+        assertEquals(picks(filter), picks(roundTrip(filter)))
+        assertEquals(picks(DiveFilter()), picks(roundTrip(DiveFilter())))
+        val tagOnly = DiveFilter().with(FacetKind.TAG, setOf(9))
+        assertEquals(picks(tagOnly), picks(roundTrip(tagOnly)))
+    }
+
+    @Test
+    fun theYearIsTheDivesLocalOne() {
+        // 2020-12-31 23:30 UTC is already 2021 at +02:00.
+        val newYear = Dive(id = 1, startEpochSeconds = 1_609_457_400, utcOffsetSeconds = 7_200, durationSeconds = 0)
+        assertEquals(2021L, yearOf(newYear))
+        assertTrue(DiveFilter().with(FacetKind.YEAR, setOf(2021)).matches(newYear, links))
+    }
+
+    @Test
+    fun countsTakeThePickedLocationIntoAccount() {
+        val placed = world.copy(buddies = mapOf(1L to setOf(10L), 4L to setOf(10L)))
+        val names = worldNames + (FacetKind.BUDDY to mapOf(10L to "Alex"))
+        val egypt = DiveFilter().with(FacetKind.COUNTRY, setOf(500))
+        // Alex dived dive 1 in Egypt and dive 4 in Sweden; with Egypt picked, one counts.
+        val alex = egypt.facets(worldDives, placed, names).single { it.kind == FacetKind.BUDDY }.options.single()
+        assertEquals(1, alex.count)
+        // With Alex picked, Egypt has one dive and Sweden one.
+        val withAlex = DiveFilter().with(FacetKind.BUDDY, setOf(10)).locations(worldDives, worldDives, placed, names)
+        assertEquals(listOf(1, 1), withAlex.map { it.count })
+    }
+
+    @Test
+    fun moreTickingRules() {
+        val egypt = DiveFilter().locations(worldDives, worldDives, world, worldNames).first()
+        val hurghada = egypt.children.single { it.name == "Hurghada" }
+        val reef = hurghada.children.single { it.name == "Reef" }
+
+        // A site picked on its own is simply unpicked.
+        val site = DiveFilter().toggleLocation(listOf(egypt, hurghada, reef))
+        assertTrue(site.toggleLocation(listOf(egypt, hurghada, reef)).isEmpty)
+
+        // Unticking a place under a picked country keeps the country's other places.
+        val withoutHurghada = DiveFilter().with(FacetKind.COUNTRY, setOf(500)).toggleLocation(listOf(egypt, hurghada))
+        assertEquals(setOf(51L), withoutHurghada[FacetKind.PLACE])
+        assertTrue(withoutHurghada[FacetKind.COUNTRY].isEmpty())
+
+        // Ticking the country drops the place and site picked under it.
+        val mixed = DiveFilter().with(FacetKind.PLACE, setOf(51)).with(FacetKind.SITE, setOf(5)).toggleLocation(listOf(egypt))
+        assertEquals(setOf(500L), mixed[FacetKind.COUNTRY])
+        assertTrue(mixed[FacetKind.PLACE].isEmpty())
+        assertTrue(mixed[FacetKind.SITE].isEmpty())
+    }
+
+    @Test
+    fun locationChipLabel() {
+        val tree = DiveFilter().locations(worldDives, worldDives, world, worldNames)
+        val egypt = tree.first()
+        val hurghada = egypt.children.single { it.name == "Hurghada" }
+        val reef = hurghada.children.single { it.name == "Reef" }
+        assertEquals("Location", locationLabel(tree, DiveFilter()))
+        assertEquals("Egypt", locationLabel(tree, DiveFilter().with(FacetKind.COUNTRY, setOf(500))))
+        // Unticking the reef under a ticked Hurghada leaves its wreck: one of its two sites.
+        val withoutReef = DiveFilter().with(FacetKind.PLACE, setOf(50)).toggleLocation(listOf(egypt, hurghada, reef))
+        assertEquals("Wreck", locationLabel(tree, withoutReef))
+        val twoPlaces = DiveFilter().with(FacetKind.PLACE, setOf(50, 51))
+        assertEquals("Egypt · 2 of 2", locationLabel(tree, twoPlaces))
+        val apart = DiveFilter().with(FacetKind.PLACE, setOf(50, 60))
+        assertEquals("Location · 2", locationLabel(tree, apart))
+    }
+
+    @Test
+    fun placesAndSitesWithoutTheirParentSitAtTheTop() {
+        // Site 9 has no place; place 70 has no country.
+        val orphans = world.copy(sitePlaces = world.sitePlaces + (10L to 70L))
+        val dives = listOf(dive(1, siteId = 9), dive(2, siteId = 10))
+        val tree = DiveFilter().locations(dives, dives, orphans, worldNames)
+        assertEquals(setOf(FacetKind.SITE to 9L, FacetKind.PLACE to 70L), tree.map { it.kind to it.id }.toSet())
     }
 }
