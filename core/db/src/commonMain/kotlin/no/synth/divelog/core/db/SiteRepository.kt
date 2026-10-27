@@ -1,6 +1,7 @@
 package no.synth.divelog.core.db
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import no.synth.divelog.core.db.sql.DiveDatabase
 import no.synth.divelog.core.model.Country
 import no.synth.divelog.core.model.Place
@@ -50,6 +51,8 @@ class SiteRepository(private val db: DiveDatabase) {
 
     /** Every place by id. */
     fun allPlaces(): Map<Long, Place> = q.selectAllPlaces().executeAsList().associate { it.id to it.toDomain() }
+
+    fun allPlacesFlow(): Flow<Map<Long, Place>> = q.selectAllPlaces().listFlow { it.toDomain() }.map { list -> list.associateBy { it.id } }
 
     fun updatePlace(place: Place) = q.updatePlace(place.countryId, place.name, place.id)
 

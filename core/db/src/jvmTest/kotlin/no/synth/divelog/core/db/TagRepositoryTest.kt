@@ -28,6 +28,7 @@ class TagRepositoryTest {
 
         assertEquals(listOf("CCR"), tags.tagsForDive(dive1).map { it.name })
         assertEquals(setOf(dive1, dive2), tags.divesForTag(ccr).map { it.id }.toSet())
+        assertEquals(mapOf(dive1 to setOf(ccr), dive2 to setOf(ccr)), tags.tagIdsByDive())
     }
 
     @Test

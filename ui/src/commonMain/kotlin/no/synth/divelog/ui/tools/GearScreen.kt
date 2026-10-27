@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.map
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.todayIn
@@ -48,9 +50,12 @@ import kotlin.time.Clock
 
 internal fun today(): LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault())
 
-/** One piece of gear, saved as it is edited, and its services. [onDeleted] runs after a delete. */
+/**
+ * One piece of gear, saved as it is edited, and its services. [onDeleted] runs after a
+ * delete; [onShowDives] shows the dives it was used on.
+ */
 @Composable
-internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: () -> Unit) {
+internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: () -> Unit, onShowDives: () -> Unit) {
     val item = remember(gearId) { container.gear.get(gearId) } ?: run {
         Text("Gear not found", Modifier.padding(16.dp)); return
     }
@@ -59,6 +64,7 @@ internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: ()
     // As last saved, so a half-typed date or price keeps the saved value.
     var saved by remember(gearId) { mutableStateOf(item) }
     val services = observe(gearId, read = { container.gear.services(gearId) }, flow = { container.gear.servicesFlow(gearId) })
+    val diveCount = observe(gearId, read = { container.gear.diveIdsForGear(gearId).size }, flow = { container.gear.diveIdsForGearFlow(gearId).map { it.size } })
     var editingService by remember(gearId) { mutableStateOf<GearService?>(null) }
     var confirmDelete by remember(gearId) { mutableStateOf(false) }
 
@@ -96,7 +102,11 @@ internal fun GearItemScreen(container: AppContainer, gearId: Long, onDeleted: ()
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onShowDives, enabled = diveCount > 0) {
+                Text(if (diveCount == 1) "Used in 1 dive" else "Used in $diveCount dives")
+            }
+            Spacer(Modifier.weight(1f))
             if (draft != original) TextButton(onClick = { draft = original; saved = item; container.gear.update(item) }) { Text("Undo changes") }
             TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
         }

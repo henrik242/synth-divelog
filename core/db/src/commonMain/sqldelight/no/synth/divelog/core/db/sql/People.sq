@@ -51,6 +51,9 @@ SELECT diveBuddy.diveId, buddy.name FROM buddy
 JOIN diveBuddy ON diveBuddy.buddyId = buddy.id
 ORDER BY diveBuddy.diveId, buddy.name;
 
+selectDiveBuddyLinks:
+SELECT diveId, buddyId FROM diveBuddy;
+
 selectDiveIdsForBuddy:
 SELECT diveId FROM diveBuddy WHERE buddyId = ?;
 

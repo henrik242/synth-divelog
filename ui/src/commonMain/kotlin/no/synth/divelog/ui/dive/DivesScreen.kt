@@ -1,29 +1,35 @@
 package no.synth.divelog.ui.dive
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.Waves
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,7 +49,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.logbook.AppContainer
@@ -75,6 +84,10 @@ fun DivesScreen(
     onOpenDevice: (Long) -> Unit,
     onOpenSite: (Long) -> Unit,
     onOpenGear: (Long) -> Unit,
+    query: String,
+    onQuery: (String) -> Unit,
+    filter: DiveFilter,
+    onFilter: (DiveFilter) -> Unit,
     onDeleted: () -> Unit,
     onAddDives: () -> Unit,
     canDownload: Boolean,
@@ -86,32 +99,62 @@ fun DivesScreen(
     val siteNames = remember(sites) { sites.associate { it.id to it.name } }
     val sourcesByDive = observe(container, read = container.dives::sourcesByDive, flow = container.dives::sourcesByDiveFlow)
     val sources = remember(sourcesByDive) { sourceLabels(sourcesByDive) }
-    var query by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(DiveSort.DATE) }
-    var selectedYear by rememberSaveable { mutableStateOf<Int?>(null) }
     val listState = rememberLazyListState()
     var selecting by rememberSaveable { mutableStateOf(false) }
     var selection by rememberSaveable(stateSaver = DiveSelection.Saver) { mutableStateOf(DiveSelection()) }
     var dialog by rememberSaveable { mutableStateOf<SelectionDialog?>(null) }
 
-    val years = remember(dives) {
-        dives.map { Format.year(it.startEpochSeconds, it.utcOffsetSeconds) }.distinct().sortedDescending()
+    val buddies = observe(container, read = container.buddies::all, flow = container.buddies::allFlow)
+    val tags = observe(container, read = container.tags::all, flow = container.tags::allFlow)
+    val gear = observe(container, read = container.gear::all, flow = container.gear::allFlow)
+    val places = observe(container, read = container.sites::allPlaces, flow = container.sites::allPlacesFlow)
+    val countries = observe(container, read = container.sites::countries, flow = container.sites::countriesFlow)
+    val countryNames = remember(countries) { countries.associate { it.id to it.name } }
+    // "Place, Country" per site, so the search finds dives by place and country too.
+    val siteDetails = remember(sites, places, countryNames) {
+        sites.associate { site ->
+            val place = places[site.placeId]
+            site.id to listOfNotNull(place?.name, place?.let { countryNames[it.countryId] }).joinToString(", ")
+        }
+    }
+    val links = DiveLinks(
+        buddies = observe(container, read = container.buddies::buddyIdsByDive, flow = container.buddies::buddyIdsByDiveFlow),
+        tags = observe(container, read = container.tags::tagIdsByDive, flow = container.tags::tagIdsByDiveFlow),
+        gear = observe(container, read = container.gear::gearIdsByDive, flow = container.gear::gearIdsByDiveFlow),
+        sitePlaces = remember(sites) { sites.associate { it.id to it.placeId } },
+        placeCountries = remember(places) { places.mapValues { it.value.countryId } },
+    )
+    // The search narrows first; the facets count within what it leaves.
+    val searched = remember(dives, query, siteNames, siteDetails) {
+        val q = query.trim().lowercase()
+        dives.filter { d ->
+            if (q.isEmpty()) true
+            else {
+                val site = d.siteId?.let { siteNames[it] } ?: ""
+                d.number?.toString()?.contains(q) == true ||
+                    site.lowercase().contains(q) ||
+                    d.siteId?.let { siteDetails[it] }?.lowercase()?.contains(q) == true ||
+                    Format.date(d.startEpochSeconds, d.utcOffsetSeconds).lowercase().contains(q) ||
+                    (d.notes?.lowercase()?.contains(q) == true)
+            }
+        }
+    }
+    val (facets, locations) = remember(filter, dives, searched, siteNames, places, countryNames, buddies, tags, gear, links) {
+        val names = mapOf(
+            FacetKind.COUNTRY to countryNames,
+            FacetKind.PLACE to places.mapValues { it.value.name },
+            FacetKind.SITE to siteNames,
+            FacetKind.BUDDY to buddies.associate { it.id to it.name },
+            FacetKind.TAG to tags.associate { it.id to it.name },
+            FacetKind.GEAR to gear.associate { it.id to it.name },
+        )
+        filter.facets(searched, links, names) to filter.locations(dives, searched, links, names)
     }
 
-    val shown = remember(dives, query, sort, selectedYear, siteNames) {
-        val q = query.trim().lowercase()
-        dives
-            .filter { selectedYear == null || Format.year(it.startEpochSeconds, it.utcOffsetSeconds) == selectedYear }
-            .filter { d ->
-                if (q.isEmpty()) true
-                else {
-                    val site = d.siteId?.let { siteNames[it] } ?: ""
-                    d.number?.toString()?.contains(q) == true ||
-                        site.lowercase().contains(q) ||
-                        Format.date(d.startEpochSeconds, d.utcOffsetSeconds).lowercase().contains(q) ||
-                        (d.notes?.lowercase()?.contains(q) == true)
-                }
-            }
+    val shown = remember(searched, sort, filter, links) {
+        searched
+            .filter { filter.matches(it, links) }
             .sortedWith(
                 when (sort) {
                     DiveSort.DATE -> compareByDescending { it.startEpochSeconds }
@@ -228,41 +271,18 @@ fun DivesScreen(
                     Icons.Outlined.Waves,
                 )
             } else {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("Search") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                )
-                LazyRow(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(DiveSort.entries.toList()) { s ->
-                        FilterChip(selected = sort == s, onClick = { sort = s }, label = { Text(s.label) })
-                    }
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = onQuery,
+                        label = { Text("Search") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    SortButton(sort) { sort = it }
                 }
-                if (years.size > 1) {
-                    LazyRow(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        item {
-                            FilterChip(
-                                selected = selectedYear == null,
-                                onClick = { selectedYear = null },
-                                label = { Text("All") },
-                            )
-                        }
-                        items(years) { y ->
-                            FilterChip(
-                                selected = selectedYear == y,
-                                onClick = { selectedYear = if (selectedYear == y) null else y },
-                                label = { Text("$y") },
-                            )
-                        }
-                    }
+                BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    FacetChipRow(facets, locations, filter, onFilter, wide = maxWidth >= 600.dp)
                 }
                 LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 88.dp)) {
                     if (grouped != null) {
@@ -405,6 +425,29 @@ private fun DeleteDivesDialog(count: Int, hidden: Int, onDelete: () -> Unit, onD
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** The sort beside the search field, with a dot when it is not by date. */
+@Composable
+private fun SortButton(sort: DiveSort, onSort: (DiveSort) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            BadgedBox(badge = { if (sort != DiveSort.DATE) Badge() }) {
+                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort, by ${sort.label.lowercase()}")
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DiveSort.entries.forEach { s ->
+                DropdownMenuItem(
+                    text = { Text(s.label) },
+                    leadingIcon = { if (s == sort) Icon(Icons.Filled.Check, contentDescription = null) else Spacer(Modifier.size(24.dp)) },
+                    onClick = { expanded = false; onSort(s) },
+                    modifier = Modifier.semantics { role = Role.RadioButton; selected = s == sort },
+                )
+            }
+        }
+    }
 }
 
 private enum class DiveSort(val label: String) { DATE("Date"), NUMBER("Number"), DEPTH("Depth"), DURATION("Duration") }

@@ -80,6 +80,12 @@ JOIN diveGear ON diveGear.gearId = gear.id
 WHERE diveGear.diveId = ?
 ORDER BY gear.name COLLATE NOCASE, gear.id;
 
+selectDiveGearLinks:
+SELECT diveId, gearId FROM diveGear;
+
+selectDiveIdsForGear:
+SELECT diveId FROM diveGear WHERE gearId = ?;
+
 -- Copies one dive's gear onto another, skipping what it already has.
 copyDiveGear:
 INSERT OR IGNORE INTO diveGear(diveId, gearId) SELECT :targetDiveId, gearId FROM diveGear WHERE diveId = :sourceDiveId;
