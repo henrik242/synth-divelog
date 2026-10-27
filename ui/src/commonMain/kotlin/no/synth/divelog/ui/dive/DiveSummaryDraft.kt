@@ -1,6 +1,5 @@
 package no.synth.divelog.ui.dive
 
-import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -11,6 +10,8 @@ import no.synth.divelog.core.model.Dive
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.core.model.units.Units
 import no.synth.divelog.core.model.units.ZERO_CELSIUS_MK
+import no.synth.divelog.ui.components.dateOfMillis
+import no.synth.divelog.ui.components.parseDate
 import no.synth.divelog.ui.components.parseDecimal
 import no.synth.divelog.ui.components.trimmedDecimal
 import kotlin.math.roundToInt
@@ -47,7 +48,7 @@ internal data class DiveSummaryDraft(
 
     /** This draft with the date the picker gave, UTC midnight in epoch milliseconds. */
     fun withDateMillis(millis: Long): DiveSummaryDraft =
-        copy(date = Instant.fromEpochMilliseconds(millis).toLocalDateTime(TimeZone.UTC).date.toString())
+        copy(date = dateOfMillis(millis).toString())
 
     /** [dive] with every field that parses taken from this draft. */
     fun applyTo(dive: Dive, system: UnitSystem): Dive {
@@ -87,12 +88,6 @@ internal data class DiveSummaryDraft(
             Instant.fromEpochSeconds(dive.startEpochSeconds + dive.utcOffsetSeconds).toLocalDateTime(TimeZone.UTC)
 
         private fun two(v: Int) = v.toString().padStart(2, '0')
-
-        /** The years the date picker shows (Material 3's default); it fails on a date outside them. */
-        private val YEARS = 1900..2100
-
-        private fun parseDate(text: String): LocalDate? =
-            runCatching { LocalDate.parse(text.trim()) }.getOrNull()?.takeIf { it.year in YEARS }
 
         private fun parseTime(text: String): LocalTime? {
             val (h, m) = text.trim().split(':').takeIf { it.size == 2 }?.map { it.toIntOrNull() } ?: return null

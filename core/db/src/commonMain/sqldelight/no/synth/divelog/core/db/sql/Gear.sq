@@ -1,0 +1,63 @@
+-- The diver's equipment. Dates are days since 1970-01-01, prices in hundredths.
+CREATE TABLE gear (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT,
+    brand TEXT,
+    model TEXT,
+    serialNumber TEXT,
+    purchasedEpochDay INTEGER,
+    purchasePriceCents INTEGER,
+    shop TEXT,
+    notes TEXT,
+    -- 1 when no longer in use.
+    retired INTEGER NOT NULL DEFAULT 0
+);
+
+-- One service of a piece of gear.
+CREATE TABLE gearService (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gearId INTEGER NOT NULL REFERENCES gear(id) ON DELETE CASCADE,
+    epochDay INTEGER NOT NULL,
+    notes TEXT
+);
+
+CREATE INDEX gearService_gear ON gearService(gearId);
+
+insertGear:
+INSERT INTO gear(name, kind, brand, model, serialNumber, purchasedEpochDay, purchasePriceCents, shop, notes, retired)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateGear:
+UPDATE gear SET name = ?, kind = ?, brand = ?, model = ?, serialNumber = ?, purchasedEpochDay = ?,
+    purchasePriceCents = ?, shop = ?, notes = ?, retired = ?
+WHERE id = ?;
+
+deleteGear:
+DELETE FROM gear WHERE id = ?;
+
+selectAllGear:
+SELECT * FROM gear ORDER BY name COLLATE NOCASE, id;
+
+selectGearById:
+SELECT * FROM gear WHERE id = ?;
+
+insertService:
+INSERT INTO gearService(gearId, epochDay, notes) VALUES (?, ?, ?);
+
+updateService:
+UPDATE gearService SET epochDay = ?, notes = ? WHERE id = ?;
+
+deleteService:
+DELETE FROM gearService WHERE id = ?;
+
+-- Newest first.
+selectServicesForGear:
+SELECT * FROM gearService WHERE gearId = ? ORDER BY epochDay DESC, id DESC;
+
+-- The latest service per piece of gear.
+selectLastServices:
+SELECT gearId, max(epochDay) AS epochDay FROM gearService GROUP BY gearId;
+
+lastInsertRowId:
+SELECT last_insert_rowid();

@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Backpack
 import androidx.compose.material.icons.outlined.Height
 import androidx.compose.material.icons.outlined.Scale
 import androidx.compose.material.icons.outlined.Science
@@ -25,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.model.units.UnitSystem
 
 /** The calculators under the Tools tab. */
@@ -33,11 +35,13 @@ enum class Tool(val label: String, val description: String, val icon: ImageVecto
     TANK_BUOYANCY("Tank buoyancy", "How much a cylinder floats or sinks, full and empty", Icons.Outlined.Scale),
     MOD_END("MOD / END", "Maximum operating depth and equivalent narcotic depth of a mix", Icons.Outlined.Height),
     DIVE_PLANNER("Dive planner", "Decompression plan with Buhlmann ZHL-16C and gradient factors", Icons.Outlined.Timeline),
+    GEAR("Gear", "Your equipment with purchase and service dates", Icons.Outlined.Backpack),
 }
 
 /**
  * The Tools tab: a list of [Tool]s, or the open [tool]. [blender], [tank], [modEnd] and
- * [planner] keep their inputs across tab switches.
+ * [planner] keep their inputs across tab switches. [onOpenGear] opens a piece of gear and
+ * [onImportGear] imports a gear list.
  */
 @Composable
 fun ToolsSection(
@@ -48,6 +52,9 @@ fun ToolsSection(
     modEnd: ModEndState,
     planner: DivePlannerState,
     unitSystem: UnitSystem,
+    container: AppContainer,
+    onOpenGear: (Long) -> Unit,
+    onImportGear: (() -> Unit)?,
     onTopBarActions: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
 ) {
     when (tool) {
@@ -55,6 +62,7 @@ fun ToolsSection(
         Tool.TANK_BUOYANCY -> TankBuoyancyScreen(tank, unitSystem)
         Tool.MOD_END -> ModEndScreen(modEnd, unitSystem)
         Tool.DIVE_PLANNER -> DivePlannerScreen(planner, unitSystem, onTopBarActions)
+        Tool.GEAR -> GearListScreen(container, onOpenGear, onImportGear, onTopBarActions)
         null -> Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

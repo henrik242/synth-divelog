@@ -9,6 +9,7 @@ import no.synth.divelog.core.formats.DiveEntry
 import no.synth.divelog.core.formats.DiveFormat
 import no.synth.divelog.core.formats.DiveLog
 import no.synth.divelog.core.formats.GitLogFormat
+import no.synth.divelog.core.formats.MacDiveGearCsv
 import no.synth.divelog.core.formats.MacDiveXml
 import no.synth.divelog.core.formats.SiteRef
 import no.synth.divelog.core.formats.SubsurfaceXml
@@ -141,6 +142,14 @@ class LogbookIo(private val container: AppContainer) {
         val export = runCatching { readShearwaterCloudExport(bytes) }
             .getOrElse { return "Not a Shearwater Cloud export: ${it.message ?: it::class.simpleName}" }
         return importShearwaterCloud(export, onProgress)
+    }
+
+    /** Import a MacDive gear list (CSV), skipping gear already here. Returns a user-facing summary. */
+    fun importGearMessage(bytes: ByteArray): String {
+        val gear = runCatching { MacDiveGearCsv.parse(bytes.decodeToString()) }
+            .getOrElse { return "Not a MacDive gear list: ${it.message ?: it::class.simpleName}" }
+        val added = container.gear.import(gear)
+        return "Imported $added, skipped ${gear.size - added} already here"
     }
 
     internal fun importShearwaterCloud(

@@ -11,6 +11,9 @@ import no.synth.divelog.core.model.DiveMode
 import no.synth.divelog.core.model.Event
 import no.synth.divelog.core.model.EventType
 import no.synth.divelog.core.model.GasMix
+import no.synth.divelog.core.model.GearItem
+import no.synth.divelog.core.model.GearKind
+import no.synth.divelog.core.model.GearService
 import no.synth.divelog.core.model.Place
 import no.synth.divelog.core.model.Sample
 import no.synth.divelog.core.model.Site
@@ -23,6 +26,8 @@ import no.synth.divelog.core.db.sql.Dive as DiveRow
 import no.synth.divelog.core.db.sql.Event as EventRow
 import no.synth.divelog.core.db.sql.FindByDeviceAndFingerprint
 import no.synth.divelog.core.db.sql.GasMix as GasMixRow
+import no.synth.divelog.core.db.sql.Gear as GearRow
+import no.synth.divelog.core.db.sql.GearService as GearServiceRow
 import no.synth.divelog.core.db.sql.Place as PlaceRow
 import no.synth.divelog.core.db.sql.Sample as SampleRow
 import no.synth.divelog.core.db.sql.SelectAllRecordSummaries
@@ -49,6 +54,22 @@ internal fun SiteRow.toDomain() = Site(
 internal fun BuddyRow.toDomain() = Buddy(id = id, name = name)
 
 internal fun TagRow.toDomain() = Tag(id = id, name = name)
+
+internal fun GearRow.toDomain() = GearItem(
+    id = id,
+    name = name,
+    kind = GearKind.fromStored(kind),
+    brand = brand,
+    model = model,
+    serialNumber = serialNumber,
+    purchasedEpochDay = purchasedEpochDay?.toInt(),
+    purchasePriceCents = purchasePriceCents,
+    shop = shop,
+    notes = notes,
+    retired = retired != 0L,
+)
+
+internal fun GearServiceRow.toDomain() = GearService(id = id, gearId = gearId, epochDay = epochDay.toInt(), notes = notes)
 
 internal fun DeviceRow.toDomain() = Device(
     id = id,
