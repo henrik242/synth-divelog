@@ -30,7 +30,7 @@ private val libraries = listOf(
     Attribution("SQLite JDBC", "Desktop database driver", "Apache 2.0"),
     Attribution("SQLiter", "iOS database driver", "Apache 2.0"),
     Attribution("xmlutil", "XML logbook formats", "Apache 2.0"),
-    Attribution("kmp-zip", "Gzip for Shearwater Cloud files", "MPL 2.0"),
+    Attribution("kmp-zip", "Gzip for backups and Shearwater Cloud files", "MPL 2.0"),
     Attribution("MapLibre Compose", "Map view", "BSD 3-Clause"),
     Attribution("MapLibre Native", "Map rendering", "BSD 2-Clause"),
     Attribution("JGit", "Subsurface cloud sync", "EDL 1.0"),

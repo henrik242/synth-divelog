@@ -4,8 +4,8 @@ import app.cash.sqldelight.driver.native.NativeSqliteDriver
 import no.synth.divelog.core.db.sql.DiveDatabase
 
 /** Opens the app database, creating or migrating it, with foreign keys enforced. */
-fun createDatabase(): DiveDatabase =
-    DiveDatabase(
+fun createDatabase(): AppDatabase =
+    AppDatabase(
         NativeSqliteDriver(
             schema = DiveDatabase.Schema,
             name = "divelog.db",

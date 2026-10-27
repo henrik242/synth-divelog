@@ -33,6 +33,7 @@ import no.synth.divelog.core.logbook.download.DownloadAmount
 import no.synth.divelog.core.logbook.download.DownloadController
 import no.synth.divelog.core.logbook.download.KnownComputer
 import no.synth.divelog.core.logbook.download.SerialPortInfo
+import no.synth.divelog.core.logbook.reason
 import no.synth.divelog.core.logbook.sync.CloudSync
 import no.synth.divelog.core.model.Dive
 import no.synth.divelog.ui.components.CloudCredentialsDialog
@@ -122,7 +123,7 @@ internal class AddDivesFlow(
                     )
                 }.getOrElse {
                     if (it is CancellationException) throw it
-                    "Download failed: ${it.message ?: it::class.simpleName}"
+                    "Download failed: ${it.reason}"
                 }
             } finally {
                 hooks.onDownloadActive(false)
@@ -139,7 +140,7 @@ internal class AddDivesFlow(
             val message = withContext(Dispatchers.Default) {
                 runCatching {
                     services.logbook.importFileMessage(bytes) { done, total -> importProgress = ImportProgress.importing(done, total) }
-                }.getOrElse { "Import failed: ${it.message ?: it::class.simpleName}" }
+                }.getOrElse { "Import failed: ${it.reason}" }
             }
             importProgress = null
             snackbar.showSnackbar(message)
@@ -157,7 +158,7 @@ internal class AddDivesFlow(
                 withContext(Dispatchers.Default) {
                     services.logbook.cloudImportMessage(files) { done, total -> importProgress = ImportProgress.importing(done, total) }
                 }
-            }.getOrElse { "Cloud import failed: ${it.message ?: it::class.simpleName}" }
+            }.getOrElse { "Cloud import failed: ${it.reason}" }
             importProgress = null
             snackbar.showSnackbar(message)
         }

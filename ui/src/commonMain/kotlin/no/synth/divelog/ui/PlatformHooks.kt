@@ -3,6 +3,7 @@ package no.synth.divelog.ui
 import no.synth.divelog.core.logbook.download.DiveComputerType
 import no.synth.divelog.core.logbook.download.NoSerialPorts
 import no.synth.divelog.core.logbook.download.SerialPorts
+import no.synth.divelog.core.logbook.io.BackupFolders
 import no.synth.divelog.core.logbook.io.ExportFile
 
 /**
@@ -14,6 +15,7 @@ import no.synth.divelog.core.logbook.io.ExportFile
  * - [saveExport]: saves an exported logbook to a file the user picks; false if cancelled.
  * - [shareExport]: hands an exported logbook to another app (a share sheet).
  *   Null hides that button in the export dialog; with both null there is no export.
+ * - [backupFolders]: picks and reaches a folder for automatic backups. Null hides automatic backup.
  * - [prepareDownload]: runs before the download picker opens (runtime permissions).
  * - [downloadHint]: a platform's connection note, shown in the picker after the shared one (`connectHint`).
  * - [onDownloadActive]: brackets a running download (keep the process awake);
@@ -26,6 +28,7 @@ class PlatformHooks(
     val pickImportFile: (suspend () -> ByteArray?)? = null,
     val saveExport: (suspend (ExportFile) -> Boolean)? = null,
     val shareExport: (suspend (ExportFile) -> Unit)? = null,
+    val backupFolders: BackupFolders? = null,
     val prepareDownload: suspend () -> Unit = {},
     val downloadHint: (DiveComputerType) -> String? = { null },
     val onDownloadActive: (Boolean) -> Unit = {},

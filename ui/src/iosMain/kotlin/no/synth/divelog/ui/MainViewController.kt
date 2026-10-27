@@ -8,6 +8,7 @@ import no.synth.divelog.core.logbook.AppServices
 import no.synth.divelog.core.logbook.download.IosSerialPorts
 import no.synth.divelog.core.logbook.settings.AppSettings
 import no.synth.divelog.core.logbook.settings.UserDefaultsStore
+import no.synth.divelog.ui.io.BookmarkBackupFolders
 import no.synth.divelog.ui.io.pickDocument
 import no.synth.divelog.ui.io.shareDocument
 import platform.UIKit.UIApplication
@@ -20,7 +21,8 @@ private val services by lazy { AppServices(createDatabase(), UserDefaultsStore()
  * iOS entry point: hosts the shared Compose UI in a UIViewController for the Swift app
  * to present. Dive computers download over Bluetooth LE only (the newer Shearwaters); there is
  * no git client, so cloud sync is unavailable. Files are imported through the document
- * picker and exported through the share sheet (Share in the export dialog).
+ * picker and exported through the share sheet (Share in the export dialog); automatic backups
+ * go to a folder picked in the document picker.
  * [setCrashReporting] switches Crashlytics, which lives on the Swift side.
  */
 fun MainViewController(setCrashReporting: (Boolean) -> Unit): UIViewController = ComposeUIViewController {
@@ -33,6 +35,7 @@ fun MainViewController(setCrashReporting: (Boolean) -> Unit): UIViewController =
             pickImportFile = { pickDocument(host) },
             // The share sheet includes Save to Files.
             shareExport = { shareDocument(host, it) },
+            backupFolders = BookmarkBackupFolders(host),
             setCrashReporting = setCrashReporting,
         )
     }

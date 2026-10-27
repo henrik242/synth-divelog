@@ -46,12 +46,14 @@ class MainActivity : ComponentActivity() {
             val pickImportFile = rememberImportFilePick(this)
             val saveExport = rememberExportSave(this)
             val prepareDownload = rememberDownloadPermissionRequest(this)
+            val backupFolders = rememberBackupFolders(applicationContext)
             val hooks = remember {
                 PlatformHooks(
                     serialPorts = AndroidSerialPorts(applicationContext).let { if (simulatorRequested()) SimulatedSerialPorts(it) else it },
                     pickImportFile = pickImportFile,
                     saveExport = saveExport,
                     shareExport = ::shareExport,
+                    backupFolders = backupFolders,
                     prepareDownload = prepareDownload,
                     downloadHint = ::downloadHint,
                     // A foreground service holds the process awake and shows the progress;
@@ -115,7 +117,7 @@ class MainActivity : ComponentActivity() {
  * caller) goes to [onUnclaimed].
  */
 @Composable
-private fun <I, O> rememberActivityResult(
+internal fun <I, O> rememberActivityResult(
     contract: ActivityResultContract<I, O>,
     onUnclaimed: (O) -> Unit = {},
 ): suspend (I) -> O? {

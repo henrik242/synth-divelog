@@ -17,6 +17,7 @@ import platform.UIKit.UIDocumentPickerDelegateProtocol
 import platform.UIKit.UIDocumentPickerViewController
 import platform.UIKit.UIViewController
 import platform.UIKit.popoverPresentationController
+import platform.UniformTypeIdentifiers.UTTypeFolder
 import platform.UniformTypeIdentifiers.UTTypeItem
 import platform.darwin.NSObject
 
@@ -27,6 +28,19 @@ private var pickerDelegate: UIDocumentPickerDelegateProtocol? = null
  * when cancelled. The picker hands over a copy, so no security-scoped access is needed.
  */
 suspend fun pickDocument(host: UIViewController): ByteArray? {
+    val picker = UIDocumentPickerViewController(forOpeningContentTypes = listOf(UTTypeItem), asCopy = true)
+    return present(host, picker)?.let { NSData.dataWithContentsOfURL(it)?.toByteArray() }
+}
+
+/**
+ * Lets the user pick a folder in the system document picker and returns it, or null when
+ * cancelled. The app may reach it only between start and stop of its security-scoped access.
+ */
+suspend fun pickFolder(host: UIViewController): NSURL? =
+    present(host, UIDocumentPickerViewController(forOpeningContentTypes = listOf(UTTypeFolder)))
+
+/** Shows [picker] and returns the first URL picked, or null when cancelled. */
+private suspend fun present(host: UIViewController, picker: UIDocumentPickerViewController): NSURL? {
     val result = CompletableDeferred<NSURL?>()
     val delegate = object : NSObject(), UIDocumentPickerDelegateProtocol {
         override fun documentPicker(controller: UIDocumentPickerViewController, didPickDocumentsAtURLs: List<*>) {
@@ -37,17 +51,15 @@ suspend fun pickDocument(host: UIViewController): ByteArray? {
             result.complete(null)
         }
     }
-    val picker = UIDocumentPickerViewController(forOpeningContentTypes = listOf(UTTypeItem), asCopy = true)
     picker.delegate = delegate
     // The picker holds its delegate weakly; keep it until the picker answers.
     pickerDelegate = delegate
     host.presentViewController(picker, animated = true, completion = null)
-    val url = try {
+    return try {
         result.await()
     } finally {
         pickerDelegate = null
     }
-    return url?.let { NSData.dataWithContentsOfURL(it)?.toByteArray() }
 }
 
 /** Writes [export] to a temporary file and offers it in the share sheet (Save to Files, AirDrop, mail). */

@@ -6,8 +6,8 @@ import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import no.synth.divelog.core.db.sql.DiveDatabase
 
 /** Opens the app database, creating or migrating it, with foreign keys enforced. */
-fun createDatabase(context: Context): DiveDatabase =
-    DiveDatabase(
+fun createDatabase(context: Context): AppDatabase =
+    AppDatabase(
         AndroidSqliteDriver(
             schema = DiveDatabase.Schema,
             context = context,

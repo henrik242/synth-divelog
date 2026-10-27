@@ -20,7 +20,7 @@ kotlin {
             implementation(libs.kotlinx.datetime)
             // Shearwater Cloud exports carry JSON blobs.
             implementation(libs.kotlinx.serialization.json)
-            // Gzip for Shearwater Cloud blobs.
+            // Gzip for backups and Shearwater Cloud blobs.
             implementation(libs.kmp.zip)
         }
         getByName("jvmAndAndroidMain").dependencies {
@@ -34,6 +34,8 @@ kotlin {
         // A raw driver for tests that count queries.
         jvmTest.dependencies {
             implementation(libs.sqldelight.driver.sqlite)
+            // Virtual time for the automatic backup's waits.
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }

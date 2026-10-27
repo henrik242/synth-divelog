@@ -47,6 +47,46 @@ class AppSettings(private val store: SettingsStore) : ConnectionMemory {
         get() = store.getString(KEY_CRASH_REPORTING) != "false"
         set(value) = store.putString(KEY_CRASH_REPORTING, value.toString())
 
+    /** Where automatic backups go, as the platform named it when the user picked it; null for none. */
+    var backupFolder: String?
+        get() = store.getString(KEY_BACKUP_FOLDER)?.takeIf { it.isNotEmpty() }
+        set(value) = store.putString(KEY_BACKUP_FOLDER, value ?: "")
+
+    /** When the last backup was saved to a file or written automatically. */
+    var lastBackupEpochSeconds: Long?
+        get() = store.getString(KEY_LAST_BACKUP)?.toLongOrNull()
+        set(value) = store.putString(KEY_LAST_BACKUP, value?.toString() ?: "")
+
+    /** When the last automatic backup was written. */
+    var lastAutoBackupEpochSeconds: Long?
+        get() = store.getString(KEY_LAST_AUTO_BACKUP)?.toLongOrNull()
+        set(value) = store.putString(KEY_LAST_AUTO_BACKUP, value?.toString() ?: "")
+
+    /** Why the last automatic backup failed, or null if it did not. */
+    var autoBackupError: String?
+        get() = store.getString(KEY_AUTO_BACKUP_ERROR)?.takeIf { it.isNotEmpty() }
+        set(value) = store.putString(KEY_AUTO_BACKUP_ERROR, value ?: "")
+
+    /** When the last automatic backup failed. */
+    var autoBackupErrorEpochSeconds: Long?
+        get() = store.getString(KEY_AUTO_BACKUP_ERROR_AT)?.toLongOrNull()
+        set(value) = store.putString(KEY_AUTO_BACKUP_ERROR_AT, value?.toString() ?: "")
+
+    /** Counts changes to the logbook, for telling which ones a backup holds. */
+    var backupChanges: Long
+        get() = store.getString(KEY_BACKUP_CHANGES)?.toLongOrNull() ?: 0
+        set(value) = store.putString(KEY_BACKUP_CHANGES, value.toString())
+
+    /** [backupChanges] as it was when the last automatic backup that worked began. */
+    var backupChangesSaved: Long
+        get() = store.getString(KEY_BACKUP_CHANGES_SAVED)?.toLongOrNull() ?: 0
+        set(value) = store.putString(KEY_BACKUP_CHANGES_SAVED, value.toString())
+
+    /** When the user was last reminded to back up. */
+    var backupReminderEpochSeconds: Long?
+        get() = store.getString(KEY_BACKUP_REMINDER)?.toLongOrNull()
+        set(value) = store.putString(KEY_BACKUP_REMINDER, value?.toString() ?: "")
+
     override fun recall(deviceKey: String): String? = store.getString(KEY_CONN_PREFIX + deviceKey)
 
     override fun remember(deviceKey: String, portDescriptor: String) =
@@ -66,5 +106,13 @@ class AppSettings(private val store: SettingsStore) : ConnectionMemory {
         const val KEY_SAVED_PLANS = "planner_saved"
         const val KEY_CRASH_REPORTING = "crash_reporting"
         const val KEY_EXPORT_FORMAT = "export_format"
+        const val KEY_BACKUP_FOLDER = "backup_folder"
+        const val KEY_LAST_BACKUP = "last_backup"
+        const val KEY_BACKUP_CHANGES = "backup_changes"
+        const val KEY_BACKUP_CHANGES_SAVED = "backup_changes_saved"
+        const val KEY_LAST_AUTO_BACKUP = "last_auto_backup"
+        const val KEY_AUTO_BACKUP_ERROR = "auto_backup_error"
+        const val KEY_AUTO_BACKUP_ERROR_AT = "auto_backup_error_at"
+        const val KEY_BACKUP_REMINDER = "backup_reminder"
     }
 }

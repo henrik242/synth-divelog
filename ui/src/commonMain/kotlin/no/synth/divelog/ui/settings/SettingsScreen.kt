@@ -28,22 +28,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.logbook.settings.AppSettings
 import no.synth.divelog.core.model.units.UnitSystem
+import no.synth.divelog.ui.BackupFlow
 import no.synth.divelog.ui.BuildInfo
 import no.synth.divelog.ui.components.CloudCredentialsDialog
 import no.synth.divelog.ui.components.ExportActions
 import no.synth.divelog.ui.components.ExportDialog
 
 /**
- * Units, export, maintenance, dive computers, privacy and attributions. A null [onCloudPush] hides
+ * Units, export, backup, maintenance, dive computers, privacy and attributions. A null [onCloudPush] hides
  * the cloud export; its credentials are kept in [settings]. A null [onCrashReportingChange] hides
  * the crash-report switch. [exportActions] says how an export can leave the app; with none, export is hidden.
+ * The backup section shows what [backup] can do here, and is hidden when it can do nothing.
  */
 @Composable
-fun SettingsSection(
+internal fun SettingsSection(
     settings: AppSettings,
     unitSystem: UnitSystem,
     onUnitSystemChange: (UnitSystem) -> Unit,
     exportActions: ExportActions,
+    backup: BackupFlow,
     onReparse: () -> Unit,
     onForgetAllDives: () -> Unit,
     onCloudPush: ((email: String, pass: String) -> Unit)?,
@@ -119,6 +122,12 @@ fun SettingsSection(
         }
 
         HorizontalDivider()
+
+        if (backup.available) {
+            BackupSection(backup)
+
+            HorizontalDivider()
+        }
 
         Text("Maintenance", style = MaterialTheme.typography.titleMedium)
         Text(

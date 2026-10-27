@@ -38,6 +38,12 @@ object Format {
         return "${t.day} ${months[t.month.ordinal]} ${t.year}"
     }
 
+    /** The date and time of an instant in this device's time zone, e.g. "27 Oct 2026 18:42". */
+    fun localDateTime(epochSeconds: Long): String {
+        val t = Instant.fromEpochSeconds(epochSeconds).toLocalDateTime(TimeZone.currentSystemDefault())
+        return "${t.day} ${months[t.month.ordinal]} ${t.year} ${two(t.hour)}:${two(t.minute)}"
+    }
+
     fun time(epochSeconds: Long, utcOffsetSeconds: Int): String {
         val t = wallClock(epochSeconds, utcOffsetSeconds)
         return "${two(t.hour)}:${two(t.minute)}"

@@ -62,5 +62,8 @@ DELETE FROM dive;
 maxDiveNumber:
 SELECT max(number) AS maxNumber FROM dive;
 
+countDives:
+SELECT count(*) FROM dive;
+
 lastInsertRowId:
 SELECT last_insert_rowid();

@@ -15,7 +15,7 @@ import no.synth.divelog.core.db.sql.DiveDatabase
  * (new, or an empty file) is created; an older one is migrated. Either way the schema
  * change and the version stamp commit together.
  */
-fun createDatabase(databasePath: String? = null): DiveDatabase {
+fun createDatabase(databasePath: String? = null): AppDatabase {
     val driver = JdbcSqliteDriver(if (databasePath == null) JdbcSqliteDriver.IN_MEMORY else "jdbc:sqlite:$databasePath")
     val schema = DiveDatabase.Schema
     val current = userVersion(driver)
@@ -32,7 +32,7 @@ fun createDatabase(databasePath: String? = null): DiveDatabase {
     }
     // Outside the transaction: SQLite ignores this pragma inside one.
     driver.execute(null, "PRAGMA foreign_keys=ON", 0)
-    return DiveDatabase(driver)
+    return AppDatabase(driver)
 }
 
 private fun userVersion(driver: SqlDriver): Long =

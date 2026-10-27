@@ -7,12 +7,12 @@ import java.sql.PreparedStatement
 import java.sql.ResultSet
 
 /** Through the SQLite JDBC driver the desktop app already ships. */
-internal actual fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) -> T): Pair<T, ByteArray> {
+internal actual fun <T> withSqliteFile(initial: ByteArray?, readBack: Boolean, block: (SqliteFile) -> T): Pair<T, ByteArray> {
     val file = File.createTempFile("synth-sqlite", ".db")
     try {
         if (initial != null) file.writeBytes(initial) else file.delete() // SQLite creates it
         val result = DriverManager.getConnection("jdbc:sqlite:${file.path}").use { block(JdbcFile(it)) }
-        return result to file.readBytes()
+        return result to (if (readBack) file.readBytes() else ByteArray(0))
     } finally {
         file.delete()
     }
