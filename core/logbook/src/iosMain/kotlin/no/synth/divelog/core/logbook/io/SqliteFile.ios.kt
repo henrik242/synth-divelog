@@ -29,10 +29,12 @@ internal actual fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) 
     val name = "synth-sqlite-${NSUUID().UUIDString}.db"
     val path = dir.trimEnd('/') + "/" + name
     if (initial != null) initial.toNSData().writeToFile(path, atomically = true)
+    val fileVersion = userVersion(initial)
     val manager = createDatabaseManager(
         DatabaseConfiguration(
             name = name,
-            version = 1,
+            // sqliter refuses a file newer than this, so open at the file's own version.
+            version = maxOf(1, fileVersion),
             create = {},
             upgrade = { _, _, _ -> },
             journalMode = JournalMode.DELETE,
@@ -43,7 +45,7 @@ internal actual fun <T> withSqliteFile(initial: ByteArray?, block: (SqliteFile) 
         val connection = manager.createMultiThreadedConnection()
         val result = try {
             // sqliter stamps its own user version on open; put the file's back.
-            connection.rawExecSql("PRAGMA user_version = ${userVersion(initial)}")
+            connection.rawExecSql("PRAGMA user_version = $fileVersion")
             block(SqliterFile(connection))
         } finally {
             connection.close()
