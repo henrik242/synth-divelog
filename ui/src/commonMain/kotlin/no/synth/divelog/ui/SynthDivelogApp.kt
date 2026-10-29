@@ -40,6 +40,7 @@ import kotlinx.coroutines.withContext
 import no.synth.divelog.core.logbook.AppContainer
 import no.synth.divelog.core.logbook.AppServices
 import no.synth.divelog.core.model.Dive
+import no.synth.divelog.core.model.ThemeMode
 import no.synth.divelog.ui.common.BackHandler
 import no.synth.divelog.ui.common.observe
 import no.synth.divelog.core.logbook.io.ExportFile
@@ -81,12 +82,24 @@ import no.synth.divelog.ui.tools.toJson
  */
 @Composable
 fun SynthDivelogApp(services: AppServices, hooks: PlatformHooks = PlatformHooks()) {
-    SynthTheme { AppContent(services, hooks) }
+    val settings = services.settings
+    var themeMode by remember { mutableStateOf(settings.themeMode) }
+    SynthTheme(themeMode.darkTheme()) {
+        AppContent(services, hooks, themeMode, onThemeModeChange = {
+            themeMode = it
+            settings.themeMode = it
+        })
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppContent(services: AppServices, hooks: PlatformHooks) {
+private fun AppContent(
+    services: AppServices,
+    hooks: PlatformHooks,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+) {
     val container = services.container
     val settings = services.settings
     val nav = rememberSaveable(saver = Navigator.Saver) { Navigator() }
@@ -339,6 +352,8 @@ private fun AppContent(services: AppServices, hooks: PlatformHooks) {
                             settings = settings,
                             unitSystem = unitSystem,
                             onUnitSystemChange = { unitSystem = it; settings.unitSystem = it },
+                            themeMode = themeMode,
+                            onThemeModeChange = onThemeModeChange,
                             exportActions = exportActions,
                             backup = backup,
                             onReparse = onReparse,

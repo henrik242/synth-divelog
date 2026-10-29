@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.logbook.settings.AppSettings
+import no.synth.divelog.core.model.ThemeMode
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.BackupFlow
 import no.synth.divelog.ui.BuildInfo
@@ -35,7 +36,7 @@ import no.synth.divelog.ui.components.ExportActions
 import no.synth.divelog.ui.components.ExportDialog
 
 /**
- * Units, export, backup, maintenance, dive computers, privacy and attributions. A null [onCloudPush] hides
+ * Units, theme, export, backup, maintenance, dive computers, privacy and attributions. A null [onCloudPush] hides
  * the cloud export; its credentials are kept in [settings]. A null [onCrashReportingChange] hides
  * the crash-report switch. [exportActions] says how an export can leave the app; with none, export is hidden.
  * The backup section shows what [backup] can do here, and is hidden when it can do nothing.
@@ -45,6 +46,8 @@ internal fun SettingsSection(
     settings: AppSettings,
     unitSystem: UnitSystem,
     onUnitSystemChange: (UnitSystem) -> Unit,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
     exportActions: ExportActions,
     backup: BackupFlow,
     onReparse: () -> Unit,
@@ -64,6 +67,27 @@ internal fun SettingsSection(
                     selected = unitSystem == system,
                     onClick = { onUnitSystemChange(system) },
                     label = { Text(if (system == UnitSystem.METRIC) "Metric" else "Imperial") },
+                )
+            }
+        }
+
+        HorizontalDivider()
+
+        Text("Theme", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = themeMode == mode,
+                    onClick = { onThemeModeChange(mode) },
+                    label = {
+                        Text(
+                            when (mode) {
+                                ThemeMode.SYSTEM -> "System"
+                                ThemeMode.LIGHT -> "Light"
+                                ThemeMode.DARK -> "Dark"
+                            }
+                        )
+                    },
                 )
             }
         }

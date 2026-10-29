@@ -1,6 +1,7 @@
 package no.synth.divelog.core.logbook.settings
 
 import no.synth.divelog.core.logbook.download.ConnectionMemory
+import no.synth.divelog.core.model.ThemeMode
 import no.synth.divelog.core.model.units.UnitSystem
 
 /** Platform key-value store for app preferences, backed by each platform's native store. */
@@ -18,6 +19,12 @@ class AppSettings(private val store: SettingsStore) : ConnectionMemory {
         get() = runCatching { UnitSystem.valueOf(store.getString(KEY_UNITS) ?: "") }
             .getOrDefault(UnitSystem.METRIC)
         set(value) = store.putString(KEY_UNITS, value.name)
+
+    /** Whether the app follows the system color scheme or forces light or dark. */
+    var themeMode: ThemeMode
+        get() = runCatching { ThemeMode.valueOf(store.getString(KEY_THEME) ?: "") }
+            .getOrDefault(ThemeMode.SYSTEM)
+        set(value) = store.putString(KEY_THEME, value.name)
 
     var cloudEmail: String
         get() = store.getString(KEY_CLOUD_EMAIL) ?: ""
@@ -98,6 +105,7 @@ class AppSettings(private val store: SettingsStore) : ConnectionMemory {
 
     private companion object {
         const val KEY_UNITS = "unit_system"
+        const val KEY_THEME = "theme_mode"
         const val KEY_LAST_DEVICE = "last_download_device"
         const val KEY_CLOUD_EMAIL = "cloud_email"
         const val KEY_CLOUD_PASS = "cloud_pass"

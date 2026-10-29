@@ -6,6 +6,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import no.synth.divelog.core.model.ThemeMode
 
 // Ocean-led Material 3 scheme: deep-sea teal primary, the logo's purple as the
 // secondary accent, a warm coral tertiary (for the temperature trace etc.).
@@ -54,6 +55,14 @@ private val DarkColors = darkColorScheme(
     outline = Color(0xFF899295),
     outlineVariant = Color(0xFF3F484A),
 )
+
+/** Whether [mode] wants the dark scheme; follows the system in [ThemeMode.SYSTEM]. */
+@Composable
+fun ThemeMode.darkTheme(): Boolean = when (this) {
+    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    ThemeMode.LIGHT -> false
+    ThemeMode.DARK -> true
+}
 
 /** Shared app theme used by all platforms. */
 @Composable
