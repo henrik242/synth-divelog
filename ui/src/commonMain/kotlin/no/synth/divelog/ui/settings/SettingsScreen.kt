@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -25,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.logbook.settings.AppSettings
 import no.synth.divelog.core.model.ThemeMode
@@ -274,16 +278,20 @@ private fun <T> ChoiceDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column {
+            Column(Modifier.selectableGroup()) {
                 options.forEach { option ->
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                onSelect(option)
-                                onDismiss()
-                            }
-                            .padding(vertical = 12.dp),
+                            .heightIn(min = 48.dp)
+                            .selectable(
+                                selected = option == selected,
+                                role = Role.RadioButton,
+                                onClick = {
+                                    onSelect(option)
+                                    onDismiss()
+                                },
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = option == selected, onClick = null)
