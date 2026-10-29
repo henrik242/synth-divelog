@@ -65,7 +65,7 @@ jobs:
       run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
     - name: Run common tests on the JVM
-      run: ./gradlew jvmTest
+      run: ./gradlew jvmTest testAndroidHostTest
 
     # A throwaway keychain holding only the Developer ID, which codesign finds by name.
     - name: Import Developer ID certificate

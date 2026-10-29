@@ -85,7 +85,7 @@ jobs:
       run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
     - name: Run common tests on the JVM
-      run: ./gradlew jvmTest
+      run: ./gradlew jvmTest testAndroidHostTest
 
     - name: Decode signing keystore
       env:

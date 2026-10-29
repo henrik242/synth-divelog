@@ -2,6 +2,13 @@ plugins {
     id("synth.kmp-library")
 }
 
+// The android host tests run the common tests against the android actuals, and android's
+// SQLiteDatabase does not exist on the host JVM. The Shearwater Cloud writer is covered by
+// the same tests on the JVM, and its android actual runs on a device.
+tasks.withType<org.gradle.api.tasks.testing.Test>().matching { it.name == "testAndroidHostTest" }.configureEach {
+    filter { excludeTestsMatching("no.synth.divelog.core.logbook.io.ShearwaterCloudWriterTest") }
+}
+
 kotlin {
     listOf(iosArm64(), iosSimulatorArm64()).forEach {
         // The native SQLite driver links against the system library.

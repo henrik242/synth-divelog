@@ -44,7 +44,7 @@ jobs:
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Run common tests on the JVM
-        run: ./gradlew jvmTest --stacktrace
+        run: ./gradlew jvmTest testAndroidHostTest --stacktrace
 
   android:
     name: Android APK
@@ -124,6 +124,9 @@ jobs:
       # Configuring the KMP project needs the Android SDK location even for an iOS build.
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Run iOS tests
+        run: ./gradlew :core:logbook:iosSimulatorArm64Test --stacktrace
 
       - name: Build shared iOS frameworks
         run: ./gradlew :ui:linkDebugFrameworkIosArm64 :ui:linkDebugFrameworkIosSimulatorArm64 --stacktrace
