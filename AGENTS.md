@@ -31,6 +31,7 @@ per-target entry point.
 
 ## Conventions
 
+- **Never push.** Commits stay local; the repository owner pushes (and opens PRs) themselves. No `git push` of any kind, ever, in any session, even to update a PR.
 - **Never use the Kotlin `!!` operator.** Use `?.`/`?:`/`let`/local-val smart-casts, or `requireNotNull(x){...}`. Remove any `!!` you touch.
 - No emojis or em-dashes in commits or code comments; plain ASCII hyphens. Terse commit messages (subject line when possible).
 - **No AI attribution** in commit messages, commit authors or PR descriptions: no Claude author or committer, no Co-Authored-By trailers, no session links. Commit as the repository owner's git identity.
