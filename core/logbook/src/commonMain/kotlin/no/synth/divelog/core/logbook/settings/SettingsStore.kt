@@ -1,5 +1,7 @@
 package no.synth.divelog.core.logbook.settings
 
+import kotlin.properties.ReadWriteProperty
+import kotlin.reflect.KProperty
 import no.synth.divelog.core.logbook.download.ConnectionMemory
 import no.synth.divelog.core.model.ThemeMode
 import no.synth.divelog.core.model.units.UnitSystem
@@ -15,84 +17,49 @@ interface SettingsStore {
  * Also the download's [ConnectionMemory], so a device's last connection survives restarts.
  */
 class AppSettings(private val store: SettingsStore) : ConnectionMemory {
-    var unitSystem: UnitSystem
-        get() = runCatching { UnitSystem.valueOf(store.getString(KEY_UNITS) ?: "") }
-            .getOrDefault(UnitSystem.METRIC)
-        set(value) = store.putString(KEY_UNITS, value.name)
+    var unitSystem: UnitSystem by store.enumSetting(KEY_UNITS, UnitSystem.METRIC) { UnitSystem.valueOf(it) }
 
     /** Whether the app follows the system color scheme or forces light or dark. */
-    var themeMode: ThemeMode
-        get() = runCatching { ThemeMode.valueOf(store.getString(KEY_THEME) ?: "") }
-            .getOrDefault(ThemeMode.SYSTEM)
-        set(value) = store.putString(KEY_THEME, value.name)
+    var themeMode: ThemeMode by store.enumSetting(KEY_THEME, ThemeMode.SYSTEM) { ThemeMode.valueOf(it) }
 
-    var cloudEmail: String
-        get() = store.getString(KEY_CLOUD_EMAIL) ?: ""
-        set(value) = store.putString(KEY_CLOUD_EMAIL, value)
-
-    var cloudPassword: String
-        get() = store.getString(KEY_CLOUD_PASS) ?: ""
-        set(value) = store.putString(KEY_CLOUD_PASS, value)
+    var cloudEmail: String by store.stringSetting(KEY_CLOUD_EMAIL, "")
+    var cloudPassword: String by store.stringSetting(KEY_CLOUD_PASS, "")
 
     /** The dive planner's last inputs, as the planner wrote them. */
-    var plannerInputs: String?
-        get() = store.getString(KEY_PLANNER)
-        set(value) = store.putString(KEY_PLANNER, value ?: "")
+    var plannerInputs: String? by store.storedString(KEY_PLANNER)
 
     /** The dive planner's saved plans, as the planner wrote them. */
-    var savedPlans: String?
-        get() = store.getString(KEY_SAVED_PLANS)
-        set(value) = store.putString(KEY_SAVED_PLANS, value ?: "")
+    var savedPlans: String? by store.storedString(KEY_SAVED_PLANS)
 
     /** The export target last used, preselected in the export dialog. */
-    var exportFormat: String?
-        get() = store.getString(KEY_EXPORT_FORMAT)?.takeIf { it.isNotEmpty() }
-        set(value) = store.putString(KEY_EXPORT_FORMAT, value ?: "")
+    var exportFormat: String? by store.stringOrNull(KEY_EXPORT_FORMAT)
 
     /** Whether crash reports are sent, on platforms that have crash reporting. On by default. */
-    var crashReporting: Boolean
-        get() = store.getString(KEY_CRASH_REPORTING) != "false"
-        set(value) = store.putString(KEY_CRASH_REPORTING, value.toString())
+    var crashReporting: Boolean by store.booleanSetting(KEY_CRASH_REPORTING, true)
 
     /** Where automatic backups go, as the platform named it when the user picked it; null for none. */
-    var backupFolder: String?
-        get() = store.getString(KEY_BACKUP_FOLDER)?.takeIf { it.isNotEmpty() }
-        set(value) = store.putString(KEY_BACKUP_FOLDER, value ?: "")
+    var backupFolder: String? by store.stringOrNull(KEY_BACKUP_FOLDER)
 
     /** When the last backup was saved to a file or written automatically. */
-    var lastBackupEpochSeconds: Long?
-        get() = store.getString(KEY_LAST_BACKUP)?.toLongOrNull()
-        set(value) = store.putString(KEY_LAST_BACKUP, value?.toString() ?: "")
+    var lastBackupEpochSeconds: Long? by store.storedLong(KEY_LAST_BACKUP)
 
     /** When the last automatic backup was written. */
-    var lastAutoBackupEpochSeconds: Long?
-        get() = store.getString(KEY_LAST_AUTO_BACKUP)?.toLongOrNull()
-        set(value) = store.putString(KEY_LAST_AUTO_BACKUP, value?.toString() ?: "")
+    var lastAutoBackupEpochSeconds: Long? by store.storedLong(KEY_LAST_AUTO_BACKUP)
 
     /** Why the last automatic backup failed, or null if it did not. */
-    var autoBackupError: String?
-        get() = store.getString(KEY_AUTO_BACKUP_ERROR)?.takeIf { it.isNotEmpty() }
-        set(value) = store.putString(KEY_AUTO_BACKUP_ERROR, value ?: "")
+    var autoBackupError: String? by store.stringOrNull(KEY_AUTO_BACKUP_ERROR)
 
     /** When the last automatic backup failed. */
-    var autoBackupErrorEpochSeconds: Long?
-        get() = store.getString(KEY_AUTO_BACKUP_ERROR_AT)?.toLongOrNull()
-        set(value) = store.putString(KEY_AUTO_BACKUP_ERROR_AT, value?.toString() ?: "")
+    var autoBackupErrorEpochSeconds: Long? by store.storedLong(KEY_AUTO_BACKUP_ERROR_AT)
 
     /** Counts changes to the logbook, for telling which ones a backup holds. */
-    var backupChanges: Long
-        get() = store.getString(KEY_BACKUP_CHANGES)?.toLongOrNull() ?: 0
-        set(value) = store.putString(KEY_BACKUP_CHANGES, value.toString())
+    var backupChanges: Long by store.longSetting(KEY_BACKUP_CHANGES, 0)
 
     /** [backupChanges] as it was when the last automatic backup that worked began. */
-    var backupChangesSaved: Long
-        get() = store.getString(KEY_BACKUP_CHANGES_SAVED)?.toLongOrNull() ?: 0
-        set(value) = store.putString(KEY_BACKUP_CHANGES_SAVED, value.toString())
+    var backupChangesSaved: Long by store.longSetting(KEY_BACKUP_CHANGES_SAVED, 0)
 
     /** When the user was last reminded to back up. */
-    var backupReminderEpochSeconds: Long?
-        get() = store.getString(KEY_BACKUP_REMINDER)?.toLongOrNull()
-        set(value) = store.putString(KEY_BACKUP_REMINDER, value?.toString() ?: "")
+    var backupReminderEpochSeconds: Long? by store.storedLong(KEY_BACKUP_REMINDER)
 
     override fun recall(deviceKey: String): String? = store.getString(KEY_CONN_PREFIX + deviceKey)
 
@@ -123,4 +90,73 @@ class AppSettings(private val store: SettingsStore) : ConnectionMemory {
         const val KEY_AUTO_BACKUP_ERROR_AT = "auto_backup_error_at"
         const val KEY_BACKUP_REMINDER = "backup_reminder"
     }
+}
+
+// One store-backed delegate per value shape, so each preference above is a single line.
+
+/** An [Enum] preference stored by name; anything unreadable falls back to [default]. */
+private fun <E : Enum<E>> SettingsStore.enumSetting(
+    key: String,
+    default: E,
+    parse: (String) -> E,
+) = object : ReadWriteProperty<AppSettings, E> {
+    override fun getValue(thisRef: AppSettings, property: KProperty<*>): E =
+        runCatching { parse(getString(key) ?: "") }.getOrDefault(default)
+
+    override fun setValue(thisRef: AppSettings, property: KProperty<*>, value: E) = putString(key, value.name)
+}
+
+/** A text preference that reads as [default] when nothing is stored. */
+private fun SettingsStore.stringSetting(
+    key: String,
+    default: String,
+) = object : ReadWriteProperty<AppSettings, String> {
+    override fun getValue(thisRef: AppSettings, property: KProperty<*>): String = getString(key) ?: default
+
+    override fun setValue(thisRef: AppSettings, property: KProperty<*>, value: String) = putString(key, value)
+}
+
+/** A text preference read exactly as stored, with null written as the empty string. */
+private fun SettingsStore.storedString(key: String) = object : ReadWriteProperty<AppSettings, String?> {
+    override fun getValue(thisRef: AppSettings, property: KProperty<*>): String? = getString(key)
+
+    override fun setValue(thisRef: AppSettings, property: KProperty<*>, value: String?) = putString(key, value ?: "")
+}
+
+/** A text preference with no value; the empty string reads as null and null is written as empty. */
+private fun SettingsStore.stringOrNull(key: String) = object : ReadWriteProperty<AppSettings, String?> {
+    override fun getValue(thisRef: AppSettings, property: KProperty<*>): String? =
+        getString(key)?.takeIf { it.isNotEmpty() }
+
+    override fun setValue(thisRef: AppSettings, property: KProperty<*>, value: String?) = putString(key, value ?: "")
+}
+
+/** A timestamp preference; unreadable text reads as null, null is written as the empty string. */
+private fun SettingsStore.storedLong(key: String) = object : ReadWriteProperty<AppSettings, Long?> {
+    override fun getValue(thisRef: AppSettings, property: KProperty<*>): Long? = getString(key)?.toLongOrNull()
+
+    override fun setValue(thisRef: AppSettings, property: KProperty<*>, value: Long?) =
+        putString(key, value?.toString() ?: "")
+}
+
+/** A counted preference that reads as [default] when nothing is stored. */
+private fun SettingsStore.longSetting(
+    key: String,
+    default: Long,
+) = object : ReadWriteProperty<AppSettings, Long> {
+    override fun getValue(thisRef: AppSettings, property: KProperty<*>): Long =
+        getString(key)?.toLongOrNull() ?: default
+
+    override fun setValue(thisRef: AppSettings, property: KProperty<*>, value: Long) = putString(key, value.toString())
+}
+
+/** A true/false preference; anything unreadable reads as [default]. */
+private fun SettingsStore.booleanSetting(
+    key: String,
+    default: Boolean,
+) = object : ReadWriteProperty<AppSettings, Boolean> {
+    override fun getValue(thisRef: AppSettings, property: KProperty<*>): Boolean =
+        getString(key)?.toBooleanStrictOrNull() ?: default
+
+    override fun setValue(thisRef: AppSettings, property: KProperty<*>, value: Boolean) = putString(key, value.toString())
 }

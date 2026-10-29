@@ -11,10 +11,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,39 +60,37 @@ internal fun SettingsSection(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Units", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            UnitSystem.entries.forEach { system ->
-                FilterChip(
-                    selected = unitSystem == system,
-                    onClick = { onUnitSystemChange(system) },
-                    label = { Text(if (system == UnitSystem.METRIC) "Metric" else "Imperial") },
-                )
-            }
-        }
+        var unitsOpen by remember { mutableStateOf(false) }
+        var themeOpen by remember { mutableStateOf(false) }
+
+        SettingValueRow("Units", unitLabel(unitSystem)) { unitsOpen = true }
 
         HorizontalDivider()
 
-        Text("Theme", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = themeMode == mode,
-                    onClick = { onThemeModeChange(mode) },
-                    label = {
-                        Text(
-                            when (mode) {
-                                ThemeMode.SYSTEM -> "System"
-                                ThemeMode.LIGHT -> "Light"
-                                ThemeMode.DARK -> "Dark"
-                            }
-                        )
-                    },
-                )
-            }
-        }
+        SettingValueRow("Theme", themeLabel(themeMode)) { themeOpen = true }
 
         HorizontalDivider()
+
+        if (unitsOpen) {
+            ChoiceDialog(
+                title = "Units",
+                options = UnitSystem.entries,
+                selected = unitSystem,
+                label = ::unitLabel,
+                onSelect = onUnitSystemChange,
+                onDismiss = { unitsOpen = false },
+            )
+        }
+        if (themeOpen) {
+            ChoiceDialog(
+                title = "Theme",
+                options = ThemeMode.entries,
+                selected = themeMode,
+                label = ::themeLabel,
+                onSelect = onThemeModeChange,
+                onDismiss = { themeOpen = false },
+            )
+        }
 
         var cloudExportOpen by remember { mutableStateOf(false) }
         var exportOpen by remember { mutableStateOf(false) }
@@ -248,4 +246,66 @@ private fun ForgetAllDivesDialog(onForget: () -> Unit, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** A whole setting on one line: its name to the left, its current value to the right, tapped to change it. */
+@Composable
+private fun SettingValueRow(name: String, value: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+/** Lists [options] with [selected] marked; choosing one applies [onSelect] and closes. */
+@Composable
+private fun <T> ChoiceDialog(
+    title: String,
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { option ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSelect(option)
+                                onDismiss()
+                            }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = option == selected, onClick = null)
+                        Text(
+                            label(option),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(start = 12.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+    )
+}
+
+/** The value shown for the units setting. */
+private fun unitLabel(system: UnitSystem): String = if (system == UnitSystem.METRIC) "Metric" else "Imperial"
+
+/** The value shown for the theme setting. */
+private fun themeLabel(mode: ThemeMode): String = when (mode) {
+    ThemeMode.SYSTEM -> "System"
+    ThemeMode.LIGHT -> "Light"
+    ThemeMode.DARK -> "Dark"
 }
