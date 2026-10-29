@@ -84,7 +84,11 @@ import no.synth.divelog.ui.tools.toJson
 fun SynthDivelogApp(services: AppServices, hooks: PlatformHooks = PlatformHooks()) {
     val settings = services.settings
     var themeMode by remember { mutableStateOf(settings.themeMode) }
-    SynthTheme(themeMode.darkTheme()) {
+    val darkTheme = themeMode.darkTheme()
+    // Android takes this chance to match its system bar icons to the app's surface, which
+    // can differ from the system's own dark mode while a theme is forced.
+    LaunchedEffect(darkTheme) { hooks.onDarkThemeChange?.invoke(darkTheme) }
+    SynthTheme(darkTheme) {
         AppContent(services, hooks, themeMode, onThemeModeChange = {
             themeMode = it
             settings.themeMode = it

@@ -88,6 +88,7 @@ dependencies {
     implementation(project(":ui"))
     implementation(project(":core:db"))
     implementation(project(":core:logbook"))
+    implementation(project(":core:model"))
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)

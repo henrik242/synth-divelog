@@ -5,12 +5,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -27,10 +30,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import no.synth.divelog.core.logbook.AppServices
 import no.synth.divelog.core.logbook.download.AndroidSerialPorts
 import no.synth.divelog.core.logbook.download.DiveComputerType
 import no.synth.divelog.core.logbook.download.SimulatedSerialPorts
 import no.synth.divelog.core.logbook.io.ExportFile
+import no.synth.divelog.core.model.ThemeMode
 import no.synth.divelog.download.DownloadService
 import no.synth.divelog.ui.PlatformHooks
 import no.synth.divelog.ui.SynthDivelogApp
@@ -38,9 +43,14 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
-        super.onCreate(savedInstanceState)
         val services = (application as SynthDivelogApplication).services
+        // The app draws under the system bars; their icon colors follow the app's own
+        // resolved theme, which can differ from the system's dark mode while a theme is forced.
+        enableEdgeToEdge(
+            statusBarStyle = systemBars(darkTheme(services)),
+            navigationBarStyle = systemBars(darkTheme(services)),
+        )
+        super.onCreate(savedInstanceState)
 
         setContent {
             val pickImportFile = rememberImportFilePick(this)
@@ -70,6 +80,12 @@ class MainActivity : ComponentActivity() {
                     onDownloadProgress = { DownloadService.publish(it) },
                     recordTranscript = ::saveTranscript,
                     setCrashReporting = { FirebaseCrashlytics.getInstance().isCrashlyticsCollectionEnabled = it },
+                    onDarkThemeChange = {
+                        enableEdgeToEdge(
+                            statusBarStyle = systemBars(it),
+                            navigationBarStyle = systemBars(it),
+                        )
+                    },
                 )
             }
             SynthDivelogApp(services, hooks)
@@ -107,6 +123,20 @@ class MainActivity : ComponentActivity() {
             Log.i("SynthDivelog", "Saved download transcript to ${file.absolutePath}")
         }
     }
+
+    /** The app's resolved dark mode: the user's choice, or the system's when following it. */
+    private fun darkTheme(services: AppServices): Boolean =
+        when (services.settings.themeMode) {
+            ThemeMode.SYSTEM ->
+                (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                    Configuration.UI_MODE_NIGHT_YES
+            ThemeMode.LIGHT -> false
+            ThemeMode.DARK -> true
+        }
+
+    /** System bars over the app, with icon colors set by [dark] rather than the system. */
+    private fun systemBars(dark: Boolean) =
+        SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
 }
 
 /**

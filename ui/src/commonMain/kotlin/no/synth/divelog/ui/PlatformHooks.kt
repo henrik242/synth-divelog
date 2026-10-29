@@ -22,6 +22,9 @@ import no.synth.divelog.core.logbook.io.ExportFile
  *   [onDownloadProgress] follows it.
  * - [recordTranscript]: saves a download's wire exchange for replay as a test fixture.
  * - [setCrashReporting]: turns crash reporting on or off. Null hides the setting.
+ * - [onDarkThemeChange]: told when the app's resolved theme goes dark or light; Android
+ *   follows it with the system bar icons, which otherwise stay on the system's dark mode.
+ *   Null leaves the bars alone.
  */
 class PlatformHooks(
     val serialPorts: SerialPorts = NoSerialPorts(),
@@ -35,4 +38,5 @@ class PlatformHooks(
     val onDownloadProgress: (label: String) -> Unit = {},
     val recordTranscript: ((transcript: String) -> Unit)? = null,
     val setCrashReporting: ((enabled: Boolean) -> Unit)? = null,
+    val onDarkThemeChange: ((dark: Boolean) -> Unit)? = null,
 )
