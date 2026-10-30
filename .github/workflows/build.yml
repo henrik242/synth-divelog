@@ -126,7 +126,7 @@ jobs:
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Run iOS tests
-        run: ./gradlew :core:logbook:iosSimulatorArm64Test --stacktrace
+        run: ./gradlew iosSimulatorArm64Test --stacktrace
 
       - name: Build shared iOS frameworks
         run: ./gradlew :ui:linkDebugFrameworkIosArm64 :ui:linkDebugFrameworkIosSimulatorArm64 --stacktrace

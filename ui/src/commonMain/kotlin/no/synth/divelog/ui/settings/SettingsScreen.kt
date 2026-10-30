@@ -304,7 +304,8 @@ private fun <T> ChoiceDialog(
                 }
             }
         },
-        confirmButton = {},
+        // Choosing applies at once, so the only button backs out.
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

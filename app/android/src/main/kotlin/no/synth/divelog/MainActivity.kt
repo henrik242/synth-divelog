@@ -124,7 +124,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** The app's resolved dark mode: the user's choice, or the system's when following it. */
+    /**
+     * The app's resolved dark mode: the user's choice, or the system's when following it.
+     * Mirrors ThemeMode.darkTheme in :ui, which needs a composition this runs before.
+     */
     private fun darkTheme(services: AppServices): Boolean =
         when (services.settings.themeMode) {
             ThemeMode.SYSTEM ->

@@ -56,7 +56,10 @@ private val DarkColors = darkColorScheme(
     outlineVariant = Color(0xFF3F484A),
 )
 
-/** Whether [mode] wants the dark scheme; follows the system in [ThemeMode.SYSTEM]. */
+/**
+ * Whether [mode] wants the dark scheme; follows the system in [ThemeMode.SYSTEM].
+ * MainActivity.darkTheme repeats this to style the system bars before the first frame.
+ */
 @Composable
 fun ThemeMode.darkTheme(): Boolean = when (this) {
     ThemeMode.SYSTEM -> isSystemInDarkTheme()

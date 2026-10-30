@@ -17,10 +17,10 @@ interface SettingsStore {
  * Also the download's [ConnectionMemory], so a device's last connection survives restarts.
  */
 class AppSettings(private val store: SettingsStore) : ConnectionMemory {
-    var unitSystem: UnitSystem by store.enumSetting(KEY_UNITS, UnitSystem.METRIC) { UnitSystem.valueOf(it) }
+    var unitSystem: UnitSystem by store.enumSetting(KEY_UNITS, UnitSystem.METRIC)
 
     /** Whether the app follows the system color scheme or forces light or dark. */
-    var themeMode: ThemeMode by store.enumSetting(KEY_THEME, ThemeMode.SYSTEM) { ThemeMode.valueOf(it) }
+    var themeMode: ThemeMode by store.enumSetting(KEY_THEME, ThemeMode.SYSTEM)
 
     var cloudEmail: String by store.stringSetting(KEY_CLOUD_EMAIL, "")
     var cloudPassword: String by store.stringSetting(KEY_CLOUD_PASS, "")
@@ -95,13 +95,12 @@ class AppSettings(private val store: SettingsStore) : ConnectionMemory {
 // One store-backed delegate per value shape, so each preference above is a single line.
 
 /** An [Enum] preference stored by name; anything unreadable falls back to [default]. */
-private fun <E : Enum<E>> SettingsStore.enumSetting(
+private inline fun <reified E : Enum<E>> SettingsStore.enumSetting(
     key: String,
     default: E,
-    parse: (String) -> E,
 ) = object : ReadWriteProperty<AppSettings, E> {
     override fun getValue(thisRef: AppSettings, property: KProperty<*>): E =
-        runCatching { parse(getString(key) ?: "") }.getOrDefault(default)
+        runCatching { enumValueOf<E>(getString(key) ?: "") }.getOrDefault(default)
 
     override fun setValue(thisRef: AppSettings, property: KProperty<*>, value: E) = putString(key, value.name)
 }

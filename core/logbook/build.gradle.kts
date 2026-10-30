@@ -5,8 +5,12 @@ plugins {
 // The android host tests run the common tests against the android actuals, and android's
 // SQLiteDatabase does not exist on the host JVM. The Shearwater Cloud writer is covered by
 // the same tests on the JVM, and its android actual runs on a device.
+val shearwaterCloudWriterTest = "no.synth.divelog.core.logbook.io.ShearwaterCloudWriterTest"
+check(file("src/commonTest/kotlin/" + shearwaterCloudWriterTest.replace('.', '/') + ".kt").exists()) {
+    "$shearwaterCloudWriterTest moved; update the android host test exclusion"
+}
 tasks.withType<org.gradle.api.tasks.testing.Test>().matching { it.name == "testAndroidHostTest" }.configureEach {
-    filter { excludeTestsMatching("no.synth.divelog.core.logbook.io.ShearwaterCloudWriterTest") }
+    filter { excludeTestsMatching(shearwaterCloudWriterTest) }
 }
 
 kotlin {

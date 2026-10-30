@@ -108,6 +108,9 @@ jobs:
     - name: Run common tests on the JVM
       run: ./gradlew jvmTest testAndroidHostTest
 
+    - name: Run iOS tests
+      run: ./gradlew iosSimulatorArm64Test
+
     - name: Decode signing assets
       env:
         DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.DISTRIBUTION_CERTIFICATE_BASE64 }}
