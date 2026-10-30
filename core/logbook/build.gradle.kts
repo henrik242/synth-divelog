@@ -34,10 +34,6 @@ kotlin {
             // The cloud sync client.
             implementation(libs.jgit)
         }
-        iosMain.dependencies {
-            // Reads and writes Shearwater Cloud database files.
-            implementation(libs.sqliter)
-        }
         // A raw driver for tests that count queries.
         jvmTest.dependencies {
             implementation(libs.sqldelight.driver.sqlite)
