@@ -40,7 +40,7 @@ maplibreCompose = "0.20.0"
 
 # Crash reporting (android only)
 firebaseBom = "35.1.0"
-googleServicesPlugin = "4.5.0"
+googleServicesPlugin = "4.6.0"
 crashlyticsPlugin = "3.0.8"
 
 [libraries]
