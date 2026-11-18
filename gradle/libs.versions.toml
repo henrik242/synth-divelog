@@ -33,7 +33,7 @@ usbSerialForAndroid = "3.11.0"
 jserialcomm = "2.11.4"
 
 # Git client for cloud sync (jvm + android)
-jgit = "7.8.0.202609011348-r"
+jgit = "7.8.1.202611041320-r"
 
 # Unified Compose map (Android, iOS, JVM desktop)
 maplibreCompose = "0.20.0"
