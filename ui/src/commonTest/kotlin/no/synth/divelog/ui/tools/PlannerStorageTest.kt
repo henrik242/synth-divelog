@@ -1,5 +1,7 @@
 package no.synth.divelog.ui.tools
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import no.synth.divelog.core.model.units.UnitSystem
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -10,7 +12,7 @@ class PlannerStorageTest {
     private fun sample() = DivePlannerState().apply {
         levels.clear()
         levels += PlannerLevel("100", "35")
-        gases += PlannerGas("10", "70")
+        gases += PlannerGas("10", "70", "24", "232")
         gases += PlannerGas("50", "0")
         gfLow = "20"
         gfHigh = "85"
@@ -25,6 +27,7 @@ class PlannerStorageTest {
         assertEquals(original.toJson(), restored.toJson())
         assertEquals("100", restored.levels.single().depth)
         assertEquals(listOf("10" to "70", "50" to "0"), restored.gases.map { it.o2 to it.he })
+        assertEquals(listOf("24" to "232", "" to ""), restored.gases.map { it.size to it.pressure })
         assertEquals(false, restored.wholeMinuteStops)
     }
 
@@ -58,5 +61,37 @@ class PlannerStorageTest {
     fun loadKeepsTheUnitsItWasSavedIn() {
         val imperial = DivePlannerState().apply { units = UnitSystem.IMPERIAL }
         assertEquals(UnitSystem.IMPERIAL, DivePlannerState().apply { load(imperial.toJson()) }.units)
+    }
+
+    @Test
+    fun gasesSavedWithoutCylindersStillLoad() {
+        val old = Json.parseToJsonElement("""{"gases":[["21","35"],["50","0"]]}""").jsonObject
+        val state = DivePlannerState().apply { load(old) }
+        assertEquals(listOf("21" to "35", "50" to "0"), state.gases.map { it.o2 to it.he })
+        assertTrue(state.gases.none { it.hasCylinder() })
+    }
+
+    @Test
+    fun aMalformedGasRowIsSkipped() {
+        val json = Json.parseToJsonElement("""{"gases":[["21"],["50","0","7"]]}""").jsonObject
+        val state = DivePlannerState().apply { load(json) }
+        assertEquals(listOf(Triple("50", "0", "7")), state.gases.map { Triple(it.o2, it.he, it.size) })
+        assertEquals("", state.gases.single().pressure)
+    }
+
+    @Test
+    fun onlyMalformedGasRowsKeepTheGases() {
+        val state = DivePlannerState().apply { gases += PlannerGas("32", "0") }
+        state.load(Json.parseToJsonElement("""{"gases":[["oops"]]}""").jsonObject)
+        assertEquals(listOf("32"), state.gases.map { it.o2 })
+        state.load(Json.parseToJsonElement("""{"gases":[]}""").jsonObject)
+        assertTrue(state.gases.isEmpty())
+    }
+
+    @Test
+    fun theReserveIsKept() {
+        val none = DivePlannerState().apply { reserve = Reserve.NONE }
+        assertEquals(Reserve.NONE, DivePlannerState().apply { load(none.toJson()) }.reserve)
+        assertEquals(Reserve.THIRDS, DivePlannerState().reserve)
     }
 }

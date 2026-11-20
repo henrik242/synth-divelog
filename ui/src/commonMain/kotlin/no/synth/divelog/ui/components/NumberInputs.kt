@@ -26,8 +26,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.logbook.format.Format
@@ -103,22 +109,50 @@ fun CheckRow(label: String, checked: Boolean, modifier: Modifier = Modifier, onC
     }
 }
 
-/** A fixed choice; a read-only field that opens a menu. */
+/**
+ * A read-only field that acts as a button: [value] under [label], [onClick] on a tap. An empty
+ * [value] shows the label alone, as a prompt. Screen readers get one button reading the label
+ * and value.
+ */
 @Composable
-fun OptionPicker(label: String, value: String, options: List<String>, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
-    var open by remember { mutableStateOf(false) }
+fun TapField(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    isError: Boolean = false,
+    trailingIcon: ImageVector? = null,
+    onClick: () -> Unit,
+) {
     Box(modifier) {
         OutlinedTextField(
             value,
             {},
             readOnly = true,
             label = { Text(label) },
-            trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
+            trailingIcon = trailingIcon?.let { { Icon(it, contentDescription = null) } },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            isError = isError,
+            // The layer below stands for the field: no focus stop or edit box of its own.
+            modifier = Modifier.fillMaxWidth().focusProperties { canFocus = false }.clearAndSetSemantics {},
         )
-        // The field swallows taps for focus; this layer opens the menu instead.
-        Box(Modifier.matchParentSize().clickable { open = true })
+        // The field swallows taps for focus; this layer takes them instead.
+        Box(
+            Modifier.matchParentSize()
+                .semantics {
+                    contentDescription = if (value.isEmpty()) label else "$label: $value"
+                    if (isError) error("Not valid")
+                }
+                .clickable(role = Role.Button, onClick = onClick),
+        )
+    }
+}
+
+/** A fixed choice; a read-only field that opens a menu. */
+@Composable
+fun OptionPicker(label: String, value: String, options: List<String>, modifier: Modifier = Modifier, onChange: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        TapField(label, value, Modifier.fillMaxWidth(), trailingIcon = Icons.Filled.ArrowDropDown) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEach { v -> DropdownMenuItem(text = { Text(v) }, onClick = { onChange(v); open = false }) }
         }

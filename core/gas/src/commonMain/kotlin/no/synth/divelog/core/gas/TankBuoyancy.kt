@@ -24,9 +24,15 @@ private const val MANIFOLD_KG = 1.5
 
 enum class TankMetal { STEEL, ALUMINIUM }
 
+/** Nominal cuft (ideal gas at 1 atm) of [litres] of water volume filled to [bar], as US cylinders are rated. */
+fun nominalCubicFeet(litres: Double, bar: Double): Double = litres / LITRES_PER_CUFT * bar / ATM_BAR
+
+/** Water volume, litres, of a cylinder rated [cubicFeet] nominal at [psi]. */
+fun waterLitres(cubicFeet: Double, psi: Double): Double = cubicFeet / psi * PSI_PER_ATM * LITRES_PER_CUFT
+
 /** One cylinder rated in water volume and working pressure, with its weight (no valve). */
 data class MetricTank(val litres: Double, val bar: Double, val kg: Double) {
-    fun toImperial() = ImperialTank(litres / LITRES_PER_CUFT * bar / ATM_BAR, bar / BAR_PER_PSI, kg * LBS_PER_KG)
+    fun toImperial() = ImperialTank(nominalCubicFeet(litres, bar), bar / BAR_PER_PSI, kg * LBS_PER_KG)
 }
 
 /**
@@ -36,7 +42,7 @@ data class MetricTank(val litres: Double, val bar: Double, val kg: Double) {
 data class ImperialTank(val cubicFeet: Double, val psi: Double, val lbs: Double) {
     val innerCubicFeet: Double get() = cubicFeet / psi * PSI_PER_ATM
 
-    fun toMetric() = MetricTank(innerCubicFeet * LITRES_PER_CUFT, psi * BAR_PER_PSI, lbs / LBS_PER_KG)
+    fun toMetric() = MetricTank(waterLitres(cubicFeet, psi), psi * BAR_PER_PSI, lbs / LBS_PER_KG)
 }
 
 /** [doubles] means two cylinders on a manifold. */
@@ -239,21 +245,38 @@ internal fun num(v: Double, decimals: Int = 4): String {
 /** Inputs and constants as given, not rounded to four decimals. */
 private fun raw(v: Double): String = num(v, 9)
 
-/** A common cylinder, per cylinder; [doubles] presets are a manifolded pair. */
+/**
+ * A common cylinder, per cylinder; [doubles] presets are a manifolded pair. [sizeName] names
+ * it without the weight ("12 L 200 bar", "S80 (11.1 L 207 bar)"), [name] with it.
+ */
 data class TankPreset(
-    val name: String,
+    val sizeName: String,
     val group: String,
     val metric: MetricTank?,
     val imperial: ImperialTank?,
     val metal: TankMetal,
     val doubles: Boolean = false,
-)
+) {
+    /** "12 L 200 bar (14.0 kg)", "S80 (11.1 L 207 bar, 14.2 kg)", "AL80 (80 cuft, 3000 psi, 31.4 lbs)". */
+    val name: String
+        get() {
+            val weight = metric?.let { "${oneDecimal(it.kg)} kg" } ?: imperial?.let { "${num(it.lbs, 1)} lbs" } ?: return sizeName
+            val each = if (doubles) " each" else ""
+            return if (sizeName.endsWith(")")) "${sizeName.dropLast(1)}, $weight$each)" else "$sizeName ($weight$each)"
+        }
+}
+
+/** Always one decimal: 14.0. */
+private fun oneDecimal(v: Double): String {
+    val tenths = floor(v * 10 + 0.5).toLong()
+    return "${tenths / 10}.${tenths % 10}"
+}
 
 val TANK_PRESETS: List<TankPreset> = run {
-    fun m(group: String, name: String, l: Double, bar: Double, kg: Double, metal: TankMetal = TankMetal.STEEL, doubles: Boolean = false) =
-        TankPreset(name, group, MetricTank(l, bar, kg), null, metal, doubles)
-    fun i(group: String, name: String, cuft: Double, psi: Double, lbs: Double, metal: TankMetal) =
-        TankPreset(name, group, null, ImperialTank(cuft, psi, lbs), metal)
+    fun m(group: String, size: String, l: Double, bar: Double, kg: Double, metal: TankMetal = TankMetal.STEEL, doubles: Boolean = false) =
+        TankPreset(size, group, MetricTank(l, bar, kg), null, metal, doubles)
+    fun i(group: String, size: String, cuft: Double, psi: Double, lbs: Double, metal: TankMetal) =
+        TankPreset(size, group, null, ImperialTank(cuft, psi, lbs), metal)
     val steel = "Metric steel"
     val alu = "Metric aluminium"
     val stage = "Metric stage/pony"
@@ -261,30 +284,30 @@ val TANK_PRESETS: List<TankPreset> = run {
     val iAlu = "Imperial aluminium"
     val iStage = "Imperial stage/pony"
     listOf(
-        m(steel, "10 L 200 bar (12.6 kg)", 10.0, 200.0, 12.6),
-        m(steel, "12 L 200 bar (14.0 kg)", 12.0, 200.0, 14.0),
-        m(steel, "15 L 200 bar (16.5 kg)", 15.0, 200.0, 16.5),
-        m(steel, "18 L 200 bar (19.8 kg)", 18.0, 200.0, 19.8),
-        m(steel, "12 L 232 bar (14.5 kg)", 12.0, 232.0, 14.5),
-        m(steel, "7 L 300 bar (10.5 kg)", 7.0, 300.0, 10.5),
-        m(steel, "10 L 300 bar (14.0 kg)", 10.0, 300.0, 14.0),
-        m(steel, "Twin 12 L 200 bar (14.0 kg each)", 12.0, 200.0, 14.0, doubles = true),
-        m(steel, "Twin 12 L 232 bar (14.5 kg each)", 12.0, 232.0, 14.5, doubles = true),
-        m(alu, "S80 (11.1 L 207 bar, 14.2 kg)", 11.1, 207.0, 14.2, TankMetal.ALUMINIUM),
-        m(alu, "S72 (10.0 L 207 bar, 13.4 kg)", 10.0, 207.0, 13.4, TankMetal.ALUMINIUM),
-        m(stage, "3 L 200 bar pony (3.8 kg)", 3.0, 200.0, 3.8),
-        m(stage, "5 L 200 bar stage (5.5 kg)", 5.0, 200.0, 5.5),
-        m(stage, "7 L 200 bar stage (7.5 kg)", 7.0, 200.0, 7.5),
-        i(iSteel, "HP80 (80 cuft, 3500 psi, 28.5 lbs)", 80.0, 3500.0, 28.5, TankMetal.STEEL),
-        i(iSteel, "HP85 (85 cuft, 3442 psi, 33 lbs)", 85.0, 3442.0, 33.0, TankMetal.STEEL),
-        i(iSteel, "HP100 (100 cuft, 3442 psi, 38 lbs)", 100.0, 3442.0, 38.0, TankMetal.STEEL),
-        i(iSteel, "HP117 (117 cuft, 3442 psi, 44 lbs)", 117.0, 3442.0, 44.0, TankMetal.STEEL),
-        i(iSteel, "HP120 (120 cuft, 3442 psi, 43 lbs)", 120.0, 3442.0, 43.0, TankMetal.STEEL),
-        i(iAlu, "AL63 (63 cuft, 3000 psi, 26 lbs)", 63.0, 3000.0, 26.0, TankMetal.ALUMINIUM),
-        i(iAlu, "AL80 (80 cuft, 3000 psi, 31.4 lbs)", 80.0, 3000.0, 31.4, TankMetal.ALUMINIUM),
-        i(iAlu, "AL100 (100 cuft, 3300 psi, 39 lbs)", 100.0, 3300.0, 39.0, TankMetal.ALUMINIUM),
-        i(iStage, "AL19 pony (19 cuft, 3000 psi, 11 lbs)", 19.0, 3000.0, 11.0, TankMetal.ALUMINIUM),
-        i(iStage, "AL30 stage (30 cuft, 3000 psi, 14.5 lbs)", 30.0, 3000.0, 14.5, TankMetal.ALUMINIUM),
-        i(iStage, "AL40 stage (40 cuft, 3000 psi, 17 lbs)", 40.0, 3000.0, 17.0, TankMetal.ALUMINIUM),
+        m(steel, "10 L 200 bar", 10.0, 200.0, 12.6),
+        m(steel, "12 L 200 bar", 12.0, 200.0, 14.0),
+        m(steel, "15 L 200 bar", 15.0, 200.0, 16.5),
+        m(steel, "18 L 200 bar", 18.0, 200.0, 19.8),
+        m(steel, "12 L 232 bar", 12.0, 232.0, 14.5),
+        m(steel, "7 L 300 bar", 7.0, 300.0, 10.5),
+        m(steel, "10 L 300 bar", 10.0, 300.0, 14.0),
+        m(steel, "Twin 12 L 200 bar", 12.0, 200.0, 14.0, doubles = true),
+        m(steel, "Twin 12 L 232 bar", 12.0, 232.0, 14.5, doubles = true),
+        m(alu, "S80 (11.1 L 207 bar)", 11.1, 207.0, 14.2, TankMetal.ALUMINIUM),
+        m(alu, "S72 (10.0 L 207 bar)", 10.0, 207.0, 13.4, TankMetal.ALUMINIUM),
+        m(stage, "3 L 200 bar pony", 3.0, 200.0, 3.8),
+        m(stage, "5 L 200 bar stage", 5.0, 200.0, 5.5),
+        m(stage, "7 L 200 bar stage", 7.0, 200.0, 7.5),
+        i(iSteel, "HP80 (80 cuft, 3500 psi)", 80.0, 3500.0, 28.5, TankMetal.STEEL),
+        i(iSteel, "HP85 (85 cuft, 3442 psi)", 85.0, 3442.0, 33.0, TankMetal.STEEL),
+        i(iSteel, "HP100 (100 cuft, 3442 psi)", 100.0, 3442.0, 38.0, TankMetal.STEEL),
+        i(iSteel, "HP117 (117 cuft, 3442 psi)", 117.0, 3442.0, 44.0, TankMetal.STEEL),
+        i(iSteel, "HP120 (120 cuft, 3442 psi)", 120.0, 3442.0, 43.0, TankMetal.STEEL),
+        i(iAlu, "AL63 (63 cuft, 3000 psi)", 63.0, 3000.0, 26.0, TankMetal.ALUMINIUM),
+        i(iAlu, "AL80 (80 cuft, 3000 psi)", 80.0, 3000.0, 31.4, TankMetal.ALUMINIUM),
+        i(iAlu, "AL100 (100 cuft, 3300 psi)", 100.0, 3300.0, 39.0, TankMetal.ALUMINIUM),
+        i(iStage, "AL19 pony (19 cuft, 3000 psi)", 19.0, 3000.0, 11.0, TankMetal.ALUMINIUM),
+        i(iStage, "AL30 stage (30 cuft, 3000 psi)", 30.0, 3000.0, 14.5, TankMetal.ALUMINIUM),
+        i(iStage, "AL40 stage (40 cuft, 3000 psi)", 40.0, 3000.0, 17.0, TankMetal.ALUMINIUM),
     )
 }

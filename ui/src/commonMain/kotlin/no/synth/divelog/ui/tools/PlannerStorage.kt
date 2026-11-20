@@ -20,7 +20,7 @@ internal fun DivePlannerState.toJson(): JsonObject = JsonObject(
     mapOf(
         "units" to JsonPrimitive(units.name),
         "levels" to JsonArray(levels.map { JsonArray(listOf(JsonPrimitive(it.depth), JsonPrimitive(it.minutes))) }),
-        "gases" to JsonArray(gases.map { JsonArray(listOf(JsonPrimitive(it.o2), JsonPrimitive(it.he))) }),
+        "gases" to JsonArray(gases.map { g -> JsonArray(listOf(g.o2, g.he, g.size, g.pressure).map { JsonPrimitive(it) }) }),
         "bottomPpO2" to JsonPrimitive(bottomPpO2),
         "decoPpO2" to JsonPrimitive(decoPpO2),
         "gfLow" to JsonPrimitive(gfLow),
@@ -35,6 +35,7 @@ internal fun DivePlannerState.toJson(): JsonObject = JsonObject(
         "bottomSac" to JsonPrimitive(bottomSac),
         "decoSac" to JsonPrimitive(decoSac),
         "maxEnd" to JsonPrimitive(maxEnd),
+        "reserve" to JsonPrimitive(reserve.name),
     ),
 )
 
@@ -42,19 +43,23 @@ internal fun DivePlannerState.toJson(): JsonObject = JsonObject(
 internal fun DivePlannerState.load(json: JsonObject) {
     fun text(key: String) = (json[key] as? JsonPrimitive)?.contentOrNull
     fun flag(key: String) = (json[key] as? JsonPrimitive)?.booleanOrNull
-    fun pairs(key: String): List<Pair<String, String>>? = (json[key] as? JsonArray)?.mapNotNull { item ->
-        val values = (item as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-        if (values != null && values.size == 2) values[0] to values[1] else null
+    fun rows(key: String): List<List<String>>? = (json[key] as? JsonArray)?.mapNotNull { item ->
+        (item as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     }
+    fun pairs(key: String): List<Pair<String, String>>? = rows(key)?.mapNotNull { if (it.size == 2) it[0] to it[1] else null }
 
     text("units")?.let { name -> UnitSystem.entries.firstOrNull { it.name == name } }?.let { units = it }
     pairs("levels")?.takeIf { it.isNotEmpty() }?.let { list ->
         levels.clear()
         list.forEach { (depth, minutes) -> levels += PlannerLevel(depth, minutes) }
     }
-    pairs("gases")?.let { list ->
+    // O2 and He, then the cylinder's size and fill (missing in plans saved before cylinders).
+    // A row without a mix is skipped; when every row is, the gases are kept as they are.
+    rows("gases")?.let { all ->
+        val list = all.filter { it.size >= 2 }
+        if (list.isEmpty() && all.isNotEmpty()) return@let
         gases.clear()
-        list.forEach { (o2, he) -> gases += PlannerGas(o2, he) }
+        list.forEach { gases += PlannerGas(it[0], it[1], it.getOrElse(2) { "" }, it.getOrElse(3) { "" }) }
     }
     text("bottomPpO2")?.let { bottomPpO2 = it }
     text("decoPpO2")?.let { decoPpO2 = it }
@@ -70,6 +75,7 @@ internal fun DivePlannerState.load(json: JsonObject) {
     text("bottomSac")?.let { bottomSac = it }
     text("decoSac")?.let { decoSac = it }
     text("maxEnd")?.let { maxEnd = it }
+    text("reserve")?.let { name -> Reserve.entries.firstOrNull { it.name == name } }?.let { reserve = it }
 }
 
 internal fun encodeSavedPlans(plans: List<SavedPlan>): String =

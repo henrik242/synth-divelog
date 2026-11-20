@@ -1,5 +1,6 @@
 package no.synth.divelog.core.gas
 
+import no.synth.divelog.core.model.units.BAR_PER_PSI
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -207,5 +208,56 @@ class TankBuoyancyTest {
             "Tank buoyancy when full: 14.3806 - 14.5 - 0.9 - 3.182 = -4.2 kg",
         )
         assertEquals(expected, r.steps.map { s -> s.result?.let { "${s.text} = $it" } ?: s.text })
+    }
+
+    @Test
+    fun presetNamesAreUnchanged() {
+        // The tank calculator keeps the chosen preset by name.
+        assertEquals(
+            listOf(
+            "10 L 200 bar (12.6 kg)",
+            "12 L 200 bar (14.0 kg)",
+            "15 L 200 bar (16.5 kg)",
+            "18 L 200 bar (19.8 kg)",
+            "12 L 232 bar (14.5 kg)",
+            "7 L 300 bar (10.5 kg)",
+            "10 L 300 bar (14.0 kg)",
+            "Twin 12 L 200 bar (14.0 kg each)",
+            "Twin 12 L 232 bar (14.5 kg each)",
+            "S80 (11.1 L 207 bar, 14.2 kg)",
+            "S72 (10.0 L 207 bar, 13.4 kg)",
+            "3 L 200 bar pony (3.8 kg)",
+            "5 L 200 bar stage (5.5 kg)",
+            "7 L 200 bar stage (7.5 kg)",
+            "HP80 (80 cuft, 3500 psi, 28.5 lbs)",
+            "HP85 (85 cuft, 3442 psi, 33 lbs)",
+            "HP100 (100 cuft, 3442 psi, 38 lbs)",
+            "HP117 (117 cuft, 3442 psi, 44 lbs)",
+            "HP120 (120 cuft, 3442 psi, 43 lbs)",
+            "AL63 (63 cuft, 3000 psi, 26 lbs)",
+            "AL80 (80 cuft, 3000 psi, 31.4 lbs)",
+            "AL100 (100 cuft, 3300 psi, 39 lbs)",
+            "AL19 pony (19 cuft, 3000 psi, 11 lbs)",
+            "AL30 stage (30 cuft, 3000 psi, 14.5 lbs)",
+            "AL40 stage (40 cuft, 3000 psi, 17 lbs)",
+            ),
+            TANK_PRESETS.map { it.name },
+        )
+    }
+
+    @Test
+    fun presetSizeNamesLeaveOutTheWeight() {
+        val names = TANK_PRESETS.map { it.sizeName }
+        assertTrue("12 L 200 bar" in names)
+        assertTrue("Twin 12 L 232 bar" in names)
+        assertTrue("S80 (11.1 L 207 bar)" in names)
+        assertTrue("HP80 (80 cuft, 3500 psi)" in names)
+        assertTrue(names.none { "kg" in it || "lbs" in it }, names.toString())
+    }
+
+    @Test
+    fun nominalCubicFeetAndWaterLitresAreInverse() {
+        assertEquals(80.0, nominalCubicFeet(waterLitres(80.0, 3000.0), 3000.0 * BAR_PER_PSI), 1e-9)
+        assertEquals(11.1, waterLitres(nominalCubicFeet(11.1, 207.0), 207.0 / BAR_PER_PSI), 1e-9)
     }
 }

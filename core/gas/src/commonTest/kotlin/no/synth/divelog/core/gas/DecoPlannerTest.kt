@@ -6,6 +6,7 @@ import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -267,6 +268,58 @@ class DecoPlannerTest {
 
         val hypoxic = DecoPlanner.plan(DivePlan(listOf(PlanLevel(60000, 10 * 60)), BreathingGas(100, 700)))
         assertEquals(0, hypoxic.warnings.filterIsInstance<PlanWarning.LowPpO2>().single().depthMm)
+    }
+
+    @Test
+    fun warnsAboutDecoWithoutADecoGas() {
+        val bottomOnly = DecoPlanner.plan(DivePlan(listOf(PlanLevel(40000, 25 * 60)), BreathingGas.AIR))
+        val warning = bottomOnly.warnings.filterIsInstance<PlanWarning.NoDecoGas>().single()
+        assertEquals(BreathingGas.AIR, warning.gas)
+        assertEquals(bottomOnly.firstStopMm, warning.firstStopMm)
+        assertEquals(bottomOnly.ttsS, warning.ttsS)
+
+        val withO2 = DecoPlanner.plan(DivePlan(listOf(PlanLevel(40000, 25 * 60)), BreathingGas.AIR, listOf(BreathingGas.OXYGEN)))
+        assertTrue(withO2.warnings.none { it is PlanWarning.NoDecoGas })
+        val noDeco = DecoPlanner.plan(DivePlan(listOf(PlanLevel(18000, 30 * 60)), BreathingGas.AIR))
+        assertTrue(noDeco.warnings.none { it is PlanWarning.NoDecoGas })
+    }
+
+    @Test
+    fun lightDecoOnTheBottomGasIsNotWarnedAbout() {
+        val light = DecoPlanner.plan(DivePlan(listOf(PlanLevel(25000, 30 * 60)), BreathingGas.AIR))
+        val stopS = light.stops.sumOf { it.durationS }
+        val firstStop = assertNotNull(light.firstStopMm)
+        assertTrue(stopS in 1..NO_DECO_GAS_STOPS_S && firstStop <= NO_DECO_GAS_STOP_MM, "stops $stopS s from $firstStop mm")
+        assertTrue(light.warnings.none { it is PlanWarning.NoDecoGas }, light.warnings.toString())
+    }
+
+    @Test
+    fun theBottomGasListedAgainIsNoDecoGas() {
+        val plan = DecoPlanner.plan(DivePlan(listOf(PlanLevel(40000, 25 * 60)), BreathingGas.AIR, listOf(BreathingGas.AIR)))
+        assertEquals(1, plan.warnings.filterIsInstance<PlanWarning.NoDecoGas>().size)
+    }
+
+    @Test
+    fun warnsAboutARuntimePastFiveHours() {
+        // A shallow level never needs stops, so the runtime is the level plus the climb.
+        fun shallow(levelS: Int) = DecoPlanner.plan(DivePlan(listOf(PlanLevel(3000, levelS)), BreathingGas.AIR))
+        val climbS = shallow(3600).runtimeS - 3600
+        val atLimit = shallow(LONG_RUNTIME_S - climbS)
+        assertEquals(LONG_RUNTIME_S, atLimit.runtimeS)
+        assertTrue(atLimit.warnings.none { it is PlanWarning.LongRuntime })
+        val past = shallow(LONG_RUNTIME_S - climbS + 1)
+        assertEquals(past.runtimeS, past.warnings.filterIsInstance<PlanWarning.LongRuntime>().single().runtimeS)
+        assertTrue(DecoPlanner.plan(testMetric).warnings.none { it is PlanWarning.LongRuntime })
+    }
+
+    @Test
+    fun warnsAboutHighCnsAndPutsPlanWarningsFirst() {
+        val long = DecoPlanner.plan(DivePlan(listOf(PlanLevel(90000, 60 * 60)), BreathingGas(180, 450), maxEndMm = null))
+        assertTrue(long.cnsPercent > MAX_CNS_PERCENT)
+        assertEquals(long.cnsPercent, long.warnings.filterIsInstance<PlanWarning.HighCns>().single().percent)
+        val kinds = long.warnings.map { it is PlanWarning.OnGas }
+        assertEquals(kinds.sorted(), kinds, long.warnings.toString())
+        assertTrue(DecoPlanner.plan(DivePlan(listOf(PlanLevel(18000, 30 * 60)), BreathingGas.AIR)).warnings.none { it is PlanWarning.HighCns })
     }
 
     @Test

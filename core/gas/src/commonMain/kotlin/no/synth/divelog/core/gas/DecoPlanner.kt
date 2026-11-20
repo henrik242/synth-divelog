@@ -83,17 +83,42 @@ data class PlanSegment(
 
 data class GasUse(val gas: BreathingGas, val litres: Double, val decoLitres: Double)
 
+/** Past this runtime a plan is unusually long, likely a typing slip: 5 hours. */
+const val LONG_RUNTIME_S = 5 * 3600
+
+/** Deco on the bottom gas alone is warned about past this much stop time, or a first stop deeper than [NO_DECO_GAS_STOP_MM]. */
+const val NO_DECO_GAS_STOPS_S = 10 * 60
+const val NO_DECO_GAS_STOP_MM = 9000
+
+/** CNS above this, percent, is warned about. */
+const val MAX_CNS_PERCENT = 100
+
 sealed interface PlanWarning {
-    val gas: BreathingGas
-    val depthMm: Int
+    /** A limit [gas] goes past at [depthMm]. */
+    sealed interface OnGas : PlanWarning {
+        val gas: BreathingGas
+        val depthMm: Int
+    }
 
     /** pO2 above the limit (bottom or deco), bar. */
-    data class HighPpO2(override val gas: BreathingGas, override val depthMm: Int, val ppO2: Double, val limit: Double) : PlanWarning
+    data class HighPpO2(override val gas: BreathingGas, override val depthMm: Int, val ppO2: Double, val limit: Double) : OnGas
 
     /** pO2 below [MIN_PPO2]: hypoxic. */
-    data class LowPpO2(override val gas: BreathingGas, override val depthMm: Int, val ppO2: Double) : PlanWarning
+    data class LowPpO2(override val gas: BreathingGas, override val depthMm: Int, val ppO2: Double) : OnGas
 
-    data class HighEnd(override val gas: BreathingGas, override val depthMm: Int, val endMm: Int) : PlanWarning
+    data class HighEnd(override val gas: BreathingGas, override val depthMm: Int, val endMm: Int) : OnGas
+
+    /**
+     * Decompression on [gas], the bottom gas, with no deco gas: more than [NO_DECO_GAS_STOPS_S]
+     * of stops or a first stop deeper than [NO_DECO_GAS_STOP_MM].
+     */
+    data class NoDecoGas(val gas: BreathingGas, val firstStopMm: Int, val ttsS: Int) : PlanWarning
+
+    /** A runtime past [LONG_RUNTIME_S]. */
+    data class LongRuntime(val runtimeS: Int) : PlanWarning
+
+    /** CNS past [MAX_CNS_PERCENT]. */
+    data class HighCns(val percent: Int) : PlanWarning
 }
 
 enum class PlanError {
@@ -360,16 +385,28 @@ private class PlanRun(private val plan: DivePlan) {
     private fun result(tissues: Tissues, bottomTime: Int, bottomCeiling: Int, firstStop: Int?, error: PlanError?): DecoPlan {
         val segments = waypoints.zipWithNext { a, b -> PlanSegment(a.timeS, b.timeS, a.depthMm, b.depthMm, b.gas, b.bottom) }
             .filter { it.durationS > 0 }
+        val runtime = waypoints.last().timeS
+        val cns = round(segments.sumOf { cns(it) }).toInt()
+        val bottomGasDeco = firstStop?.takeIf {
+            plan.decoGases.none { it != plan.bottomGas } &&
+                (it > NO_DECO_GAS_STOP_MM || segments.filter { s -> s.isStop }.sumOf { s -> s.durationS } > NO_DECO_GAS_STOPS_S)
+        }
+        // The plan as a whole first, then the limits each gas goes past.
+        val planWarnings = listOfNotNull(
+            runtime.takeIf { it > LONG_RUNTIME_S }?.let { PlanWarning.LongRuntime(it) },
+            bottomGasDeco?.let { PlanWarning.NoDecoGas(plan.bottomGas, it, runtime - bottomTime) },
+            cns.takeIf { it > MAX_CNS_PERCENT }?.let { PlanWarning.HighCns(it) },
+        )
         return DecoPlan(
             segments = segments,
-            runtimeS = waypoints.last().timeS,
+            runtimeS = runtime,
             bottomTimeS = bottomTime,
             bottomCeilingMm = bottomCeiling,
             firstStopMm = firstStop,
             gasUse = gasUse(segments),
-            cnsPercent = round(segments.sumOf { cns(it) }).toInt(),
+            cnsPercent = cns,
             otu = round(segments.sumOf { otu(it) }).toInt(),
-            warnings = warnings(segments),
+            warnings = planWarnings + warnings(segments),
             error = error,
         )
     }
@@ -415,8 +452,8 @@ private class PlanRun(private val plan: DivePlan) {
     }
 
     /** pO2 and END checks at every waypoint, the worst per gas and kind. */
-    private fun warnings(segments: List<PlanSegment>): List<PlanWarning> {
-        val found = mutableListOf<PlanWarning>()
+    private fun warnings(segments: List<PlanSegment>): List<PlanWarning.OnGas> {
+        val found = mutableListOf<PlanWarning.OnGas>()
         val checks = segments.flatMap { s -> listOf(s to s.startDepthMm, s to s.endDepthMm) }
         for ((s, depth) in checks) {
             val ppO2 = s.gas.o2 / 1000.0 * water.bar(depth)
