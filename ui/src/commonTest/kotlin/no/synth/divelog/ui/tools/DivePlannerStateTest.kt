@@ -175,4 +175,19 @@ class DivePlannerStateTest {
         assertEquals("999", grouped(999))
         assertEquals("1 000 000", grouped(1_000_000))
     }
+
+    @Test
+    fun settingsFoldToASummary() {
+        val state = DivePlannerState()
+        assertFalse(state.settingsExpanded)
+        assertTrue(state.settingsValid())
+        assertEquals("GF 30/75, pO2 1.4/1.6, SAC 20/17 L/min, reserve 1/3, salt water", state.settingsSummary())
+        state.gfLow = "90"
+        assertFalse(state.settingsValid())
+        state.gfLow = "30"
+        state.maxEnd = ""
+        assertTrue(state.settingsValid())
+        state.surfaceMbar = "2000"
+        assertFalse(state.settingsValid())
+    }
 }

@@ -80,6 +80,7 @@ import no.synth.divelog.core.model.units.LITRES_PER_CUFT
 import no.synth.divelog.core.model.units.MM_PER_FOOT
 import no.synth.divelog.core.model.units.UnitSystem
 import no.synth.divelog.ui.components.CheckRow
+import no.synth.divelog.ui.components.CollapsibleToolCard
 import no.synth.divelog.ui.components.DecimalField
 import no.synth.divelog.ui.components.OptionPicker
 import no.synth.divelog.ui.components.StandardGasChips
@@ -152,6 +153,9 @@ class DivePlannerState {
 
     /** Gas kept back in each cylinder; see [reserveBar]. */
     var reserve by mutableStateOf(Reserve.THIRDS)
+
+    /** Whether the settings card is open; folded at first, as the defaults suit most plans. */
+    var settingsExpanded by mutableStateOf(false)
     var bottomPpO2 by mutableStateOf("1.4")
     var decoPpO2 by mutableStateOf("1.6")
     var gfLow by mutableStateOf("30")
@@ -224,6 +228,24 @@ class DivePlannerState {
     fun surface(): Int? = parseDecimal(surfaceMbar)?.takeIf { it >= 500 && it <= 1100 }?.let { round(it).toInt() }
 
     fun maxEndMm(): Int? = if (maxEnd.isBlank()) null else depthMm(maxEnd)
+
+    /** Whether every field on the settings card is valid. */
+    fun settingsValid(): Boolean =
+        gfValid() && listOf(descentRate, ascentRate, lastAscentRate).all { rate(it) != null } &&
+            sacMl(bottomSac) != null && sacMl(decoSac) != null && surface() != null &&
+            (maxEnd.isBlank() || maxEndMm() != null)
+
+    /** "GF 30/75, pO2 1.4/1.6, SAC 20/17 L/min, reserve 1/3, salt water": the settings on one line. */
+    fun settingsSummary(): String {
+        val sacUnit = if (metric) "L/min" else "cuft/min"
+        return listOf(
+            "GF $gfLow/$gfHigh",
+            "pO2 $bottomPpO2/$decoPpO2",
+            "SAC $bottomSac/$decoSac $sacUnit",
+            "reserve ${reserve.label(units)}",
+            if (saltWater) "salt water" else "fresh water",
+        ).joinToString(", ")
+    }
 
     /**
      * [gas]'s cylinder in the other units. Without a fill the size cannot be converted, so it is
@@ -432,10 +454,6 @@ fun DivePlannerScreen(
                     Text("Add gas")
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OptionPicker("Bottom pO2 (bar)", state.bottomPpO2, listOf("1.2", "1.3", "1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.bottomPpO2 = it }
-                OptionPicker("Deco pO2 (bar)", state.decoPpO2, listOf("1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.decoPpO2 = it }
-            }
             Hint(
                 "The gas with the least O2 is the bottom gas. The others are switched to at the stop where they " +
                     "reach the deco pO2, or shallower to stay within the max END. A bottom gas too lean for the " +
@@ -443,12 +461,22 @@ fun DivePlannerScreen(
             )
         }
 
-        ToolCard("Settings") {
+        CollapsibleToolCard(
+            "Settings",
+            state.settingsExpanded,
+            { state.settingsExpanded = it },
+            summary = if (state.settingsValid()) state.settingsSummary() else "Some settings are not valid. Open to fix them.",
+            summaryIsError = !state.settingsValid(),
+        ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DecimalField(state.gfLow, { state.gfLow = it }, "GF low", Modifier.weight(1f), !state.gfValid())
                 DecimalField(state.gfHigh, { state.gfHigh = it }, "GF high", Modifier.weight(1f), !state.gfValid())
             }
             if (!state.gfValid()) ErrorText("GF low and high must be 10-100, low at most high.")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OptionPicker("Bottom pO2 (bar)", state.bottomPpO2, listOf("1.2", "1.3", "1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.bottomPpO2 = it }
+                OptionPicker("Deco pO2 (bar)", state.decoPpO2, listOf("1.4", "1.5", "1.6"), Modifier.weight(1f)) { state.decoPpO2 = it }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DecimalField(state.descentRate, { state.descentRate = it }, "Descent ($unit/min)", Modifier.weight(1f), state.rate(state.descentRate) == null)
                 DecimalField(state.ascentRate, { state.ascentRate = it }, "Ascent ($unit/min)", Modifier.weight(1f), state.rate(state.ascentRate) == null)
@@ -489,6 +517,7 @@ fun DivePlannerScreen(
                 }
                 CheckRow("Salt water", state.saltWater, Modifier.weight(1f)) { state.saltWater = it }
             }
+            CheckRow("Whole-minute stops in the runtime table", state.wholeMinuteStops) { state.wholeMinuteStops = it }
         }
 
         when {
@@ -499,7 +528,7 @@ fun DivePlannerScreen(
                 if (result.warnings.isNotEmpty()) WarningsCard(result.warnings, state.units)
                 ResultCard(result, state)
                 ProfileCard(result, state.units)
-                RuntimeTable(result, state.units, state.wholeMinuteStops) { state.wholeMinuteStops = it }
+                RuntimeTable(result, state.units, state.wholeMinuteStops)
             }
         }
     }
@@ -889,9 +918,8 @@ private fun phaseOf(s: PlanSegment): String = when {
 }
 
 @Composable
-private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, wholeMinuteStops: Boolean, onWholeMinuteStops: (Boolean) -> Unit) {
+private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, wholeMinuteStops: Boolean) {
     ToolCard("Runtime table") {
-        CheckRow("Whole-minute stops", wholeMinuteStops, onChange = onWholeMinuteStops)
         TableRow(header = true, cells = listOf("", "Depth", "Time", "Run", "Gas"))
         HorizontalDivider()
         tableLines(plan, foldAscents = wholeMinuteStops).forEach { line ->
