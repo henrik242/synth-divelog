@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Info
@@ -59,6 +60,7 @@ import no.synth.divelog.core.gas.CylinderUse
 import no.synth.divelog.core.gas.DecoPlan
 import no.synth.divelog.core.gas.DecoPlanner
 import no.synth.divelog.core.gas.DivePlan
+import no.synth.divelog.core.gas.GasSuggestion
 import no.synth.divelog.core.gas.GradientFactors
 import no.synth.divelog.core.gas.PlanError
 import no.synth.divelog.core.gas.PlanLevel
@@ -67,9 +69,11 @@ import no.synth.divelog.core.gas.PlanWarning
 import no.synth.divelog.core.gas.TANK_PRESETS
 import no.synth.divelog.core.gas.TankPreset
 import no.synth.divelog.core.gas.Water
+import no.synth.divelog.core.gas.WaterColumn
 import no.synth.divelog.core.gas.combined
 import no.synth.divelog.core.gas.cylinderUse
 import no.synth.divelog.core.gas.nominalCubicFeet
+import no.synth.divelog.core.gas.suggestGases
 import no.synth.divelog.core.gas.waterLitres
 import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.Event
@@ -79,6 +83,7 @@ import no.synth.divelog.core.model.units.BAR_PER_PSI
 import no.synth.divelog.core.model.units.LITRES_PER_CUFT
 import no.synth.divelog.core.model.units.MM_PER_FOOT
 import no.synth.divelog.core.model.units.UnitSystem
+import no.synth.divelog.core.model.units.feetToMm
 import no.synth.divelog.ui.components.CheckRow
 import no.synth.divelog.ui.components.CollapsibleToolCard
 import no.synth.divelog.ui.components.DecimalField
@@ -300,6 +305,43 @@ class DivePlannerState {
         gas.pressure = pressure
     }
 
+    /**
+     * Gases for the profile's deepest level within the pO2 and END settings, or null while a
+     * level or one of those settings is invalid, or when no mix fits.
+     */
+    fun gasSuggestion(): GasSuggestion? {
+        val depth = levels.map { depthMm(it.depth) ?: return null }.maxOrNull() ?: return null
+        if (maxEnd.isNotBlank() && maxEndMm() == null) return null
+        return suggestGases(
+            maxDepthMm = depth,
+            bottomPpO2Mbar = round((parseDecimal(bottomPpO2) ?: return null) * 1000).toInt(),
+            decoPpO2Mbar = round((parseDecimal(decoPpO2) ?: return null) * 1000).toInt(),
+            maxEndMm = maxEndMm(),
+            water = WaterColumn(surface() ?: return null, if (saltWater) Water.SALT else Water.FRESH),
+            stepMm = if (metric) 3000 else feetToMm(10),
+        )
+    }
+
+    /**
+     * Replaces the gases with [suggestion]. The bottom gas keeps the old bottom gas's cylinder,
+     * a deco gas the cylinder of the same mix if one was listed.
+     */
+    fun apply(suggestion: GasSuggestion) {
+        val oldBottom = bottomIndex()?.let { gases[it] }
+        fun withCylinder(mix: BreathingGas, from: PlannerGas?) =
+            PlannerGas.of(mix).apply {
+                from?.let {
+                    size = it.size
+                    pressure = it.pressure
+                }
+            }
+        val bottom = withCylinder(suggestion.bottom, oldBottom)
+        val deco = suggestion.deco.map { mix -> withCylinder(mix, gases.firstOrNull { it !== oldBottom && it.parsed() == mix }) }
+        gases.clear()
+        gases += bottom
+        gases += deco
+    }
+
     /** The plan for the inputs, or null while some field is invalid. */
     fun plan(): DivePlan? {
         val levels = levels.map { l ->
@@ -454,10 +496,16 @@ fun DivePlannerScreen(
                     Text("Add gas")
                 }
             }
+            val suggestion = state.gasSuggestion()
+            TextButton(enabled = suggestion != null, onClick = { suggestion?.let { state.apply(it) } }) {
+                Icon(Icons.Filled.AutoAwesome, contentDescription = null)
+                Text("Suggest gases")
+            }
             Hint(
                 "The gas with the least O2 is the bottom gas. The others are switched to at the stop where they " +
                     "reach the deco pO2, or shallower to stay within the max END. A bottom gas too lean for the " +
-                    "surface is reached on the leanest other gas that is.",
+                    "surface is reached on the leanest other gas that is. Suggest gases replaces the list with a " +
+                    "standard bottom gas for the deepest level and deco gases for the ascent.",
             )
         }
 

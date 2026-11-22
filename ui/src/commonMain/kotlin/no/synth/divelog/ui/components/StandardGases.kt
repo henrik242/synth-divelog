@@ -8,12 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import no.synth.divelog.core.gas.BreathingGas
-
-/** GUE's standard gases plus air, from the leanest bottom gas to oxygen. */
-internal val STANDARD_GASES = listOf(
-    BreathingGas(100, 700), BreathingGas(150, 550), BreathingGas(180, 450), BreathingGas(210, 350),
-    BreathingGas(210), BreathingGas(320), BreathingGas(500), BreathingGas(1000),
-)
+import no.synth.divelog.core.gas.STANDARD_GASES
 
 /** One-tap chips for the standard gases after any [leading] content; [isSelected] marks the ones in use. */
 @Composable
