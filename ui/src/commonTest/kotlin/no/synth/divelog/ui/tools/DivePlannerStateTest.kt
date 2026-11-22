@@ -273,4 +273,37 @@ class DivePlannerStateTest {
         state.decoCylinder.setTo(PlannerCylinder("40", ""))
         assertFalse(state.settingsValid())
     }
+
+    @Test
+    fun suggestionFitsTheDeepestLevelAndKeepsCylinders() {
+        val state = DivePlannerState()
+        state.levels[0].depth = "30"
+        state.levels += PlannerLevel("45", "10")
+        state.gases += PlannerGas("32", "0", "24", "232")
+        state.gases += PlannerGas("100", "0", "7", "200")
+        state.apply(requireNotNull(state.gasSuggestion()))
+        assertEquals(listOf(BreathingGas(210, 350), BreathingGas(500), BreathingGas.OXYGEN), state.gases.map { it.parsed() })
+        assertEquals(listOf("24", "", "7"), state.gases.map { it.size })
+        assertEquals(BreathingGas(210, 350), requireNotNull(state.plan()).bottomGas)
+    }
+
+    @Test
+    fun suggestedGasesWithoutAnOldCylinderTakeTheDefaults() {
+        val state = DivePlannerState()
+        state.bottomCylinder.setTo(PlannerCylinder("24", "232"))
+        state.decoCylinder.setTo(PlannerCylinder("7", "200"))
+        state.apply(requireNotNull(state.gasSuggestion()))
+        assertEquals("24" to "232", state.gases[0].size to state.gases[0].pressure)
+        assertTrue(state.gases.drop(1).all { it.size == "7" && it.pressure == "200" })
+    }
+
+    @Test
+    fun noSuggestionWhileALevelIsInvalid() {
+        val state = DivePlannerState()
+        state.levels[0].depth = "x"
+        assertEquals(null, state.gasSuggestion())
+        state.useUnits(UnitSystem.IMPERIAL)
+        state.levels[0].depth = "140"
+        assertEquals(BreathingGas(210, 350), state.gasSuggestion()?.bottom)
+    }
 }
