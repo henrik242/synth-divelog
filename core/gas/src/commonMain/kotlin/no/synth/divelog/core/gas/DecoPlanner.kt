@@ -414,6 +414,7 @@ private class PlanRun(private val plan: DivePlan) {
     /** Ambient pressure in atm, for gas volumes at the surface. */
     private fun atm(depthMm: Int): Double = water.bar(depthMm) / ATM_BAR
 
+    /** Per gas: the bottom gas first, then the others from the leanest (the deepest switch) up. */
     private fun gasUse(segments: List<PlanSegment>): List<GasUse> =
         segments.groupBy { it.gas }.map { (gas, segs) ->
             fun litres(s: PlanSegment): Double {
@@ -421,7 +422,7 @@ private class PlanRun(private val plan: DivePlan) {
                 return atm((s.startDepthMm + s.endDepthMm) / 2) * sac / 60.0 * s.durationS / 1000.0
             }
             GasUse(gas, segs.sumOf { litres(it) }, segs.filter { !it.bottom }.sumOf { litres(it) })
-        }
+        }.sortedWith(compareBy({ it.gas != plan.bottomGas }, { it.gas.o2 }, { -it.gas.he }))
 
     private fun ppO2Mbar(gas: BreathingGas, depthMm: Int): Int = round(gas.o2 * water.bar(depthMm)).toInt()
 

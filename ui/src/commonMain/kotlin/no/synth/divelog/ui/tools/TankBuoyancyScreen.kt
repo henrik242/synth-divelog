@@ -160,9 +160,8 @@ fun TankBuoyancyScreen(state: TankBuoyancyState, unitSystem: UnitSystem) {
     }
 }
 
-/** A button that opens the common cylinders, by group, showing each as [label]. */
 @Composable
-internal fun PresetPicker(selected: String?, label: (TankPreset) -> String = { it.name }, onChoose: (TankPreset) -> Unit) {
+private fun PresetPicker(selected: String?, onChoose: (TankPreset) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
@@ -178,7 +177,7 @@ internal fun PresetPicker(selected: String?, label: (TankPreset) -> String = { i
                     color = MaterialTheme.colorScheme.primary,
                 )
                 presets.forEach { preset ->
-                    DropdownMenuItem(text = { Text(label(preset)) }, onClick = { open = false; onChoose(preset) })
+                    DropdownMenuItem(text = { Text(preset.name) }, onClick = { open = false; onChoose(preset) })
                 }
             }
         }

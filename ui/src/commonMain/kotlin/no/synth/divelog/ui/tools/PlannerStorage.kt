@@ -36,6 +36,8 @@ internal fun DivePlannerState.toJson(): JsonObject = JsonObject(
         "decoSac" to JsonPrimitive(decoSac),
         "maxEnd" to JsonPrimitive(maxEnd),
         "reserve" to JsonPrimitive(reserve.name),
+        "bottomCylinder" to JsonArray(listOf(JsonPrimitive(bottomCylinder.size), JsonPrimitive(bottomCylinder.pressure))),
+        "decoCylinder" to JsonArray(listOf(JsonPrimitive(decoCylinder.size), JsonPrimitive(decoCylinder.pressure))),
     ),
 )
 
@@ -76,6 +78,9 @@ internal fun DivePlannerState.load(json: JsonObject) {
     text("decoSac")?.let { decoSac = it }
     text("maxEnd")?.let { maxEnd = it }
     text("reserve")?.let { name -> Reserve.entries.firstOrNull { it.name == name } }?.let { reserve = it }
+    fun cylinder(key: String) = (json[key] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }?.takeIf { it.size == 2 }
+    cylinder("bottomCylinder")?.let { (size, pressure) -> bottomCylinder.setTo(PlannerCylinder(size, pressure)) }
+    cylinder("decoCylinder")?.let { (size, pressure) -> decoCylinder.setTo(PlannerCylinder(size, pressure)) }
 }
 
 internal fun encodeSavedPlans(plans: List<SavedPlan>): String =

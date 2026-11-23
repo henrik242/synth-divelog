@@ -5,12 +5,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +27,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,12 +49,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.round
 import no.synth.divelog.core.gas.AscentRates
 import no.synth.divelog.core.gas.BreathingGas
 import no.synth.divelog.core.gas.Cylinder
@@ -70,6 +81,7 @@ import no.synth.divelog.core.gas.Water
 import no.synth.divelog.core.gas.combined
 import no.synth.divelog.core.gas.cylinderUse
 import no.synth.divelog.core.gas.nominalCubicFeet
+import no.synth.divelog.core.gas.usedInTurn
 import no.synth.divelog.core.gas.waterLitres
 import no.synth.divelog.core.logbook.format.Format
 import no.synth.divelog.core.model.Event
@@ -79,6 +91,7 @@ import no.synth.divelog.core.model.units.BAR_PER_PSI
 import no.synth.divelog.core.model.units.LITRES_PER_CUFT
 import no.synth.divelog.core.model.units.MM_PER_FOOT
 import no.synth.divelog.core.model.units.UnitSystem
+import no.synth.divelog.ui.LocalStatusColors
 import no.synth.divelog.ui.components.CheckRow
 import no.synth.divelog.ui.components.CollapsibleToolCard
 import no.synth.divelog.ui.components.DecimalField
@@ -90,7 +103,6 @@ import no.synth.divelog.ui.components.parseDecimal
 import no.synth.divelog.ui.components.trimmedDecimal
 import no.synth.divelog.ui.components.twoDecimals
 import no.synth.divelog.ui.dive.ProfileGraph
-import kotlin.math.round
 
 private const val ML_PER_CUFT = LITRES_PER_CUFT * 1000
 
@@ -102,17 +114,38 @@ class PlannerLevel(depth: String, minutes: String) {
 }
 
 /**
- * A gas as typed, in percent, and its optional cylinder: [size] in litres of water (metric) or
+ * A cylinder as typed, or none when both are blank: [size] in litres of water (metric) or
  * nominal cuft at [pressure] (imperial), [pressure] the fill in bar or psi.
  */
+@Stable
+class PlannerCylinder(size: String = "", pressure: String = "") {
+    var size by mutableStateOf(size)
+    var pressure by mutableStateOf(pressure)
+
+    fun isSet(): Boolean = size.isNotBlank() || pressure.isNotBlank()
+
+    fun setTo(other: PlannerCylinder) {
+        size = other.size
+        pressure = other.pressure
+    }
+
+    fun sameAs(other: PlannerCylinder): Boolean = size.trim() == other.size.trim() && pressure.trim() == other.pressure.trim()
+}
+
+/** A gas as typed, in percent, and its optional [cylinder]. */
 @Stable
 class PlannerGas(o2: String, he: String, size: String = "", pressure: String = "") {
     var o2 by mutableStateOf(o2)
     var he by mutableStateOf(he)
-    var size by mutableStateOf(size)
-    var pressure by mutableStateOf(pressure)
+    val cylinder = PlannerCylinder(size, pressure)
+    var size: String
+        get() = cylinder.size
+        set(v) { cylinder.size = v }
+    var pressure: String
+        get() = cylinder.pressure
+        set(v) { cylinder.pressure = v }
 
-    fun hasCylinder(): Boolean = size.isNotBlank() || pressure.isNotBlank()
+    fun hasCylinder(): Boolean = cylinder.isSet()
 
     fun parsed(): BreathingGas? {
         val o2 = parseDecimal(o2) ?: return null
@@ -147,15 +180,49 @@ class DivePlannerState {
         .filter { gases[it].parsed() != null }
         .minWithOrNull(compareBy({ gases[it].parsed()?.o2 }, { -(gases[it].parsed()?.he ?: 0) }))
 
+    /** "Bottom" for every cylinder of the bottom mix, "Deco 1", "Deco 2" by mix, so two of one mix share a number. */
+    fun gasLabels(): Map<PlannerGas, String> {
+        val bottom = bottomIndex()?.let { gases[it].parsed() }
+        val decoMixes = gasesInOrder().map { it.parsed() }.filter { it != bottom }.distinct()
+        return gases.associateWith { gas ->
+            val mix = gas.parsed()
+            if (mix != null && mix == bottom) "Bottom" else "Deco ${decoMixes.indexOf(mix) + 1}"
+        }
+    }
+
     /** The gases as listed: the bottom gas, the deco gases from the deepest switch up, then any not valid. */
     fun gasesInOrder(): List<PlannerGas> =
         gases.sortedWith(compareBy({ it.parsed()?.o2 ?: Int.MAX_VALUE }, { -(it.parsed()?.he ?: 0) }))
 
+    /** The cylinders a gas starts with when added, by its role; none when not set. See [addGas]. */
+    val bottomCylinder = PlannerCylinder()
+    val decoCylinder = PlannerCylinder()
+
+    /**
+     * Adds [gas] with the default cylinder for its role, unless it has one. When it becomes the
+     * bottom gas, the gas it takes over from trades the bottom default, if it still has that,
+     * for the deco one.
+     */
+    fun addGas(gas: PlannerGas) {
+        val previousBottom = bottomIndex()?.let { gases[it] }
+        gases += gas
+        val bottomMix = bottomIndex()?.let { gases[it].parsed() }
+        val isBottom = bottomMix != null && gas.parsed() == bottomMix
+        if (!gas.hasCylinder()) gas.cylinder.setTo(if (isBottom) bottomCylinder else decoCylinder)
+        // A new, leaner bottom mix; another cylinder of the same one changes nothing.
+        if (isBottom && previousBottom != null && previousBottom.parsed() != bottomMix && previousBottom.cylinder.sameAs(bottomCylinder)) {
+            previousBottom.cylinder.setTo(decoCylinder)
+        }
+    }
+
     /** Gas kept back in each cylinder; see [reserveBar]. */
-    var reserve by mutableStateOf(Reserve.THIRDS)
+    var reserve by mutableStateOf(Reserve.NONE)
 
     /** Whether the settings card is open; folded at first, as the defaults suit most plans. */
     var settingsExpanded by mutableStateOf(false)
+
+    /** Whether the runtime table shows every line, or one line per gas when folded. */
+    var runtimeExpanded by mutableStateOf(true)
     var bottomPpO2 by mutableStateOf("1.4")
     var decoPpO2 by mutableStateOf("1.6")
     var gfLow by mutableStateOf("30")
@@ -194,7 +261,7 @@ class DivePlannerState {
             if (toFeet) twoDecimals(v * 1000 / ML_PER_CUFT) else trimmedDecimal(v * ML_PER_CUFT / 1000)
         } ?: text
         levels.forEach { it.depth = length(it.depth) }
-        gases.forEach { convertCylinder(it, toFeet) }
+        (gases.map { it.cylinder } + bottomCylinder + decoCylinder).forEach { convertCylinder(it, toFeet) }
         descentRate = length(descentRate)
         ascentRate = length(ascentRate)
         lastAscentRate = length(lastAscentRate)
@@ -233,17 +300,22 @@ class DivePlannerState {
     fun settingsValid(): Boolean =
         gfValid() && listOf(descentRate, ascentRate, lastAscentRate).all { rate(it) != null } &&
             sacMl(bottomSac) != null && sacMl(decoSac) != null && surface() != null &&
-            (maxEnd.isBlank() || maxEndMm() != null)
+            (maxEnd.isBlank() || maxEndMm() != null) && !cylinderInvalid(bottomCylinder) && !cylinderInvalid(decoCylinder)
 
-    /** "GF 30/75, pO2 1.4/1.6, SAC 20/17 L/min, reserve 1/3, salt water": the settings on one line. */
+    /**
+     * "GF 30/75, pO2 1.4/1.6, SAC 20/17 L/min, reserve 1/3, salt water, bottom 24 L 232 bar":
+     * the settings on one line, the default cylinders when set.
+     */
     fun settingsSummary(): String {
         val sacUnit = if (metric) "L/min" else "cuft/min"
-        return listOf(
+        return listOfNotNull(
             "GF $gfLow/$gfHigh",
             "pO2 $bottomPpO2/$decoPpO2",
             "SAC $bottomSac/$decoSac $sacUnit",
-            "reserve ${reserve.label(units)}",
+            if (reserve == Reserve.NONE) "no reserve" else "reserve ${reserve.label(units)}",
             if (saltWater) "salt water" else "fresh water",
+            bottomCylinder.takeIf { it.isSet() }?.let { "bottom ${cylinderText(it.size, it.pressure, units)}" },
+            decoCylinder.takeIf { it.isSet() }?.let { "deco ${cylinderText(it.size, it.pressure, units)}" },
         ).joinToString(", ")
     }
 
@@ -251,39 +323,39 @@ class DivePlannerState {
      * [gas]'s cylinder in the other units. Without a fill the size cannot be converted, so it is
      * cleared. A cylinder that is a common one, within rounding, takes that one's figures.
      */
-    private fun convertCylinder(gas: PlannerGas, toFeet: Boolean) {
-        val pressure = parseDecimal(gas.pressure)
+    private fun convertCylinder(cylinder: PlannerCylinder, toFeet: Boolean) {
+        val pressure = parseDecimal(cylinder.pressure)
         if (pressure == null) {
-            gas.size = ""
+            cylinder.size = ""
             return
         }
-        val size = parseDecimal(gas.size)
+        val size = parseDecimal(cylinder.size)
         val fromMetric = toFeet
         val litres = size?.let { if (fromMetric) it else waterLitres(it, pressure) }
         val bar = if (fromMetric) pressure else pressure * BAR_PER_PSI
         val target = if (toFeet) UnitSystem.IMPERIAL else UnitSystem.METRIC
         val preset = litres?.let { presetMatching(it, bar, target) }
         val (newSize, newPressure) = preset ?: cylinderFields(litres, bar, target)
-        gas.size = newSize
-        gas.pressure = newPressure
+        cylinder.size = newSize
+        cylinder.pressure = newPressure
     }
 
     /** [gas]'s cylinder as water litres and fill bar, or null when not given or out of range. */
-    private fun cylinderSize(gas: PlannerGas): Pair<Double, Double>? {
-        val size = parseDecimal(gas.size)?.takeIf { it > 0 } ?: return null
-        val pressure = parseDecimal(gas.pressure)?.takeIf { it > 0 } ?: return null
+    private fun cylinderSize(cylinder: PlannerCylinder): Pair<Double, Double>? {
+        val size = parseDecimal(cylinder.size)?.takeIf { it > 0 } ?: return null
+        val pressure = parseDecimal(cylinder.pressure)?.takeIf { it > 0 } ?: return null
         val litres = if (metric) size else waterLitres(size, pressure)
         val bar = if (metric) pressure else pressure * BAR_PER_PSI
         return (litres to bar).takeIf { litres <= MAX_CYLINDER_LITRES && bar <= MAX_FILL_BAR }
     }
 
     /** A cylinder is optional, but one half given or out of range is an error. */
-    fun cylinderInvalid(gas: PlannerGas): Boolean = gas.hasCylinder() && cylinderSize(gas) == null
+    fun cylinderInvalid(cylinder: PlannerCylinder): Boolean = cylinder.isSet() && cylinderSize(cylinder) == null
 
     /** The cylinders of each mix, for the gas used; a mix listed twice has both. */
     fun cylinders(): Map<BreathingGas, List<Cylinder>> = gases.mapNotNull { gas ->
         val mix = gas.parsed() ?: return@mapNotNull null
-        cylinderSize(gas)?.let { (litres, bar) -> Cylinder(litres, bar, mix) }
+        cylinderSize(gas.cylinder)?.let { (litres, bar) -> Cylinder(litres, bar, mix) }
     }.groupBy { it.gas }
 
     /** Gauge bar kept back in [cylinder]. */
@@ -293,11 +365,17 @@ class DivePlannerState {
         Reserve.NONE -> 0.0
     }
 
-    /** Fills [gas]'s cylinder from [preset]; a twin set as its total. */
-    fun choose(gas: PlannerGas, preset: TankPreset) {
-        val (size, pressure) = presetFields(preset, units)
-        gas.size = size
-        gas.pressure = pressure
+    /** Fills [gas] from [preset]; a twin set as its total. */
+    /** Whether [cylinder] is [preset], within half a percent. */
+    fun isPreset(cylinder: PlannerCylinder, preset: PlannerPreset): Boolean {
+        val (litres, bar) = cylinderSize(cylinder) ?: return false
+        return abs(litres - preset.litres) <= preset.litres * 0.005 && abs(bar - preset.bar) <= preset.bar * 0.005
+    }
+
+    fun choose(cylinder: PlannerCylinder, preset: PlannerPreset) {
+        val (size, pressure) = cylinderFields(preset.litres, preset.bar, units)
+        cylinder.size = size
+        cylinder.pressure = pressure
     }
 
     /** The plan for the inputs, or null while some field is invalid. */
@@ -369,12 +447,24 @@ private fun cylinderFields(litres: Double?, bar: Double, units: UnitSystem): Pai
         (litres?.let { trimmedDecimal(nominalCubicFeet(it, bar)) } ?: "") to round(bar / BAR_PER_PSI).toLong().toString()
     }
 
+/** A cylinder the planner offers by name: [litres] of water volume in all, filled to [bar]. */
+data class PlannerPreset(val name: String, val litres: Double, val bar: Double)
+
+val PLANNER_PRESETS = listOf(
+    PlannerPreset("D12 232 bar", 24.0, 232.0),
+    PlannerPreset("D7 300 bar", 14.0, 300.0),
+    PlannerPreset("D8.5 232 bar", 17.0, 232.0),
+    PlannerPreset("S80 200 bar", 11.1, 200.0),
+    PlannerPreset("S40 200 bar", 5.7, 200.0),
+    PlannerPreset("7 L 200 bar", 7.0, 200.0),
+)
+
 /**
  * The fields of a common cylinder within half a percent of [litres] at [bar], preferring one
  * rated in [units]; null when none is that close.
  */
 private fun presetMatching(litres: Double, bar: Double, units: UnitSystem): Pair<String, String>? {
-    fun close(a: Double, b: Double) = kotlin.math.abs(a - b) <= b * 0.005
+    fun close(a: Double, b: Double) = abs(a - b) <= b * 0.005
     val native = { p: TankPreset -> if (units == UnitSystem.METRIC) p.metric != null else p.imperial != null }
     return TANK_PRESETS.sortedByDescending(native).firstOrNull { p ->
         val tank = p.metric ?: p.imperial?.toMetric() ?: return@firstOrNull false
@@ -435,19 +525,18 @@ fun DivePlannerScreen(
         }
 
         ToolCard("Gases") {
-            val bottom = state.bottomIndex()?.let { state.gases[it] }
-            var decoNumber = 0
+            val labels = state.gasLabels()
             state.gasesInOrder().forEach { gas ->
-                val label = if (gas === bottom) "Bottom" else "Deco ${++decoNumber}"
+                val label = labels.getValue(gas)
                 key(gas) { GasRow(label, gas, state, onRemove = { state.gases.remove(gas) }) }
             }
             var adding by remember { mutableStateOf(false) }
             if (adding) {
-                MixDialog(null, onDismiss = { adding = false }) { o2, he -> state.gases.add(PlannerGas(o2, he)) }
+                MixDialog(null, onDismiss = { adding = false }) { o2, he -> state.addGas(PlannerGas(o2, he)) }
             }
-            // Chips only add: a gas, and its cylinder, goes with its own remove button.
+            // Chips only add, another cylinder of the mix on each tap; each row has its own remove button.
             StandardGasChips(isSelected = { gas -> state.gases.any { it.parsed() == gas } }, onClick = { gas ->
-                if (state.gases.none { it.parsed() == gas }) state.gases.add(PlannerGas.of(gas))
+                state.addGas(PlannerGas.of(gas))
             }) {
                 TextButton(onClick = { adding = true }) {
                     Icon(Icons.Filled.Add, contentDescription = null)
@@ -518,6 +607,11 @@ fun DivePlannerScreen(
                 CheckRow("Salt water", state.saltWater, Modifier.weight(1f)) { state.saltWater = it }
             }
             CheckRow("Whole-minute stops in the runtime table", state.wholeMinuteStops) { state.wholeMinuteStops = it }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DefaultCylinderField("Bottom cylinder", state.bottomCylinder, state, Modifier.weight(1f))
+                DefaultCylinderField("Deco cylinder", state.decoCylinder, state, Modifier.weight(1f))
+            }
+            Hint("A gas you add starts in the cylinder for its role.")
         }
 
         when {
@@ -528,7 +622,7 @@ fun DivePlannerScreen(
                 if (result.warnings.isNotEmpty()) WarningsCard(result.warnings, state.units)
                 ResultCard(result, state)
                 ProfileCard(result, state.units)
-                RuntimeTable(result, state.units, state.wholeMinuteStops)
+                RuntimeTable(result, state)
             }
         }
     }
@@ -631,7 +725,7 @@ private fun GasRow(label: String, gas: PlannerGas, state: DivePlannerState, onRe
             if (gas.hasCylinder()) "Cylinder" else "Add cylinder",
             cylinderText(gas.size, gas.pressure, state.units),
             Modifier.weight(1.4f),
-            isError = state.cylinderInvalid(gas),
+            isError = state.cylinderInvalid(gas.cylinder),
         ) { editCylinder = true }
         IconButton(onClick = onRemove) { Icon(Icons.Filled.Close, contentDescription = "Remove ${mix?.name ?: "gas"}") }
     }
@@ -641,7 +735,7 @@ private fun GasRow(label: String, gas: PlannerGas, state: DivePlannerState, onRe
             gas.he = he
         }
     }
-    if (editCylinder) CylinderDialog(gas, state) { editCylinder = false }
+    if (editCylinder) CylinderDialog("Cylinder for ${mix?.name ?: "this gas"}", gas.cylinder, state) { editCylinder = false }
 }
 
 /** "24 L 232 bar", "80 cuft 3000", as typed; empty without a cylinder. Psi is left off to fit. */
@@ -658,12 +752,6 @@ internal fun cylinderText(cylinder: Cylinder, units: UnitSystem): String =
     } else {
         "${round(nominalCubicFeet(cylinder.volumeLitres, cylinder.pressureBar)).toLong()} cuft ${pressure(cylinder.pressureBar, units)}"
     }
-
-/** "2 x 7 L 200 bar", or "7 L 200 bar + 11 L 150 bar" when they differ. */
-internal fun cylindersText(cylinders: List<Cylinder>, units: UnitSystem): String {
-    val texts = cylinders.map { cylinderText(it, units) }
-    return if (texts.size > 1 && texts.distinct().size == 1) "${texts.size} x ${texts.first()}" else texts.joinToString(" + ")
-}
 
 /** Edits a mix, or adds one when [initial] is null; [onSave] gets O2 and He as typed. */
 @Composable
@@ -695,23 +783,44 @@ private fun MixDialog(initial: PlannerGas?, onDismiss: () -> Unit, onSave: (o2: 
     )
 }
 
-/** Edits [gas]'s cylinder: a common one from the menu, or size and fill; "No cylinder" clears it. */
+/** A default cylinder in the settings: tap to change it; "None" when not set. */
 @Composable
-private fun CylinderDialog(gas: PlannerGas, state: DivePlannerState, onDismiss: () -> Unit) {
-    val draft = remember { PlannerGas(gas.o2, gas.he, gas.size, gas.pressure) }
+private fun DefaultCylinderField(label: String, cylinder: PlannerCylinder, state: DivePlannerState, modifier: Modifier) {
+    var editing by remember { mutableStateOf(false) }
+    TapField(
+        label,
+        cylinderText(cylinder.size, cylinder.pressure, state.units).ifEmpty { "None" },
+        modifier,
+        isError = state.cylinderInvalid(cylinder),
+    ) { editing = true }
+    if (editing) CylinderDialog("Default ${label.lowercase()}", cylinder, state) { editing = false }
+}
+
+/** Edits [cylinder]: a common one from the menu, or size and fill; "No cylinder" clears it. */
+@Composable
+private fun CylinderDialog(title: String, cylinder: PlannerCylinder, state: DivePlannerState, onDismiss: () -> Unit) {
+    val draft = remember { PlannerCylinder(cylinder.size, cylinder.pressure) }
     val metric = state.units == UnitSystem.METRIC
     val invalid = state.cylinderInvalid(draft)
     fun save(size: String, pressure: String) {
-        gas.size = size
-        gas.pressure = pressure
+        cylinder.size = size
+        cylinder.pressure = pressure
         onDismiss()
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Cylinder for ${gas.parsed()?.name ?: "this gas"}") },
+        title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                PresetPicker(null, label = { it.sizeName }) { state.choose(draft, it) }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PLANNER_PRESETS.forEach { preset ->
+                        FilterChip(
+                            selected = state.isPreset(draft, preset),
+                            onClick = { state.choose(draft, preset) },
+                            label = { Text(preset.name) },
+                        )
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DecimalField(draft.size, { draft.size = it }, if (metric) "Size (L)" else "Size (cuft)", Modifier.weight(1f), invalid)
                     DecimalField(draft.pressure, { draft.pressure = it }, if (metric) "Fill (bar)" else "Fill (psi)", Modifier.weight(1f), invalid)
@@ -740,7 +849,7 @@ private fun CylinderDialog(gas: PlannerGas, state: DivePlannerState, onDismiss: 
         },
         dismissButton = {
             Row {
-                if (gas.hasCylinder()) TextButton(onClick = { save("", "") }) { Text("No cylinder") }
+                if (cylinder.isSet()) TextButton(onClick = { save("", "") }) { Text("No cylinder") }
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
         },
@@ -751,7 +860,7 @@ private fun CylinderDialog(gas: PlannerGas, state: DivePlannerState, onDismiss: 
 private fun ResultCard(plan: DecoPlan, state: DivePlannerState) {
     val units = state.units
     val cylinders = state.cylinders()
-    ToolCard("Plan", MaterialTheme.colorScheme.secondaryContainer) {
+    ToolCard("Plan") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Tile("Runtime", ceilMinutes(plan.runtimeS).toString(), "min", Modifier.weight(1f))
             Tile("TTS", ceilMinutes(plan.ttsS).toString(), "min", Modifier.weight(1f))
@@ -767,64 +876,123 @@ private fun ResultCard(plan: DecoPlan, state: DivePlannerState) {
         HorizontalDivider()
         Text("Gas used", style = MaterialTheme.typography.labelLarge)
         plan.gasUse.forEach { use ->
-            Text(
-                "${use.gas.name}: ${volume(use.litres, units)}" +
-                    if (use.decoLitres > 0 && use.decoLitres < use.litres) " (${volume(use.decoLitres, units)} on the ascent)" else "",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            cylinders[use.gas]?.let { list ->
-                val cylinder = combined(list)
-                CylinderUseLine(cylinderUse(cylinder, use.litres, state.reserveBar(cylinder)), cylindersText(list, units), units)
+            val list = cylinders[use.gas].orEmpty()
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(use.gas.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(volume(use.litres, units), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (list.size == 1) {
+                val cylinder = list.single()
+                val one = cylinderUse(cylinder, use.litres, state.reserveBar(cylinder))
+                CylinderUseLine(one, units, one.cylindersNeeded?.let { "needs $it" })
+            } else if (list.size > 1) {
+                // Breathed in turn, each on its own line. The last one holds the set's reserve,
+                // so its note also says how many such sets the gas takes.
+                val set = combined(list)
+                val whole = cylinderUse(set, use.litres, state.reserveBar(set))
+                val uses = usedInTurn(list, use.litres, whole.availableLitres - whole.usableLitres)
+                uses.forEachIndexed { i, one ->
+                    CylinderUseLine(one, units, whole.cylindersNeeded?.takeIf { i == uses.lastIndex }?.let { "needs $it sets" })
+                }
             }
         }
     }
 }
 
 /**
- * How much of a gas's cylinders, named [name], the plan breathes: a bar with a mark at the
- * reserve, and the pressure used and left. Short of gas, how many such cylinders it takes.
+ * One cylinder: its size, a bar of the need over the capacity, and the pressure left. A note
+ * only when it runs into the reserve or short, ending in [needs].
  */
 @Composable
-private fun CylinderUseLine(use: CylinderUse, name: String, units: UnitSystem) {
-    val color = when {
-        !use.enough -> MaterialTheme.colorScheme.error
-        !use.keepsReserve -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.primary
-    }
+private fun CylinderUseLine(use: CylinderUse, units: UnitSystem, needs: String?) {
+    val color = useColor(use)
     val reserveFraction = if (use.availableLitres > 0) (1 - use.usableLitres / use.availableLitres).toFloat() else 0f
-    UsageBar((use.usedLitres / use.availableLitres).toFloat(), reserveFraction, color)
-    val reserve = if (use.reserveBar > 0) "the ${pressure(use.reserveBar, units)} reserve" else null
-    val needed = use.cylindersNeeded
-    val sets = if (name.contains(" x ") || name.contains(" + ")) "sets like these" else "x $name"
-    val text = when {
-        use.keepsReserve ->
-            "$name: ${pressure(use.usedBar, units)} used, ${pressure(use.endBar, units)} left" +
-                (reserve?.let { ", above $it" } ?: "")
-        needed == null -> "$name: the reserve is the whole fill."
-        use.enough ->
-            "$name: ${pressure(use.usedBar, units)} used, ${pressure(use.endBar, units)} left, below $reserve. Needs $needed $sets."
-        else -> "$name: not enough. Needs $needed $sets" + (reserve?.let { ", each keeping $it." } ?: ".")
+    Row(Modifier.semantics(mergeDescendants = true) {}, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            cylinderText(use.cylinder, units),
+            Modifier.width(96.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        UsageBar((use.usedLitres / use.availableLitres).toFloat(), reserveFraction, Modifier.weight(1f))
+        Text(
+            if (use.enough) pressure(use.endBar, units) else "empty",
+            Modifier.width(64.dp),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+            color = if (use.keepsReserve) Color.Unspecified else color,
+        )
     }
+    val note = when {
+        use.keepsReserve -> return
+        !use.enough -> "${pressure(-use.endBar, units)} short"
+        // A reserve as big as the fill, or in a set the part of the set's reserve it holds.
+        use.usableLitres <= 0 -> "Into the reserve"
+        else -> "Below the ${pressure(use.reserveBar, units)} reserve"
+    }
+    StatusText(note + (needs?.let { " · $it" } ?: ""), color)
+}
+
+@Composable
+private fun useColor(use: CylinderUse): Color = when {
+    !use.enough -> MaterialTheme.colorScheme.error
+    !use.keepsReserve -> LocalStatusColors.current.warning
+    else -> MaterialTheme.colorScheme.primary
+}
+
+/** A short warning under a cylinder, right-aligned under the pressure it explains, in [color]. */
+@Composable
+private fun StatusText(text: String, color: Color) {
     Text(
         text,
+        Modifier.fillMaxWidth(),
         style = MaterialTheme.typography.bodySmall,
-        color = if (use.keepsReserve) MaterialTheme.colorScheme.onSurfaceVariant else color,
-        fontWeight = if (use.keepsReserve) null else FontWeight.SemiBold,
+        color = color,
+        fontWeight = FontWeight.SemiBold,
+        textAlign = TextAlign.End,
     )
 }
 
-/** A bar filled to [used] (0-1) in [color], with a tick where the reserve starts, [reserve] from the end. */
+/**
+ * The gas the plan needs, a thin bar, over the cylinder's capacity, a wider one behind it.
+ * [used] is the need as a fraction of the capacity; the scale fits whichever is longer, so a
+ * need past the capacity runs past its end, marked with a tick. The capacity shows its
+ * [reserve] fraction at the right end in amber; the need is teal over the usable gas, amber in
+ * the reserve and red past the capacity. Colours keep 3:1 against their neighbours and the card.
+ */
 @Composable
-private fun UsageBar(used: Float, reserve: Float, color: Color) {
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    val tick = MaterialTheme.colorScheme.onSurfaceVariant
-    Canvas(Modifier.fillMaxWidth().height(8.dp)) {
-        val radius = CornerRadius(size.height / 2)
-        drawRoundRect(track, cornerRadius = radius)
-        drawRoundRect(color, size = Size(size.width * used.coerceIn(0f, 1f), size.height), cornerRadius = radius)
-        if (reserve > 0f) {
-            val x = size.width * (1 - reserve.coerceIn(0f, 1f))
-            drawLine(tick, Offset(x, -2.dp.toPx()), Offset(x, size.height + 2.dp.toPx()), strokeWidth = 2.dp.toPx())
+private fun UsageBar(used: Float, reserve: Float, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val status = LocalStatusColors.current
+    Canvas(modifier.fillMaxWidth().height(14.dp)) {
+        val scale = size.width / maxOf(used, 1f)
+        val capacityEnd = scale
+        val reserveStart = scale * (1 - reserve.coerceIn(0f, 1f))
+        val usedEnd = scale * used.coerceAtLeast(0f)
+        fun pill(height: Float, width: Float) = Path().apply {
+            addRoundRect(RoundRect(0f, (size.height - height) / 2, width, (size.height + height) / 2, CornerRadius(height / 2)))
+        }
+        // The cylinder: usable gas, then the reserve.
+        clipPath(pill(size.height, capacityEnd)) {
+            drawRect(colors.outlineVariant, size = Size(reserveStart, size.height))
+            drawRect(status.warningContainer, Offset(reserveStart, 0f), Size(capacityEnd - reserveStart, size.height))
+        }
+        // The need, thinner, on top.
+        val thin = size.height * 0.45f
+        val top = (size.height - thin) / 2
+        clipPath(pill(thin, usedEnd)) {
+            fun segment(from: Float, to: Float, color: Color) {
+                if (to > from) drawRect(color, Offset(from, top), Size(to - from, thin))
+            }
+            segment(0f, minOf(usedEnd, reserveStart), colors.primary)
+            segment(reserveStart, minOf(usedEnd, capacityEnd), status.warning)
+            segment(capacityEnd, usedEnd, colors.error)
+        }
+        // Where the cylinder ends, so a shortfall shows without telling amber from red.
+        if (used > 1f) {
+            drawLine(colors.onSurface, Offset(capacityEnd, 0f), Offset(capacityEnd, size.height), strokeWidth = 2.dp.toPx())
         }
     }
 }
@@ -917,24 +1085,95 @@ private fun phaseOf(s: PlanSegment): String = when {
     else -> "Stop"
 }
 
+/**
+ * The part of a dive breathed on one [gas]: from [startS] to [endS] of runtime, starting at
+ * [startMm], at most [deepestMm] deep and ending at [endMm], with [stops] stop depths in it.
+ * [bottom] when it has time at a level, [descent] when it only goes down.
+ */
+internal data class GasPhase(
+    val gas: BreathingGas,
+    val startS: Int,
+    val endS: Int,
+    val startMm: Int,
+    val deepestMm: Int,
+    val endMm: Int,
+    val bottom: Boolean,
+    val descent: Boolean,
+    val stops: Int,
+) {
+    val durationS: Int get() = endS - startS
+}
+
+/** [plan]'s segments run together while the gas stays the same. */
+internal fun gasPhases(plan: DecoPlan): List<GasPhase> {
+    val phases = mutableListOf<GasPhase>()
+    var group = mutableListOf<PlanSegment>()
+    fun close() {
+        val first = group.firstOrNull() ?: return
+        val last = group.last()
+        val stopDepths = group.filter { it.isStop }.map { it.endDepthMm }.distinct()
+        phases += GasPhase(
+            first.gas, first.startS, last.endS, first.startDepthMm, group.maxOf { max(it.startDepthMm, it.endDepthMm) },
+            last.endDepthMm,
+            bottom = group.any { it.bottom && it.startDepthMm == it.endDepthMm },
+            descent = group.all { it.endDepthMm > it.startDepthMm },
+            stops = stopDepths.size,
+        )
+        group = mutableListOf()
+    }
+    plan.segments.forEach { s ->
+        if (group.isNotEmpty() && group.last().gas != s.gas) close()
+        group += s
+    }
+    close()
+    return phases
+}
+
 @Composable
-private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, wholeMinuteStops: Boolean) {
-    ToolCard("Runtime table") {
-        TableRow(header = true, cells = listOf("", "Depth", "Time", "Run", "Gas"))
+private fun RuntimeTable(plan: DecoPlan, state: DivePlannerState) {
+    val units = state.units
+    CollapsibleToolCard(
+        "Runtime table",
+        state.runtimeExpanded,
+        { state.runtimeExpanded = it },
+        collapsed = {
+            TableRow(header = true, cells = tableHeader(units))
+            HorizontalDivider()
+            gasPhases(plan).forEach { phase ->
+                val label = when {
+                    phase.bottom -> "Bottom"
+                    phase.descent -> "Descent"
+                    phase.stops == 1 -> "1 stop"
+                    phase.stops > 1 -> "${phase.stops} stops"
+                    else -> "Ascent"
+                }
+                // A descent from where it starts, the rest from their deepest point.
+                val from = if (phase.descent) phase.startMm else phase.deepestMm
+                val depths = depthRange(from, phase.endMm, units)
+                TableRow(
+                    header = false,
+                    cells = listOf(label, depths, Format.duration(phase.durationS), Format.duration(phase.endS), tableGas(phase.gas)),
+                )
+            }
+            Hint("One line per gas: how long you breathe it, and the runtime when you leave it. Open for every stop.")
+        },
+    ) {
+        val wholeMinuteStops = state.wholeMinuteStops
+        TableRow(header = true, cells = tableHeader(units))
         HorizontalDivider()
         tableLines(plan, foldAscents = wholeMinuteStops).forEach { line ->
             TableRow(
                 header = false,
-                cells = listOf(line.phase, depthCell(line, units), Format.duration(line.durationS), minutes(line.runtimeS), line.gas.name),
+                cells = listOf(line.phase, depthRange(line.fromDepthMm, line.depthMm, units), Format.duration(line.durationS), Format.duration(line.runtimeS), tableGas(line.gas)),
                 bold = line.phase == "Stop",
                 gasSwitched = line.switched,
             )
         }
         Hint(
             if (wholeMinuteStops) {
-                "Each stop's time includes the climb to it, so stops are whole minutes. Run is the runtime when you leave."
+                "Each stop's duration includes the climb to it, so stops are whole minutes. Runtime is when you leave."
             } else {
-                "Time is the segment's length, Run the runtime at its end. Stops end on whole minutes of runtime."
+                "Runtime is at the end of each line. Stops end on whole minutes of runtime."
             },
         )
     }
@@ -942,15 +1181,15 @@ private fun RuntimeTable(plan: DecoPlan, units: UnitSystem, wholeMinuteStops: Bo
 
 @Composable
 private fun TableRow(header: Boolean, cells: List<String>, bold: Boolean = false, gasSwitched: Boolean = false) {
-    val style = if (header) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyMedium
-    val weights = listOf(1.1f, 1f, 0.9f, 0.9f, 1f)
-    // A gas switch gets a light band so it stands out from the stops around it.
+    val style = if (header) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium
+    val weights = listOf(1.1f, 1.15f, 1.05f, 1f, 0.95f)
+    // A gas switch gets a band so it stands out from the stops around it; its text is the band's own colour.
     val band = if (gasSwitched) {
-        Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+        Modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(6.dp))
     } else {
         Modifier
     }
-    Row(Modifier.fillMaxWidth().then(band).padding(horizontal = 4.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(Modifier.fillMaxWidth().then(band).padding(horizontal = 4.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         cells.forEachIndexed { i, text ->
             val isGas = i == cells.lastIndex
             Text(
@@ -958,7 +1197,7 @@ private fun TableRow(header: Boolean, cells: List<String>, bold: Boolean = false
                 Modifier.weight(weights[i]),
                 style = style,
                 fontWeight = if (bold || (isGas && gasSwitched)) FontWeight.SemiBold else null,
-                color = if (isGas && gasSwitched) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                color = if (gasSwitched) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified,
             )
         }
     }
@@ -967,7 +1206,11 @@ private fun TableRow(header: Boolean, cells: List<String>, bold: Boolean = false
 /** A result: [value] large, its [unit] small after it, so "1312 min" fits a third of a phone. */
 @Composable
 private fun Tile(label: String, value: String, unit: String?, modifier: Modifier) {
-    ElevatedCard(modifier, colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    val colors = CardDefaults.elevatedCardColors(
+        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    )
+    ElevatedCard(modifier, colors = colors) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
             Text(
@@ -990,11 +1233,14 @@ private fun ErrorText(text: String) = Text(text, color = MaterialTheme.colorSche
 
 /** Whole metres or feet: stops sit on whole units. */
 /** A stop or level's depth; a descent or ascent as from-to, so a gas switch reads at its start. */
-private fun depthCell(line: TableLine, units: UnitSystem): String {
-    if (line.fromDepthMm == line.depthMm) return depth(line.depthMm, units)
-    val from = depth(line.fromDepthMm, units).substringBefore(' ')
-    return "$from-${depth(line.depthMm, units)}"
+/** "90-51" or "6", the unit left to the column header so three-digit feet fit. */
+private fun depthRange(fromMm: Int, toMm: Int, units: UnitSystem): String {
+    fun number(mm: Int) = depth(mm, units).substringBefore(' ')
+    return if (fromMm == toMm) number(toMm) else "${number(fromMm)}-${number(toMm)}"
 }
+
+private fun tableHeader(units: UnitSystem): List<String> =
+    listOf("", if (units == UnitSystem.METRIC) "Depth (m)" else "Depth (ft)", "Duration", "Runtime", "Gas")
 
 private fun depth(mm: Int, units: UnitSystem): String =
     if (units == UnitSystem.METRIC) "${round(mm / 1000.0).toInt()} m" else "${round(mm / MM_PER_FOOT).toInt()} ft"
@@ -1004,7 +1250,7 @@ private fun volume(litres: Double, units: UnitSystem): String =
 
 /** Thousands set apart by a space: 53 112. */
 internal fun grouped(v: Long): String {
-    val digits = kotlin.math.abs(v).toString()
+    val digits = abs(v).toString()
     val head = digits.length % 3
     val groups = listOfNotNull(digits.take(head).ifEmpty { null }) + digits.drop(head).chunked(3)
     return (if (v < 0) "-" else "") + groups.joinToString(" ")
@@ -1027,5 +1273,7 @@ internal fun hoursMinutes(seconds: Int): String {
 private fun pressure(bar: Double, units: UnitSystem): String =
     if (units == UnitSystem.METRIC) "${round(bar).toInt()} bar" else "${round(bar / BAR_PER_PSI).toInt()} psi"
 
+/** A gas as short as the table's last column needs: "O2" for oxygen. */
+private fun tableGas(gas: BreathingGas): String = if (gas == BreathingGas.OXYGEN) "O2" else gas.name
+
 /** Runtime in minutes, rounded up as dive tables show it. */
-private fun minutes(seconds: Int): String = "${ceilMinutes(seconds)} min"

@@ -3,6 +3,7 @@ package no.synth.divelog.core.gas
 import no.synth.divelog.core.model.units.ATM_BAR
 import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Breathing [usedLitres] of free gas at 1 atm from [cylinder], by the real-gas
@@ -43,6 +44,30 @@ fun cylinderUse(cylinder: Cylinder, usedLitres: Double, reserveBar: Double = 0.0
     val endBar = if (end >= empty) Compressibility.gaugeBar(end, o2, he) else end - empty
     val usable = max(0.0, litres(start - ideal(reserveBar.coerceIn(0.0, cylinder.pressureBar))))
     return CylinderUse(cylinder, usedLitres, reserveBar, litres(start - empty), usable, endBar)
+}
+
+/**
+ * [usedLitres] of one mix breathed from its [cylinders] in turn, each to empty before the next;
+ * short of gas, the last one takes the shortfall. The set's [reserveLitres] are what is left
+ * at the end, so they lie in the last cylinders: each one's reserve is the part of it they fill.
+ */
+fun usedInTurn(cylinders: List<Cylinder>, usedLitres: Double, reserveLitres: Double = 0.0): List<CylinderUse> {
+    val held = cylinders.map { cylinderUse(it, 0.0).availableLitres }
+    var left = usedLitres
+    val taken = held.mapTo(mutableListOf()) { all -> min(left, all).also { left -= it } }
+    if (taken.isNotEmpty()) taken[taken.lastIndex] += left
+    var reserve = reserveLitres
+    val reserves = held.reversed().map { all -> min(reserve, all).also { reserve -= it } }.reversed()
+    return cylinders.indices.map { cylinderUse(cylinders[it], taken[it], barHolding(cylinders[it], reserves[it])) }
+}
+
+/** The gauge bar at which [cylinder] still holds [litres] of free gas. */
+private fun barHolding(cylinder: Cylinder, litres: Double): Double {
+    if (litres <= 0) return 0.0
+    val o2 = cylinder.gas.o2 / 1000.0
+    val he = cylinder.gas.he / 1000.0
+    val ideal = Compressibility.idealBar(0.0, o2, he) + litres * ATM_BAR / cylinder.volumeLitres
+    return Compressibility.gaugeBar(ideal, o2, he).coerceAtMost(cylinder.pressureBar)
 }
 
 /**

@@ -323,6 +323,16 @@ class DecoPlannerTest {
     }
 
     @Test
+    fun gasUseListsTheBottomGasFirst() {
+        // 10/70 is hypoxic at the surface, so the descent starts on 21/35, the leanest gas that is not.
+        val plan = DecoPlanner.plan(
+            DivePlan(listOf(PlanLevel(90000, 20 * 60)), BreathingGas(100, 700), listOf(BreathingGas.OXYGEN, BreathingGas(500), BreathingGas(210, 350))),
+        )
+        assertEquals(BreathingGas(210, 350), plan.segments.first().gas)
+        assertEquals(listOf(BreathingGas(100, 700), BreathingGas(210, 350), BreathingGas(500), BreathingGas.OXYGEN), plan.gasUse.map { it.gas })
+    }
+
+    @Test
     fun oxygenExposure() {
         val plan = DecoPlanner.plan(testMetric)
         // An hour of decompression, most of it on oxygen at 6 m.

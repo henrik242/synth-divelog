@@ -2,7 +2,6 @@ package no.synth.divelog.ui.tools
 
 import no.synth.divelog.core.gas.BreathingGas
 import no.synth.divelog.core.gas.Cylinder
-import no.synth.divelog.core.gas.TANK_PRESETS
 import no.synth.divelog.core.model.units.UnitSystem
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -10,7 +9,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DivePlannerStateTest {
-    private fun preset(name: String) = TANK_PRESETS.first { it.sizeName == name }
+    private fun plannerPreset(name: String) = PLANNER_PRESETS.first { it.name == name }
+
+    @Test
+    fun theMenuOffersTheUsualCylinders() {
+        assertEquals(
+            listOf("D12 232 bar", "D7 300 bar", "D8.5 232 bar", "S80 200 bar", "S40 200 bar", "7 L 200 bar"),
+            PLANNER_PRESETS.map { it.name },
+        )
+    }
 
     @Test
     fun cylindersAreOptionalButWhole() {
@@ -19,16 +26,16 @@ class DivePlannerStateTest {
         val half = PlannerGas("21", "0", "12", "")
         val whole = PlannerGas("50", "0", "7", "200")
         state.gases += listOf(none, half, whole)
-        assertFalse(state.cylinderInvalid(none))
-        assertTrue(state.cylinderInvalid(half))
-        assertFalse(state.cylinderInvalid(whole))
+        assertFalse(state.cylinderInvalid(none.cylinder))
+        assertTrue(state.cylinderInvalid(half.cylinder))
+        assertFalse(state.cylinderInvalid(whole.cylinder))
         assertEquals(mapOf(BreathingGas(500) to listOf(Cylinder(7.0, 200.0, BreathingGas(500)))), state.cylinders())
     }
 
     @Test
     fun cylinderRangeEdges() {
         val state = DivePlannerState()
-        fun invalid(size: String, pressure: String) = state.cylinderInvalid(PlannerGas("21", "0", size, pressure))
+        fun invalid(size: String, pressure: String) = state.cylinderInvalid(PlannerCylinder(size, pressure))
         assertFalse(invalid("100", "400"))
         assertTrue(invalid("100.1", "200"))
         assertTrue(invalid("12", "400.1"))
@@ -127,20 +134,20 @@ class DivePlannerStateTest {
     fun aTwinPresetIsTheTotal() {
         val state = DivePlannerState()
         val gas = PlannerGas("21", "35")
-        state.choose(gas, preset("Twin 12 L 232 bar"))
+        state.choose(gas.cylinder, plannerPreset("D12 232 bar"))
         assertEquals("24" to "232", gas.size to gas.pressure)
+        state.choose(gas.cylinder, plannerPreset("D8.5 232 bar"))
+        assertEquals("17" to "232", gas.size to gas.pressure)
     }
 
     @Test
     fun choosingInImperialUnits() {
         val state = DivePlannerState().apply { useUnits(UnitSystem.IMPERIAL) }
         val gas = PlannerGas("21", "35")
-        state.choose(gas, preset("AL80 (80 cuft, 3000 psi)"))
-        assertEquals("80" to "3000", gas.size to gas.pressure)
-        state.choose(gas, preset("12 L 232 bar"))
-        assertEquals("97" to "3365", gas.size to gas.pressure)
-        state.choose(gas, preset("Twin 12 L 232 bar"))
+        state.choose(gas.cylinder, plannerPreset("D12 232 bar"))
         assertEquals("194.1" to "3365", gas.size to gas.pressure)
+        assertTrue(state.isPreset(gas.cylinder, plannerPreset("D12 232 bar")))
+        assertFalse(state.isPreset(gas.cylinder, plannerPreset("D8.5 232 bar")))
         state.gases += gas
         assertEquals(24.0, state.cylinders().values.single().single().volumeLitres, 0.05)
     }
@@ -149,6 +156,8 @@ class DivePlannerStateTest {
     fun theReserveIsAThirdAFixedPressureOrNone() {
         val state = DivePlannerState()
         val cylinder = Cylinder(12.0, 232.0, BreathingGas.AIR)
+        assertEquals(0.0, state.reserveBar(cylinder))
+        state.reserve = Reserve.THIRDS
         assertEquals(232.0 / 3, state.reserveBar(cylinder))
         state.reserve = Reserve.FIXED
         assertEquals(50.0, state.reserveBar(cylinder))
@@ -168,9 +177,6 @@ class DivePlannerStateTest {
         assertEquals("24 L 232 bar", cylinderText("24", "232", UnitSystem.METRIC))
         assertEquals("80 cuft 3000", cylinderText("80", "3000", UnitSystem.IMPERIAL))
         assertEquals("80 cuft 3000 psi", cylinderText(Cylinder(11.1, 206.84, BreathingGas.AIR), UnitSystem.IMPERIAL))
-        val stage = Cylinder(7.0, 200.0, BreathingGas(500))
-        assertEquals("2 x 7 L 200 bar", cylindersText(listOf(stage, stage), UnitSystem.METRIC))
-        assertEquals("7 L 200 bar + 11 L 150 bar", cylindersText(listOf(stage, Cylinder(11.0, 150.0, BreathingGas(500))), UnitSystem.METRIC))
         assertEquals("53 112", grouped(53112))
         assertEquals("999", grouped(999))
         assertEquals("1 000 000", grouped(1_000_000))
@@ -181,6 +187,8 @@ class DivePlannerStateTest {
         val state = DivePlannerState()
         assertFalse(state.settingsExpanded)
         assertTrue(state.settingsValid())
+        assertEquals("GF 30/75, pO2 1.4/1.6, SAC 20/17 L/min, no reserve, salt water", state.settingsSummary())
+        state.reserve = Reserve.THIRDS
         assertEquals("GF 30/75, pO2 1.4/1.6, SAC 20/17 L/min, reserve 1/3, salt water", state.settingsSummary())
         state.gfLow = "90"
         assertFalse(state.settingsValid())
@@ -188,6 +196,81 @@ class DivePlannerStateTest {
         state.maxEnd = ""
         assertTrue(state.settingsValid())
         state.surfaceMbar = "2000"
+        assertFalse(state.settingsValid())
+    }
+
+    @Test
+    fun anAddedGasStartsInTheDefaultCylinderForItsRole() {
+        val state = DivePlannerState()
+        state.bottomCylinder.setTo(PlannerCylinder("24", "232"))
+        state.decoCylinder.setTo(PlannerCylinder("7", "200"))
+        val bottom = PlannerGas("21", "35")
+        val deco = PlannerGas("50", "0")
+        state.addGas(bottom)
+        state.addGas(deco)
+        assertEquals("24" to "232", bottom.size to bottom.pressure)
+        assertEquals("7" to "200", deco.size to deco.pressure)
+        // A cylinder of its own is kept.
+        val own = PlannerGas("100", "0", "3", "200")
+        state.addGas(own)
+        assertEquals("3" to "200", own.size to own.pressure)
+    }
+
+    @Test
+    fun aNewBottomGasTakesTheBottomCylinderFromTheOldOne() {
+        val state = DivePlannerState()
+        state.bottomCylinder.setTo(PlannerCylinder("24", "232"))
+        state.decoCylinder.setTo(PlannerCylinder("7", "200"))
+        val first = PlannerGas("50", "0")
+        state.addGas(first)
+        assertEquals("24" to "232", first.size to first.pressure)
+        state.addGas(PlannerGas("21", "35"))
+        assertEquals("7" to "200", first.size to first.pressure)
+        // A cylinder the user changed stays when a leaner gas comes along.
+        first.size = "11"
+        state.addGas(PlannerGas("18", "45"))
+        assertEquals("11" to "200", first.size to first.pressure)
+    }
+
+    @Test
+    fun anotherCylinderOfTheBottomMixIsABottomCylinder() {
+        val state = DivePlannerState()
+        state.bottomCylinder.setTo(PlannerCylinder("12", "232"))
+        state.decoCylinder.setTo(PlannerCylinder("7", "200"))
+        val first = PlannerGas("10", "70")
+        val second = PlannerGas("10", "70")
+        state.addGas(first)
+        state.addGas(second)
+        assertEquals("12" to "232", first.size to first.pressure)
+        assertEquals("12" to "232", second.size to second.pressure)
+        assertEquals(2, state.cylinders().values.single().size)
+    }
+
+    @Test
+    fun cylindersOfOneMixShareTheirLabel() {
+        val state = DivePlannerState()
+        val gases = listOf(PlannerGas("10", "70"), PlannerGas("50", "0"), PlannerGas("10", "70"), PlannerGas("100", "0"), PlannerGas("50", "0"))
+        gases.forEach { state.addGas(it) }
+        assertEquals(listOf("Bottom", "Deco 1", "Bottom", "Deco 2", "Deco 1"), gases.map { state.gasLabels().getValue(it) })
+    }
+
+    @Test
+    fun withoutDefaultsAddedGasesHaveNoCylinder() {
+        val state = DivePlannerState()
+        state.addGas(PlannerGas("21", "35"))
+        state.addGas(PlannerGas("50", "0"))
+        assertTrue(state.gases.none { it.hasCylinder() })
+    }
+
+    @Test
+    fun defaultCylindersFollowTheUnitsAndShowInTheSummary() {
+        val state = DivePlannerState()
+        state.bottomCylinder.setTo(PlannerCylinder("11.1", "207"))
+        assertTrue(state.settingsSummary().endsWith(", bottom 11.1 L 207 bar"), state.settingsSummary())
+        state.useUnits(UnitSystem.IMPERIAL)
+        assertEquals("80" to "3000", state.bottomCylinder.size to state.bottomCylinder.pressure)
+        assertFalse(state.decoCylinder.isSet())
+        state.decoCylinder.setTo(PlannerCylinder("40", ""))
         assertFalse(state.settingsValid())
     }
 }

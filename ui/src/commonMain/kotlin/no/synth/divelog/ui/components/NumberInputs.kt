@@ -115,6 +115,28 @@ fun CollapsibleToolCard(
     summary: String,
     summaryIsError: Boolean = false,
     content: @Composable () -> Unit,
+) = CollapsibleToolCard(
+    title,
+    expanded,
+    onExpandedChange,
+    collapsed = {
+        Text(
+            summary,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (summaryIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    },
+    content = content,
+)
+
+/** A [ToolCard] whose title folds it: [content] when open, [collapsed] when folded. */
+@Composable
+fun CollapsibleToolCard(
+    title: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    collapsed: @Composable () -> Unit,
+    content: @Composable () -> Unit,
 ) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -127,15 +149,7 @@ fun CollapsibleToolCard(
                 Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
             }
-            if (expanded) {
-                content()
-            } else {
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (summaryIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            if (expanded) content() else collapsed()
         }
     }
 }

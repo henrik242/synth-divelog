@@ -116,4 +116,54 @@ class CylinderUseTest {
         assertNear(200.0, combined(listOf(a, a)).pressureBar, 1e-6, "same fill")
         assertFailsWith<IllegalArgumentException> { combined(listOf(a, Cylinder(7.0, 200.0, BreathingGas.AIR))) }
     }
+
+    private val ean50 = BreathingGas(500)
+    private val small = Cylinder(7.0, 200.0, ean50)
+    private val big = Cylinder(11.0, 150.0, ean50)
+    @Test
+    fun theFirstCylinderIsEmptiedBeforeTheNext() {
+        val smallAll = cylinderUse(small, 0.0).availableLitres
+        val light = usedInTurn(listOf(small, big), smallAll * 0.5)
+        assertNear(smallAll * 0.5, light[0].usedLitres, 1e-9, "first")
+        assertEquals(0.0, light[1].usedLitres)
+
+        val more = usedInTurn(listOf(small, big), smallAll + 300.0)
+        assertNear(0.0, more[0].endBar, 1e-3, "first empty")
+        assertNear(300.0, more[1].usedLitres, 1e-9, "second")
+        assertTrue(more.all { it.enough })
+    }
+
+    @Test
+    fun theSetsReserveLiesInTheLastCylinders() {
+        val bigAll = cylinderUse(big, 0.0).availableLitres
+        // A reserve smaller than the last cylinder is all in it.
+        val uses = usedInTurn(listOf(small, big), 100.0, reserveLitres = 500.0)
+        assertEquals(0.0, uses[0].reserveBar)
+        assertNear(500.0, uses[1].availableLitres - uses[1].usableLitres, 1e-6, "in the last")
+        // A bigger one fills the last and spills into the one before.
+        val deep = usedInTurn(listOf(small, big), 100.0, reserveLitres = bigAll + 200.0)
+        assertNear(big.pressureBar, deep[1].reserveBar, 1e-9, "the last all reserve")
+        assertNear(200.0, deep[0].availableLitres - deep[0].usableLitres, 1e-6, "the rest in the first")
+    }
+
+    @Test
+    fun breathingIntoTheSetsReserveShowsInTheCylinderHoldingIt() {
+        val all = listOf(small, big).sumOf { cylinderUse(it, 0.0).availableLitres }
+        val reserve = cylinderUse(combined(listOf(small, big)), 0.0, 50.0).let { it.availableLitres - it.usableLitres }
+        val kept = usedInTurn(listOf(small, big), all - reserve - 10.0, reserve)
+        assertTrue(kept.all { it.keepsReserve })
+        val into = usedInTurn(listOf(small, big), all - reserve + 10.0, reserve)
+        assertTrue(into[0].keepsReserve && !into[1].keepsReserve && into[1].enough)
+    }
+
+    @Test
+    fun pastAllTheGasTheLastCylinderIsShort() {
+        val all = listOf(small, big).sumOf { cylinderUse(it, 0.0).availableLitres }
+        val uses = usedInTurn(listOf(small, big), all + 50.0)
+        assertNear(all + 50.0, uses.sumOf { it.usedLitres }, 1e-9, "total")
+        assertNear(0.0, uses[0].endBar, 1e-3, "first empty")
+        assertTrue(uses[0].enough)
+        assertFalse(uses[1].enough)
+        assertEquals(listOf(small), usedInTurn(listOf(small), 10.0).map { it.cylinder })
+    }
 }

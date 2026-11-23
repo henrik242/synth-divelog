@@ -5,6 +5,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import no.synth.divelog.core.model.ThemeMode
 
@@ -67,14 +70,30 @@ fun ThemeMode.darkTheme(): Boolean = when (this) {
     ThemeMode.DARK -> true
 }
 
+/**
+ * Status colours Material 3 lacks: an amber [warning] between fine (primary) and wrong (error),
+ * as for gas breathed out of a cylinder's reserve. [warning] reads as text on the app's cards;
+ * [warningContainer] is a fill that stands apart from both the cards and the teal primary.
+ */
+@Immutable
+data class StatusColors(val warning: Color, val warningContainer: Color, val onWarningContainer: Color)
+
+private val LightStatus = StatusColors(Color(0xFF8B5000), Color(0xFFF5C27A), Color(0xFF2D1600))
+private val DarkStatus = StatusColors(Color(0xFFFFB86E), Color(0xFF6A3C00), Color(0xFFFFDDB8))
+
+/** The [StatusColors] of the current theme. */
+val LocalStatusColors = staticCompositionLocalOf { LightStatus }
+
 /** Shared app theme used by all platforms. */
 @Composable
 fun SynthTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        content = content,
-    )
+    CompositionLocalProvider(LocalStatusColors provides if (darkTheme) DarkStatus else LightStatus) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkColors else LightColors,
+            content = content,
+        )
+    }
 }

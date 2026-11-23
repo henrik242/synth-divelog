@@ -5,6 +5,7 @@ import kotlinx.serialization.json.jsonObject
 import no.synth.divelog.core.model.units.UnitSystem
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -90,8 +91,20 @@ class PlannerStorageTest {
 
     @Test
     fun theReserveIsKept() {
-        val none = DivePlannerState().apply { reserve = Reserve.NONE }
-        assertEquals(Reserve.NONE, DivePlannerState().apply { load(none.toJson()) }.reserve)
-        assertEquals(Reserve.THIRDS, DivePlannerState().reserve)
+        val thirds = DivePlannerState().apply { reserve = Reserve.THIRDS }
+        assertEquals(Reserve.THIRDS, DivePlannerState().apply { load(thirds.toJson()) }.reserve)
+        assertEquals(Reserve.NONE, DivePlannerState().reserve)
+    }
+
+    @Test
+    fun defaultCylindersAreKept() {
+        val original = DivePlannerState().apply {
+            bottomCylinder.setTo(PlannerCylinder("24", "232"))
+            decoCylinder.setTo(PlannerCylinder("7", "200"))
+        }
+        val restored = DivePlannerState().apply { load(original.toJson()) }
+        assertEquals("24" to "232", restored.bottomCylinder.size to restored.bottomCylinder.pressure)
+        assertEquals("7" to "200", restored.decoCylinder.size to restored.decoCylinder.pressure)
+        assertFalse(DivePlannerState().apply { load(DivePlannerState().toJson()) }.bottomCylinder.isSet())
     }
 }
