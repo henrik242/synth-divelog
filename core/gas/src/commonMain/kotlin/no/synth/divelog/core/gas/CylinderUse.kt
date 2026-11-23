@@ -1,7 +1,6 @@
 package no.synth.divelog.core.gas
 
 import no.synth.divelog.core.model.units.ATM_BAR
-import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
@@ -22,13 +21,6 @@ data class CylinderUse(
     val usedBar: Double get() = cylinder.pressureBar - endBar
     val enough: Boolean get() = usedLitres <= availableLitres
     val keepsReserve: Boolean get() = usedLitres <= usableLitres
-
-    /**
-     * How many cylinders like this one, each with the same fill and each keeping its reserve,
-     * the gas takes; null when the reserve leaves nothing to breathe.
-     */
-    val cylindersNeeded: Int?
-        get() = if (usableLitres <= 0) null else max(1, ceil(usedLitres / usableLitres - 1e-9).toInt())
 }
 
 fun cylinderUse(cylinder: Cylinder, usedLitres: Double, reserveBar: Double = 0.0): CylinderUse {

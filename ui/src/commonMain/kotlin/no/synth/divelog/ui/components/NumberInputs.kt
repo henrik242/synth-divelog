@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
@@ -84,18 +85,28 @@ fun DecimalField(
     )
 }
 
-/** A full-width card with a title, as the calculators group their inputs and results. */
+/**
+ * A full-width card with a title, as the calculators group their inputs and results; [action]
+ * sits at the right of the title.
+ */
 @Composable
-fun ToolCard(title: String, container: Color? = null, icon: ImageVector? = null, content: @Composable () -> Unit) {
+fun ToolCard(
+    title: String,
+    container: Color? = null,
+    icon: ImageVector? = null,
+    action: (@Composable RowScope.() -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     val colors = container?.let { CardDefaults.elevatedCardColors(containerColor = it) } ?: CardDefaults.elevatedCardColors()
     ElevatedCard(Modifier.fillMaxWidth(), colors = colors) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (icon == null) {
+            if (icon == null && action == null) {
                 Text(title, style = MaterialTheme.typography.titleMedium)
             } else {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(icon, contentDescription = null)
-                    Text(title, style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    icon?.let { Icon(it, contentDescription = null) }
+                    Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    action?.invoke(this)
                 }
             }
             content()

@@ -6,7 +6,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CylinderUseTest {
@@ -61,7 +60,6 @@ class CylinderUseTest {
         val use = cylinderUse(cylinder, all + 12.0)
         assertNear(-ATM_BAR, use.endBar, 1e-6, "end")
         assertFalse(use.enough)
-        assertEquals(2, use.cylindersNeeded)
     }
 
     @Test
@@ -74,24 +72,12 @@ class CylinderUseTest {
         val deep = cylinderUse(air12, 2000.0, reserveBar = 232.0 / 3)
         assertTrue(deep.enough)
         assertFalse(deep.keepsReserve)
-        assertEquals(2, deep.cylindersNeeded)
     }
 
     @Test
     fun aReserveAtOrAboveTheFillLeavesNothing() {
         val use = cylinderUse(Cylinder(12.0, 40.0, BreathingGas.AIR), 100.0, reserveBar = 50.0)
         assertEquals(0.0, use.usableLitres)
-        assertNull(use.cylindersNeeded)
-    }
-
-    @Test
-    fun countsTheCylindersAPlanTakes() {
-        val one = cylinderUse(air12, 0.0).availableLitres
-        assertEquals(1, cylinderUse(air12, 0.0).cylindersNeeded)
-        assertEquals(1, cylinderUse(air12, one * 0.5).cylindersNeeded)
-        assertEquals(1, cylinderUse(air12, one).cylindersNeeded)
-        assertEquals(3, cylinderUse(air12, one * 3).cylindersNeeded)
-        assertEquals(3, cylinderUse(air12, one * 2.1).cylindersNeeded)
     }
 
     @Test

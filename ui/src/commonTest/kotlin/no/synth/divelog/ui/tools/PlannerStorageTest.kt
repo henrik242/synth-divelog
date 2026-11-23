@@ -97,14 +97,23 @@ class PlannerStorageTest {
     }
 
     @Test
+    fun aStageCylinderSavedAsDecoCylinderLoads() {
+        val state = DivePlannerState()
+        state.load(Json.parseToJsonElement("""{"decoCylinder":["7","200"]}""").jsonObject)
+        assertEquals("7" to "200", state.stageCylinder.size to state.stageCylinder.pressure)
+        state.load(Json.parseToJsonElement("""{"stageCylinder":["11.1","207"],"decoCylinder":["7","200"]}""").jsonObject)
+        assertEquals("11.1" to "207", state.stageCylinder.size to state.stageCylinder.pressure)
+    }
+
+    @Test
     fun defaultCylindersAreKept() {
         val original = DivePlannerState().apply {
             bottomCylinder.setTo(PlannerCylinder("24", "232"))
-            decoCylinder.setTo(PlannerCylinder("7", "200"))
+            stageCylinder.setTo(PlannerCylinder("7", "200"))
         }
         val restored = DivePlannerState().apply { load(original.toJson()) }
         assertEquals("24" to "232", restored.bottomCylinder.size to restored.bottomCylinder.pressure)
-        assertEquals("7" to "200", restored.decoCylinder.size to restored.decoCylinder.pressure)
+        assertEquals("7" to "200", restored.stageCylinder.size to restored.stageCylinder.pressure)
         assertFalse(DivePlannerState().apply { load(DivePlannerState().toJson()) }.bottomCylinder.isSet())
     }
 }

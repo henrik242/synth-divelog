@@ -49,4 +49,23 @@ class WaterColumn(val surfaceMbar: Int = 1013, val water: Water = Water.SALT) {
         val depth = depthMm(ppO2Mbar * 1000 / gas.o2).toDouble()
         return (depth / stepMm + 0.1).toInt() * stepMm
     }
+
+    /** Deepest depth, mm, where [gas]'s END (O2 narcotic) is within [maxEndMm]; null without a limit. */
+    fun endLimitMm(gas: BreathingGas, maxEndMm: Int?): Int? {
+        if (maxEndMm == null || gas.he >= 1000) return null
+        return depthMm(mbar(maxEndMm) * 1000 / (1000 - gas.he))
+    }
+
+    /**
+     * Where the planner switches to deco [gas]: where it reaches [ppO2Mbar], or the stop above
+     * where its END would pass [maxEndMm].
+     */
+    fun decoSwitchDepthMm(gas: BreathingGas, ppO2Mbar: Int, maxEndMm: Int?, stepMm: Int): Int {
+        val byPpO2 = switchDepthMm(gas, ppO2Mbar, stepMm)
+        val byEnd = endLimitMm(gas, maxEndMm) ?: return byPpO2
+        return minOf(byPpO2, byEnd / stepMm * stepMm)
+    }
+
+    /** Whether [gas] is below the minimum pO2 at the surface, so the descent needs a travel gas. */
+    fun hypoxicAtSurface(gas: BreathingGas): Boolean = gas.o2 * surfaceMbar < MIN_PPO2 * 1_000_000
 }

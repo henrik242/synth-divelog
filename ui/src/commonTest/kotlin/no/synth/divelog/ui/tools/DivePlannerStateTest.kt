@@ -2,6 +2,7 @@ package no.synth.divelog.ui.tools
 
 import no.synth.divelog.core.gas.BreathingGas
 import no.synth.divelog.core.gas.Cylinder
+import no.synth.divelog.core.gas.DecoPlanner
 import no.synth.divelog.core.model.units.UnitSystem
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -203,7 +204,7 @@ class DivePlannerStateTest {
     fun anAddedGasStartsInTheDefaultCylinderForItsRole() {
         val state = DivePlannerState()
         state.bottomCylinder.setTo(PlannerCylinder("24", "232"))
-        state.decoCylinder.setTo(PlannerCylinder("7", "200"))
+        state.stageCylinder.setTo(PlannerCylinder("7", "200"))
         val bottom = PlannerGas("21", "35")
         val deco = PlannerGas("50", "0")
         state.addGas(bottom)
@@ -220,7 +221,7 @@ class DivePlannerStateTest {
     fun aNewBottomGasTakesTheBottomCylinderFromTheOldOne() {
         val state = DivePlannerState()
         state.bottomCylinder.setTo(PlannerCylinder("24", "232"))
-        state.decoCylinder.setTo(PlannerCylinder("7", "200"))
+        state.stageCylinder.setTo(PlannerCylinder("7", "200"))
         val first = PlannerGas("50", "0")
         state.addGas(first)
         assertEquals("24" to "232", first.size to first.pressure)
@@ -236,7 +237,7 @@ class DivePlannerStateTest {
     fun anotherCylinderOfTheBottomMixIsABottomCylinder() {
         val state = DivePlannerState()
         state.bottomCylinder.setTo(PlannerCylinder("12", "232"))
-        state.decoCylinder.setTo(PlannerCylinder("7", "200"))
+        state.stageCylinder.setTo(PlannerCylinder("7", "200"))
         val first = PlannerGas("10", "70")
         val second = PlannerGas("10", "70")
         state.addGas(first)
@@ -247,11 +248,11 @@ class DivePlannerStateTest {
     }
 
     @Test
-    fun cylindersOfOneMixShareTheirLabel() {
+    fun cylindersOfOneDecoMixShareTheirLabelAndMoreBottomGasIsAStage() {
         val state = DivePlannerState()
         val gases = listOf(PlannerGas("10", "70"), PlannerGas("50", "0"), PlannerGas("10", "70"), PlannerGas("100", "0"), PlannerGas("50", "0"))
         gases.forEach { state.addGas(it) }
-        assertEquals(listOf("Bottom", "Deco 1", "Bottom", "Deco 2", "Deco 1"), gases.map { state.gasLabels().getValue(it) })
+        assertEquals(listOf("Bottom", "Deco 1", "Bottom stage", "Deco 2", "Deco 1"), gases.map { state.gasLabels().getValue(it) })
     }
 
     @Test
@@ -269,8 +270,8 @@ class DivePlannerStateTest {
         assertTrue(state.settingsSummary().endsWith(", bottom 11.1 L 207 bar"), state.settingsSummary())
         state.useUnits(UnitSystem.IMPERIAL)
         assertEquals("80" to "3000", state.bottomCylinder.size to state.bottomCylinder.pressure)
-        assertFalse(state.decoCylinder.isSet())
-        state.decoCylinder.setTo(PlannerCylinder("40", ""))
+        assertFalse(state.stageCylinder.isSet())
+        state.stageCylinder.setTo(PlannerCylinder("40", ""))
         assertFalse(state.settingsValid())
     }
 
@@ -281,7 +282,7 @@ class DivePlannerStateTest {
         state.levels += PlannerLevel("45", "10")
         state.gases += PlannerGas("32", "0", "24", "232")
         state.gases += PlannerGas("100", "0", "7", "200")
-        state.apply(requireNotNull(state.gasSuggestion()))
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
         assertEquals(listOf(BreathingGas(210, 350), BreathingGas(500), BreathingGas.OXYGEN), state.gases.map { it.parsed() })
         assertEquals(listOf("24", "", "7"), state.gases.map { it.size })
         assertEquals(BreathingGas(210, 350), requireNotNull(state.plan()).bottomGas)
@@ -291,10 +292,192 @@ class DivePlannerStateTest {
     fun suggestedGasesWithoutAnOldCylinderTakeTheDefaults() {
         val state = DivePlannerState()
         state.bottomCylinder.setTo(PlannerCylinder("24", "232"))
-        state.decoCylinder.setTo(PlannerCylinder("7", "200"))
-        state.apply(requireNotNull(state.gasSuggestion()))
+        state.stageCylinder.setTo(PlannerCylinder("7", "200"))
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        val bottom = requireNotNull(state.plan()).bottomGas
         assertEquals("24" to "232", state.gases[0].size to state.gases[0].pressure)
-        assertTrue(state.gases.drop(1).all { it.size == "7" && it.pressure == "200" })
+        val deco = state.gases.filter { it.parsed() != bottom }
+        assertTrue(deco.isNotEmpty() && deco.all { it.size == "7" && it.pressure == "200" })
+    }
+
+    @Test
+    fun theDefaultCylindersWinOverTheOldOnes() {
+        val state = deepDive(Reserve.THIRDS)
+        state.gases += PlannerGas("10", "70", "12", "300")
+        state.gases += PlannerGas("50", "0", "3", "200")
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        val bottom = requireNotNull(state.plan()).bottomGas
+        val bottomSizes = state.gases.filter { it.parsed() == bottom }.map { it.size }
+        assertEquals("24", bottomSizes.first())
+        assertTrue(bottomSizes.drop(1).all { it == "11.1" }, bottomSizes.toString())
+        assertTrue(state.gases.filter { it.parsed() != bottom }.all { it.size == "11.1" })
+    }
+
+    @Test
+    fun anOldCylinderWithoutAValidSizeGivesWayToTheDefault() {
+        val state = DivePlannerState()
+        state.bottomCylinder.setTo(PlannerCylinder("24", "232"))
+        state.gases += PlannerGas("21", "35", "12", "")
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        assertEquals("24" to "232", state.gases[0].size to state.gases[0].pressure)
+    }
+
+    @Test
+    fun aCylinderOfTheOldBottomMixIsNotReusedAsAStage() {
+        val state = DivePlannerState()
+        state.stageCylinder.setTo(PlannerCylinder("7", "200"))
+        state.gases += PlannerGas("50", "0", "24", "232")
+        state.gases += PlannerGas("50", "0", "24", "232")
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        // 21/35 takes the old bottom gas's cylinder; EAN50 is now a deco gas, in a stage.
+        assertEquals("24", state.gases.first { it.parsed() == BreathingGas(210, 350) }.size)
+        assertEquals(listOf("7"), state.gases.filter { it.parsed() == BreathingGas(500) }.map { it.size })
+    }
+
+    @Test
+    fun suggestedGasesGetJustEnoughCylindersForEachReserve() {
+        for (reserve in Reserve.entries) {
+            val state = deepDive(reserve)
+            state.applySuggestion(requireNotNull(state.gasSuggestion()))
+            assertJustEnoughCylinders(state, reserve.name)
+        }
+    }
+
+    @Test
+    fun suggestedGasesGetJustEnoughCylindersInImperialUnits() {
+        val state = deepDive(Reserve.FIXED)
+        state.useUnits(UnitSystem.IMPERIAL)
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        assertJustEnoughCylinders(state, "imperial")
+    }
+
+    @Test
+    fun moreBottomGasGoesInStages() {
+        val state = deepDive(Reserve.THIRDS)
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        val bottom = state.gases.filter { it.parsed() == requireNotNull(state.plan()).bottomGas }
+        assertEquals("24", bottom.first().size)
+        assertTrue(bottom.size > 1 && bottom.drop(1).all { it.size == "11.1" }, bottom.map { it.size }.toString())
+        assertEquals(listOf("Bottom") + List(bottom.size - 1) { "Bottom stage" }, bottom.map { state.gasLabels().getValue(it) })
+    }
+
+    @Test
+    fun withoutAStageCylinderMoreBottomGasCopiesTheBottomOne() {
+        val state = deepDive()
+        state.stageCylinder.setTo(PlannerCylinder())
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        val bottom = requireNotNull(state.plan()).bottomGas
+        val bottomSizes = state.gases.filter { it.parsed() == bottom }.map { it.size }
+        assertTrue(bottomSizes.size > 1 && bottomSizes.all { it == "24" }, bottomSizes.toString())
+    }
+
+    @Test
+    fun aStageHoldingOnlyTheReserveIsNotAdded() {
+        val state = deepDive(Reserve.FIXED)
+        state.stageCylinder.setTo(PlannerCylinder("7", "50"))
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        assertEquals(4, state.gases.size)
+        assertTrue(requireNotNull(state.appliedSuggestion()).note.contains("nothing above the reserve"))
+    }
+
+    @Test
+    fun theCapOnAddedCylindersIsReported() {
+        val state = deepDive()
+        state.bottomCylinder.setTo(PlannerCylinder("12", "200"))
+        state.stageCylinder.setTo(PlannerCylinder("1", "200"))
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        val bottom = requireNotNull(state.plan()).bottomGas
+        assertEquals(11, state.gases.count { it.parsed() == bottom })
+        assertTrue(requireNotNull(state.appliedSuggestion()).note.contains("${bottom.name} still runs into the reserve"))
+    }
+
+    @Test
+    fun aPlanCutShortAddsNoCylinders() {
+        val state = deepDive()
+        state.levels[0].minutes = "1"
+        val suggestion = requireNotNull(state.gasSuggestion())
+        state.applySuggestion(suggestion)
+        assertEquals(listOf(suggestion.bottom) + suggestion.deco, state.gases.map { it.parsed() })
+    }
+
+    @Test
+    fun aDiveWithoutDecoStopsGetsNoDecoGases() {
+        val state = DivePlannerState()
+        state.levels[0].depth = "10"
+        state.levels[0].minutes = "20"
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        assertEquals(listOf(BreathingGas(320)), state.gases.map { it.parsed() })
+        assertTrue(requireNotNull(state.appliedSuggestion()).note.contains("No deco stops"))
+    }
+
+    @Test
+    fun suggestingTwiceGivesTheSameGases() {
+        val state = deepDive(Reserve.THIRDS)
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        val first = state.gases.map { Triple(it.parsed(), it.size, it.pressure) }
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        assertEquals(first, state.gases.map { Triple(it.parsed(), it.size, it.pressure) })
+    }
+
+    @Test
+    fun undoPutsBackTheGasesUntilTheListChanges() {
+        val state = deepDive()
+        val old = PlannerGas("32", "0", "12", "232")
+        state.gases += old
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        state.undoSuggestion()
+        assertEquals(listOf(old), state.gases.toList())
+        state.applySuggestion(requireNotNull(state.gasSuggestion()))
+        state.gases.removeAt(state.gases.lastIndex)
+        assertEquals(null, state.appliedSuggestion())
+    }
+
+    @Test
+    fun noMixFittingIsTheReasonGiven() {
+        val state = DivePlannerState()
+        assertEquals(null, state.gasSuggestionProblem())
+        state.levels[0].depth = "300"
+        state.maxEnd = "1"
+        assertEquals(null, state.gasSuggestion())
+        assertTrue(state.gasSuggestionProblem() != null)
+        // An invalid field shows its own error.
+        state.levels[0].depth = "x"
+        assertEquals(null, state.gasSuggestionProblem())
+    }
+
+    @Test
+    fun moreCylindersNeededCountsCopiesOfTheLastOne() {
+        val state = DivePlannerState().apply { reserve = Reserve.THIRDS }
+        val back = Cylinder(24.0, 232.0, BreathingGas(210, 350))
+        val stage = Cylinder(11.1, 207.0, BreathingGas(210, 350))
+        val usable = state.setUse(listOf(back), 0.0).usableLitres
+        assertEquals(0, state.moreCylindersNeeded(listOf(back, stage), usable))
+        val more = requireNotNull(state.moreCylindersNeeded(listOf(back, stage), usable * 2))
+        assertTrue(more > 0)
+        assertTrue(state.setUse(listOf(back, stage) + List(more) { stage }, usable * 2).keepsReserve)
+        assertFalse(state.setUse(listOf(back, stage) + List(more - 1) { stage }, usable * 2).keepsReserve)
+        // A cylinder holding only its reserve never gets there.
+        state.reserve = Reserve.FIXED
+        assertEquals(null, state.moreCylindersNeeded(listOf(Cylinder(7.0, 50.0, BreathingGas(500))), 100.0))
+    }
+
+    /** 110 m for 20 min with a 24 L bottom cylinder and 11.1 L (S80) stages. */
+    private fun deepDive(reserve: Reserve = Reserve.NONE) = DivePlannerState().apply {
+        levels[0].depth = "110"
+        levels[0].minutes = "20"
+        bottomCylinder.setTo(PlannerCylinder("24", "232"))
+        stageCylinder.setTo(PlannerCylinder("11.1", "207"))
+        this.reserve = reserve
+    }
+
+    /** Each mix keeps its reserve, and one that got more cylinders would not without its last. */
+    private fun assertJustEnoughCylinders(state: DivePlannerState, case: String) {
+        val cylinders = state.cylinders()
+        DecoPlanner.plan(requireNotNull(state.plan())).gasUse.forEach { use ->
+            val list = cylinders.getValue(use.gas)
+            assertTrue(state.setUse(list, use.litres).keepsReserve, "$case ${use.gas.name}")
+            if (list.size > 1) assertFalse(state.setUse(list.dropLast(1), use.litres).keepsReserve, "$case ${use.gas.name}")
+        }
     }
 
     @Test

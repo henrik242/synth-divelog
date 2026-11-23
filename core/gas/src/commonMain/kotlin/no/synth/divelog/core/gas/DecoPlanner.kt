@@ -154,6 +154,9 @@ private const val MAX_STOP_S = 48 * 3600
 private const val TIMEOUT_STOP_S = 50 * 3600
 private const val SIX_METRES_MM = 6000
 
+/** The distance between stops, mm: 3 m, or 10 ft for [imperial] stops. */
+fun stopStepMm(imperial: Boolean): Int = if (imperial) feetToMm(10) else 3000
+
 /** Buhlmann ZHL-16C with gradient factors: plans the ascent for a [DivePlan]. */
 object DecoPlanner {
     fun plan(plan: DivePlan): DecoPlan = PlanRun(plan).run()
@@ -186,23 +189,13 @@ private class PlanRun(private val plan: DivePlan) {
     private val ascentMmPerS = plan.ascentRates.ascent / 60
     private val lastSixMetresMmPerS = plan.ascentRates.lastSixMetres / 60
 
-    private val stepMm = if (plan.imperialStops) feetToMm(10) else 3000
+    private val stepMm = stopStepMm(plan.imperialStops)
     // Where each deco gas is switched to; the pO2 check tolerates it from there up.
-    private val switches = plan.decoGases.map { GasChange(switchDepthMm(it), it) }
-
-    /** Where [gas] reaches the deco pO2, or the stop above where its END would pass the limit. */
-    private fun switchDepthMm(gas: BreathingGas): Int {
-        val byPpO2 = water.switchDepthMm(gas, plan.decoPpO2Mbar, stepMm)
-        val byEnd = endLimitMm(gas) ?: return byPpO2
-        return minOf(byPpO2, byEnd / stepMm * stepMm)
+    private val switches = plan.decoGases.map {
+        GasChange(water.decoSwitchDepthMm(it, plan.decoPpO2Mbar, plan.maxEndMm, stepMm), it)
     }
 
-    /** Deepest depth, mm, where [gas]'s END is within the limit; null without a limit. */
-    private fun endLimitMm(gas: BreathingGas): Int? {
-        val maxEnd = plan.maxEndMm ?: return null
-        if (gas.he >= 1000) return null
-        return water.depthMm(water.mbar(maxEnd) * 1000 / (1000 - gas.he))
-    }
+    private fun endLimitMm(gas: BreathingGas): Int? = water.endLimitMm(gas, plan.maxEndMm)
 
     /**
      * The gas to descend on until [depthMm], where the bottom gas becomes breathable: the leanest

@@ -308,7 +308,7 @@ private fun Section(title: String, tone: Tone = Tone.NEUTRAL, icon: ImageVector?
         Tone.BAD -> MaterialTheme.colorScheme.errorContainer
         Tone.STEPS -> MaterialTheme.colorScheme.secondaryContainer
     }
-    ToolCard(title, container, icon, content)
+    ToolCard(title, container, icon, content = content)
 }
 
 /** "Nitrox 32" for a helium-free nitrox, otherwise "O2/He". */
