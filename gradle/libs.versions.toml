@@ -1,6 +1,6 @@
 [versions]
 # Build
-agp = "9.5.1"
+agp = "9.5.2"
 kotlin = "2.4.21"
 composeMultiplatform = "1.12.2"
 # Released separately from Compose Multiplatform since 1.8
@@ -25,11 +25,11 @@ androidx-navigationevent = "1.2.0"
 kotlinx-coroutines = "1.11.0"
 kotlinx-datetime = "0.8.0"
 kmp-zip = "2.1.0"
-kotlinx-serialization = "1.12.0"
+kotlinx-serialization = "1.13.0"
 xmlutil = "1.0.2.1"
 
 # Wired serial transports (M9)
-usbSerialForAndroid = "3.11.0"
+usbSerialForAndroid = "3.12.0"
 jserialcomm = "2.11.4"
 
 # Git client for cloud sync (jvm + android)
@@ -39,8 +39,8 @@ jgit = "7.8.1.202611041320-r"
 maplibreCompose = "0.20.0"
 
 # Crash reporting (android only)
-firebaseBom = "35.1.0"
-googleServicesPlugin = "4.5.0"
+firebaseBom = "35.2.0"
+googleServicesPlugin = "4.6.0"
 crashlyticsPlugin = "3.0.8"
 
 [libraries]
