@@ -93,7 +93,7 @@ jobs:
 
   ios:
     name: iOS frameworks
-    runs-on: macos-latest
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v7
         with:
@@ -133,7 +133,7 @@ jobs:
 
   macos:
     name: macOS desktop (DMG)
-    runs-on: macos-latest
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v7
         with:
